@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spotify Callback</title>
+</head>
+<body>
+  <h1>Spotify Authentication</h1>
+  <p>Authenticating...</p>
+  <script>
+    // URLから認証コードを取得
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code'); // Spotifyから渡された認証コードを取得
+
+    if (code) {
+      const clientId = '1fd6350fcf4945a0b3ddffa2d5730d4e'; // ここにClient IDを設定
+      const clientSecret = '8348d40bce9345f1937f34c527986833'; // ここにClient Secretを設定
+      const redirectUri = 'https://npr2025.github.io/spotify-auth/callback.html';  // リダイレクトURI
+
+      const headers = new Headers();
+      headers.append('Authorization', 'Basic ' + btoa(clientId + ':' + clientSecret));
+
+      const body = new URLSearchParams();
+      body.append('code', code);  // 認証コード
+      body.append('redirect_uri', redirectUri);  // リダイレクトURI
+      body.append('grant_type', 'authorization_code');  // アクセストークンをリクエスト
+
+      // Spotifyのトークンエンドポイントにリクエストを送信
+      fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: headers,
+        body: body
+      })
+      .then(response => response.json())
+      .then(data => {
+        const accessToken = data.access_token;
+        document.body.innerHTML = `<p>Access token received: ${accessToken}</p>`;
+      })
+      .catch(error => {
+        console.error('Error fetching access token:', error);
+        document.body.innerHTML = `<p>Error occurred during authentication.</p>`;
+      });
+    } else {
+      document.body.innerHTML = `<p>No authentication code found in the URL.</p>`;
+    }
+  </script>
+</body>
+</html>
