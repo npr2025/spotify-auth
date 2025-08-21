@@ -3,61 +3,41 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Spotify PKCE Auth</title>
-<!-- できればドメインに合わせてCSPを絞る -->
 <meta http-equiv="Content-Security-Policy"
-      content="default-src 'self'; connect-src https://accounts.spotify.com https://api.spotify.com; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+      content="default-src 'self'; connect-src https://accounts.spotify.com https://api.spotify.com; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <body>
   <main style="max-width:640px;margin:40px auto;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;">
     <h1>Spotify Authentication (PKCE)</h1>
-    <p>「ログイン」するとこのブラウザだけで安全にトークンを取得します（Secret不要）。</p>
+    <p>このブラウザだけで安全にトークンを取得します（Secret不要）。</p>
     <button id="login" style="padding:12px 16px;font-size:16px;">Spotify にログイン</button>
-    <p style="margin-top:16px;color:#666">※ GitHub Pages などの静的ホスティング向け。Client Secret は使いません。</p>
   </main>
 
 <script>
-/** ▼▼ 設定（必要に応じて書き換え） ▼▼ */
-const CLIENT_ID = "1fd6350fcf4945a0b3ddffa2d5730d4e";           // ← Client ID（公開OK）
-const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html"; // SpotifyのApp設定にも登録必須
-const SCOPE = "";  // 読み取りだけなら空でOK（ユーザー操作系なら必要スコープを半角スペース区切りで追加）
-/** ▲▲ 設定ここまで ▲▲ */
+const CLIENT_ID = "1fd6350fcf4945a0b3ddffa2d5730d4e";
+const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
+const SCOPE = ""; // 読み取りだけなら空でOK
 
-// ---- PKCEユーティリティ ----
-function b64url(buf) {
-  return btoa(String.fromCharCode(...new Uint8Array(buf)))
-    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/,"");
-}
-async function sha256(txt) {
-  const data = new TextEncoder().encode(txt);
-  return await crypto.subtle.digest("SHA-256", data);
-}
-function randomURLSafe(length = 64) {
-  const a = new Uint8Array(length);
-  crypto.getRandomValues(a);
-  return b64url(a);
-}
+function b64url(buf){return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");}
+async function sha256(txt){const data=new TextEncoder().encode(txt);return await crypto.subtle.digest("SHA-256",data);}
+function rand(n=64){const a=new Uint8Array(n);crypto.getRandomValues(a);return b64url(a);}
 
-document.getElementById("login").addEventListener("click", async () => {
-  // PKCE: verifier→challenge 生成
-  const verifier  = randomURLSafe(64);
+document.getElementById("login").onclick = async () => {
+  const verifier = rand(64);
   const challenge = b64url(await sha256(verifier));
-  const state     = randomURLSafe(32);
-
-  // コールバックで検証するため保存（タブ閉じで消える sessionStorage）
+  const state = rand(32);
   sessionStorage.setItem("pkce_verifier", verifier);
   sessionStorage.setItem("pkce_state", state);
 
-  // 認可エンドポイントへリダイレクト
   const params = new URLSearchParams({
-    response_type: "code",
+    response_type:"code",
     client_id: CLIENT_ID,
     redirect_uri: REDIRECT_URI,
-    code_challenge_method: "S256",
+    code_challenge_method:"S256",
     code_challenge: challenge,
-    state,
-    scope: SCOPE
+    state, scope: SCOPE
   });
   location.href = "https://accounts.spotify.com/authorize?" + params.toString();
-});
+};
 </script>
 </body>
 </html>
