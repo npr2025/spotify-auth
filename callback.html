@@ -1,8 +1,8 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>Spotify Callback</title>
+<title>Spotify Callback — Top 100</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:900px;margin:40px auto">
+<body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:980px;margin:40px auto">
   <h1>Spotify Authentication</h1>
   <p id="status">Signing you in…</p>
 
@@ -14,7 +14,14 @@
           <option value="GB">GB</option><option value="DE">DE</option>
         </select>
       </label>
-      <button id="btnFetch">Fetch TDCS Top Tracks</button>
+      <label>Include groups:
+        <select id="groups">
+          <option value="album,single,appears_on,compilation" selected>All</option>
+          <option value="album,single">Albums + Singles</option>
+          <option value="appears_on,compilation">Appears/Compilations only</option>
+        </select>
+      </label>
+      <button id="btnFetch100">Fetch 100 Tracks</button>
       <button id="btnDLjson">Download JSON</button>
       <button id="btnDLcsv">Download CSV</button>
       <button id="btnLogout">Log out</button>
@@ -23,9 +30,12 @@
   </section>
 
 <script>
-const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
-const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
-const ARTIST_ID    = "55fvQ5I2IZUfcFT2DV02T3"; // The Darrow Chem Syndicate
+/* ====== 設定 ====== */
+const CLIENT_ID     = "1fd6350fcf4945a0b3ddffa2d5730d4e";
+const REDIRECT_URI  = "https://npr2025.github.io/spotify-auth/callback.html";
+const ARTIST_ID     = "55fvQ5I2IZUfcFT2DV02T3"; // The Darrow Chem Syndicate
+const TOP_N         = 100;
+/* ================== */
 
 const $ = (s)=>document.querySelector(s);
 const setStatus = (t)=>$("#status").textContent=t;
@@ -71,13 +81,111 @@ async function ensureToken(){
   throw new Error("No valid token");
 }
 
-let lastData = []; // ダウンロード用に保持
+function chunk(arr, size){ const out=[]; for(let i=0;i<arr.length;i+=size) out.push(arr.slice(i,i+size)); return out; }
+
+/* ---- Spotify APIヘルパ ---- */
+async function spGet(path, params){
+  const token = await ensureToken();
+  const url = new URL("https://api.spotify.com/v1/"+path);
+  Object.entries(params||{}).forEach(([k,v])=> url.searchParams.set(k, v));
+  const r = await fetch(url, { headers:{ Authorization:"Bearer "+token }});
+  if(!r.ok) throw new Error("API "+path+" "+r.status);
+  return r.json();
+}
+
+/* ---- 100曲ロジック ---- */
+/* 1) 全アルバムID取得（ページング対応） */
+async function fetchAllAlbums(artistId, market, include_groups){
+  let items=[], offset=0; 
+  while(true){
+    const page = await spGet(`artists/${artistId}/albums`, {
+      include_groups, market, limit: 50, offset
+    });
+    items.push(...(page.items||[]));
+    if (!page.next) break;
+    offset += 50;
+  }
+  // 同一アルバム重複をIDで排除
+  const seen=new Set(), albums=[];
+  for(const a of items){ if(!seen.has(a.id)){ seen.add(a.id); albums.push(a); } }
+  return albums;
+}
+
+/* 2) 各アルバムの全トラックID取得（ページング対応） */
+async function fetchAlbumTracks(albumId, market){
+  let ids=[], offset=0;
+  while(true){
+    const page = await spGet(`albums/${albumId}/tracks`, { market, limit: 50, offset });
+    (page.items||[]).forEach(t=> ids.push(t.id));
+    if(!page.next) break;
+    offset += 50;
+  }
+  return ids;
+}
+
+/* 3) トラック詳細(popularity含む)と audio-features を取得 → 人気順TOP_N */
+async function fetchArtistTopN(artistId, market, include_groups, N=100){
+  setStatus("Collecting albums…");
+  const albums = await fetchAllAlbums(artistId, market, include_groups);
+
+  setStatus(`Collecting tracks from ${albums.length} albums…`);
+  let trackIds=[];
+  // アルバムごとに並列（過負荷防止でバッチ）
+  for(const batch of chunk(albums, 10)){
+    const results = await Promise.all(batch.map(a=>fetchAlbumTracks(a.id, market).catch(()=>[])));
+    results.forEach(ids=> trackIds.push(...ids));
+  }
+  // ID重複除去
+  trackIds = [...new Set(trackIds)];
+
+  setStatus(`Fetching track details (${trackIds.length} tracks)…`);
+  let tracks=[];
+  for(const ids of chunk(trackIds, 50)){
+    const data = await spGet("tracks", { ids: ids.join(",") });
+    tracks.push(...(data.tracks||[]));
+  }
+
+  // 人気順にソート
+  tracks = tracks.filter(Boolean).sort((a,b)=> (b.popularity||0)-(a.popularity||0)).slice(0, N);
+
+  // audio-features（最大100件まとめてOK）
+  setStatus("Fetching audio features…");
+  const idsTop = tracks.map(t=>t.id);
+  const feats  = await spGet("audio-features", { ids: idsTop.join(",") });
+  const featById = Object.fromEntries((feats.audio_features||[]).filter(Boolean).map(f=>[f.id, f]));
+
+  // 整形
+  const rows = tracks.map(t=>{
+    const f = featById[t.id] || {};
+    return {
+      id: t.id,
+      name: t.name,
+      artists: t.artists.map(a=>a.name).join(", "),
+      popularity: t.popularity,
+      isrc: (t.external_ids||{}).isrc || "",
+      preview_url: t.preview_url || "",
+      spotify_url: (t.external_urls||{}).spotify || "",
+      album: (t.album||{}).name || "",
+      release_date: (t.album||{}).release_date || "",
+      duration_ms: t.duration_ms,
+      tempo: f.tempo ?? "",
+      energy: f.energy ?? "",
+      danceability: f.danceability ?? "",
+      valence: f.valence ?? "",
+      loudness: f.loudness ?? ""
+    };
+  });
+  return rows;
+}
+
+/* ---- 画面制御 ---- */
+let lastData = [];
 
 function toCSV(rows){
   if(!rows.length) return "";
   const esc = (s)=>(''+(s??'')).replace(/"/g,'""');
   const head = Object.keys(rows[0]);
-  const lines = [ head.join(",") ];
+  const lines=[ head.join(",") ];
   for(const r of rows){ lines.push(head.map(k=>`"${esc(r[k])}"`).join(",")); }
   return lines.join("\n");
 }
@@ -88,61 +196,31 @@ function download(filename, text, mime){
   URL.revokeObjectURL(a.href);
 }
 
-async function fetchTopTracks(){
-  setStatus("Loading tracks…");
-  const token = await ensureToken();
-  const market = $("#market").value || "US";
+async function runTop100(){
+  try{
+    setStatus("Building Top 100…");
+    const market = $("#market").value || "US";
+    const groups = $("#groups").value || "album,single,appears_on,compilation";
+    lastData = await fetchArtistTopN(ARTIST_ID, market, groups, TOP_N);
 
-  // 1) top-tracks
-  const r = await fetch(`https://api.spotify.com/v1/artists/${ARTIST_ID}/top-tracks?market=${market}`, {
-    headers:{ Authorization:"Bearer "+token }
-  });
-  if (r.status===401){ sessionStorage.removeItem("sp_access_token"); return fetchTopTracks(); }
-  if (!r.ok) throw new Error("API error: "+r.status);
-  const data = await r.json();
-  const tracks = data.tracks || [];
-
-  // 2) audio-features も取得（分析用）
-  const ids = tracks.map(t=>t.id).join(",");
-  const r2 = await fetch(`https://api.spotify.com/v1/audio-features?ids=${ids}`, {
-    headers:{ Authorization:"Bearer "+token }
-  });
-  const feats = (await r2.json()).audio_features || [];
-  const featById = Object.fromEntries(feats.filter(Boolean).map(f=>[f.id, f]));
-
-  lastData = tracks.map(t=>({
-    id: t.id,
-    name: t.name,
-    artists: t.artists.map(a=>a.name).join(", "),
-    popularity: t.popularity,
-    isrc: (t.external_ids||{}).isrc || "",
-    preview_url: t.preview_url || "",
-    spotify_url: (t.external_urls||{}).spotify || "",
-    duration_ms: t.duration_ms,
-    tempo: (featById[t.id]||{}).tempo ?? "",
-    energy: (featById[t.id]||{}).energy ?? "",
-    danceability: (featById[t.id]||{}).danceability ?? "",
-    valence: (featById[t.id]||{}).valence ?? "",
-    loudness: (featById[t.id]||{}).loudness ?? "",
-  }));
-
-  // 表示
-  const list = $("#tracks"); list.innerHTML="";
-  lastData.forEach((row,i)=>{
-    const li = document.createElement("li");
-    li.textContent = `${i+1}. ${row.name} — ${row.artists}  (pop:${row.popularity}, tempo:${row.tempo||"-"})`;
-    list.appendChild(li);
-  });
-  $("#app").style.display="block";
-  setStatus(`Loaded ${lastData.length} tracks (market=${market})`);
+    const ol = $("#tracks"); ol.innerHTML="";
+    lastData.forEach((row,i)=>{
+      const li=document.createElement("li");
+      li.textContent=`${i+1}. ${row.name} — ${row.artists} (pop:${row.popularity}, tempo:${row.tempo||"-"})`;
+      ol.appendChild(li);
+    });
+    $("#app").style.display="block";
+    setStatus(`Loaded ${lastData.length} tracks (market=${market})`);
+  }catch(e){
+    setStatus(e.message||String(e));
+  }
 }
 
-// 起動
+/* ---- 起動処理（PKCEフロー） ---- */
 (async function init(){
-  // 認可コードがあれば交換
   const qp = new URLSearchParams(location.search);
   const code = qp.get("code"); const state = qp.get("state");
-  if (code){
+  if(code){
     const savedState = sessionStorage.getItem("pkce_state");
     const verifier   = sessionStorage.getItem("pkce_verifier");
     if(!verifier || !savedState || state!==savedState){ setStatus("State/Verifier mismatch. Start from auth.html"); return; }
@@ -155,13 +233,13 @@ async function fetchTopTracks(){
   setStatus("Signed in");
   $("#app").style.display="block";
 
-  $("#btnFetch").onclick   = ()=>fetchTopTracks().catch(e=>setStatus(e.message));
-  $("#btnDLjson").onclick  = ()=>lastData.length && download("spotify_top_tracks.json", JSON.stringify(lastData, null, 2), "application/json");
-  $("#btnDLcsv").onclick   = ()=>lastData.length && download("spotify_top_tracks.csv",  toCSV(lastData), "text/csv");
-  $("#btnLogout").onclick  = ()=>logout();
+  $("#btnFetch100").onclick = ()=>runTop100();
+  $("#btnDLjson").onclick   = ()=>lastData.length && download("spotify_top100.json", JSON.stringify(lastData, null, 2), "application/json");
+  $("#btnDLcsv").onclick    = ()=>lastData.length && download("spotify_top100.csv",  toCSV(lastData), "text/csv");
+  $("#btnLogout").onclick   = ()=>logout();
 
-  // 自動で一回取得
-  fetchTopTracks().catch(e=>setStatus(e.message));
+  // 起動時に自動で100件取得するなら↓を有効化
+  runTop100();
 })();
 </script>
 </body>
