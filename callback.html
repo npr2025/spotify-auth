@@ -4,44 +4,26 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Spotify Callback</title>
 <meta http-equiv="Content-Security-Policy"
-      content="default-src 'self'; connect-src https://accounts.spotify.com https://api.spotify.com; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+      content="default-src 'self'; connect-src https://accounts.spotify.com https://api.spotify.com; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <body>
   <main style="max-width:840px;margin:40px auto;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;">
     <h1>Spotify Authentication</h1>
-    <p id="status">Authenticating…</p>
-
-    <section id="result" style="display:none">
-      <h2>Access OK</h2>
-      <p>アクセストークンを取得しました（画面表示はマスク）。このタブ内だけで利用します。</p>
-      <pre id="token" style="background:#f6f6f6;padding:12px;border-radius:8px;"></pre>
-
-      <h3 style="margin-top:24px;">Top Tracks (The Darrow Chem Syndicate)</h3>
+    <pre id="log">Authenticating…</pre>
+    <section id="ok" style="display:none">
+      <h3>Top Tracks (The Darrow Chem Syndicate)</h3>
       <ol id="tracks"></ol>
-
-      <div style="margin-top:24px;display:flex;gap:12px;flex-wrap:wrap;">
-        <button id="refreshBtn">トークン更新（refresh_token がある場合）</button>
-        <button id="clearBtn">ログアウト（保存データ削除）</button>
-      </div>
     </section>
   </main>
 
 <script>
-/** ▼▼ 設定 ▼▼ */
 const CLIENT_ID = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
-const ARTIST_ID = "55fvQ5I2IZUfcFT2DV02T3"; // The Darrow Chem Syndicate
-/** ▲▲ 設定ここまで ▲▲ */
+const ARTIST_ID = "55fvQ5I2IZUfcFT2DV02T3"; // TDCS
+const log = (m)=>{ const el=document.getElementById("log"); el.textContent += "\n" + m; };
 
-const $ = (sel)=>document.querySelector(sel);
-const statusEl = $("#status");
-const resultEl = $("#result");
-const tokenEl  = $("#token");
-const tracksEl = $("#tracks");
-
-function maskToken(t){ return t ? (t.slice(0,8) + "…" + t.slice(-6)) : "(none)"; }
 function cleanQuery(){ history.replaceState({}, document.title, location.pathname); }
 
-async function exchangeCodeForToken(code, verifier) {
+async function tokenExchange(code, verifier){
   const body = new URLSearchParams({
     client_id: CLIENT_ID,
     grant_type: "authorization_code",
@@ -50,110 +32,63 @@ async function exchangeCodeForToken(code, verifier) {
     code_verifier: verifier
   });
   const res = await fetch("https://accounts.spotify.com/api/token", {
-    method: "POST",
-    headers: {"Content-Type":"application/x-www-form-urlencoded"},
+    method:"POST",
+    headers:{ "Content-Type":"application/x-www-form-urlencoded" },
     body
   });
-  return await res.json();
+  return { ok: res.ok, status: res.status, json: await res.json() };
 }
 
-async function refreshAccessToken(refreshToken) {
-  const body = new URLSearchParams({
-    client_id: CLIENT_ID,
-    grant_type: "refresh_token",
-    refresh_token: refreshToken
-  });
-  const res = await fetch("https://accounts.spotify.com/api/token", {
-    method: "POST",
-    headers: {"Content-Type":"application/x-www-form-urlencoded"},
-    body
-  });
-  return await res.json();
-}
+(async ()=>{
+  try{
+    const qp = new URLSearchParams(location.search);
+    const error = qp.get("error");
+    const code  = qp.get("code");
+    const state = qp.get("state");
+    const savedState = sessionStorage.getItem("pkce_state");
+    const verifier   = sessionStorage.getItem("pkce_verifier");
 
-async function fetchTopTracks(accessToken) {
-  const res = await fetch(`https://api.spotify.com/v1/artists/${ARTIST_ID}/top-tracks?market=US`, {
-    headers: { Authorization: "Bearer " + accessToken }
-  });
-  return await res.json();
-}
+    if (error){ log("Authorization error: " + error); return; }
+    if (!code){ log("No authorization code in URL."); return; }
+    if (!verifier){ log("Missing PKCE verifier. auth.html から開始して。"); return; }
+    if (!state || state !== savedState){ log("State mismatch."); return; }
 
-(async function main(){
-  const qp = new URLSearchParams(location.search);
-  const error = qp.get("error");
-  const code  = qp.get("code");
-  const state = qp.get("state");
-  const savedState = sessionStorage.getItem("pkce_state");
-  const verifier   = sessionStorage.getItem("pkce_verifier");
-
-  if (error) { statusEl.textContent = "Authorization error: " + error; cleanQuery(); return; }
-  if (!code) { statusEl.textContent = "No authorization code found."; return; }
-  if (!verifier) { statusEl.textContent = "Missing PKCE verifier. auth.html から開始して下さい。"; return; }
-  if (!state || state !== savedState) { statusEl.textContent = "State mismatch."; return; }
-
-  try {
-    // トークン交換（Secret不要／PKCE）
-    const token = await exchangeCodeForToken(code, verifier);
+    const { ok, status, json } = await tokenExchange(code, verifier);
     cleanQuery();
-
-    if (!token.access_token) {
-      statusEl.textContent = "Token error: " + JSON.stringify(token);
+    if (!ok){
+      log("Token HTTP " + status + ": " + JSON.stringify(json));
+      log("チェック: Redirect URI 完全一致？ Users and Access に自分を追加？");
       return;
     }
+    if (!json.access_token){
+      log("Token error: " + JSON.stringify(json));
+      return;
+    }
+    log("Access token OK. expires_in=" + json.expires_in + "s");
 
-    // 保存方針：タブ限定で sessionStorage に入れる（localStorageは残り続けるので避ける）
-    sessionStorage.setItem("sp_access_token", token.access_token);
-    if (token.refresh_token) sessionStorage.setItem("sp_refresh_token", token.refresh_token);
     sessionStorage.removeItem("pkce_verifier");
     sessionStorage.removeItem("pkce_state");
+    sessionStorage.setItem("sp_access_token", json.access_token);
+    if (json.refresh_token) sessionStorage.setItem("sp_refresh_token", json.refresh_token);
 
-    // 表示
-    statusEl.style.display = "none";
-    resultEl.style.display = "block";
-    tokenEl.textContent = "access_token: " + maskToken(token.access_token) +
-                          (token.refresh_token ? "\nrefresh_token: " + maskToken(token.refresh_token) : "");
-
-    // 読み取りサンプル：Top Tracks
-    const data = await fetchTopTracks(token.access_token);
-    tracksEl.innerHTML = "";
-    (data.tracks || []).forEach((t, i) => {
-      const li = document.createElement("li");
-      li.textContent = `${i+1}. ${t.name}  (popularity: ${t.popularity})`;
-      tracksEl.appendChild(li);
+    // Top Tracks 読み取り
+    const r = await fetch(`https://api.spotify.com/v1/artists/${ARTIST_ID}/top-tracks?market=US`, {
+      headers: { Authorization: "Bearer " + json.access_token }
     });
-
-    // 更新ボタン
-    $("#refreshBtn").onclick = async () => {
-      const rt = sessionStorage.getItem("sp_refresh_token");
-      if (!rt) { alert("refresh_token がありません（スコープや審査状況によっては返らない場合があります）。"); return; }
-      const newTok = await refreshAccessToken(rt);
-      if (newTok.access_token) {
-        sessionStorage.setItem("sp_access_token", newTok.access_token);
-        if (newTok.refresh_token) sessionStorage.setItem("sp_refresh_token", newTok.refresh_token);
-        tokenEl.textContent = "access_token: " + maskToken(newTok.access_token) +
-                              (sessionStorage.getItem("sp_refresh_token") ? "\nrefresh_token: " + maskToken(sessionStorage.getItem("sp_refresh_token")) : "");
-        // ついでに再取得
-        const again = await fetchTopTracks(newTok.access_token);
-        tracksEl.innerHTML = "";
-        (again.tracks || []).forEach((t, i) => {
-          const li = document.createElement("li");
-          li.textContent = `${i+1}. ${t.name}  (popularity: ${t.popularity})`;
-          tracksEl.appendChild(li);
-        });
-      } else {
-        alert("Refresh failed: " + JSON.stringify(newTok));
-      }
-    };
-
-    // ログアウト（保存トークン削除）
-    $("#clearBtn").onclick = () => {
-      sessionStorage.removeItem("sp_access_token");
-      sessionStorage.removeItem("sp_refresh_token");
-      alert("トークンを削除しました。auth.html に戻ってやり直せます。");
-    };
-
-  } catch (e) {
-    statusEl.textContent = "Error: " + e.message;
+    if(!r.ok){
+      log("API HTTP " + r.status + ": " + (await r.text()));
+      return;
+    }
+    const data = await r.json();
+    document.getElementById("ok").style.display = "block";
+    const ul = document.getElementById("tracks");
+    (data.tracks||[]).forEach((t,i)=>{
+      const li=document.createElement("li");
+      li.textContent = `${i+1}. ${t.name} (pop:${t.popularity})`;
+      ul.appendChild(li);
+    });
+  }catch(e){
+    log("JS error: " + (e && e.message ? e.message : e));
   }
 })();
 </script>
