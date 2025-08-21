@@ -1,27 +1,29 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>Spotify Callback — Top 100</title>
+<title>Spotify Callback — Top 100 (All Markets)</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:980px;margin:40px auto">
   <h1>Spotify Authentication</h1>
   <p id="status">Signing you in…</p>
 
   <section id="app" style="display:none">
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0">
-      <label>Market:
-        <select id="market">
-          <option value="US">US</option><option value="JP">JP</option>
-          <option value="GB">GB</option><option value="DE">DE</option>
-        </select>
-      </label>
-      <label>Include groups:
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0">
+      <label>Groups:
         <select id="groups">
           <option value="album,single,appears_on,compilation" selected>All</option>
           <option value="album,single">Albums + Singles</option>
-          <option value="appears_on,compilation">Appears/Compilations only</option>
+          <option value="appears_on,compilation">Appears/Compilations</option>
         </select>
       </label>
-      <button id="btnFetch100">Fetch 100 Tracks</button>
+      <label><input type="checkbox" id="allMarkets" checked> All markets (no region filter)</label>
+      <label>Market (only used when All markets is OFF):
+        <select id="market">
+          <option value="US" selected>US</option><option value="JP">JP</option>
+          <option value="GB">GB</option><option value="DE">DE</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="useSearch" checked> Search fallback</label>
+      <button id="btnFetch100">Build Top 100</button>
       <button id="btnDLjson">Download JSON</button>
       <button id="btnDLcsv">Download CSV</button>
       <button id="btnLogout">Log out</button>
@@ -30,16 +32,17 @@
   </section>
 
 <script>
-/* ====== 設定 ====== */
-const CLIENT_ID     = "1fd6350fcf4945a0b3ddffa2d5730d4e";
-const REDIRECT_URI  = "https://npr2025.github.io/spotify-auth/callback.html";
-const ARTIST_ID     = "55fvQ5I2IZUfcFT2DV02T3"; // The Darrow Chem Syndicate
-const TOP_N         = 100;
-/* ================== */
+/* ====== Config ====== */
+const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
+const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
+const ARTIST_ID    = "55fvQ5I2IZUfcFT2DV02T3"; // The Darrow Chem Syndicate
+const TOP_N        = 100;
+/* ==================== */
 
 const $ = (s)=>document.querySelector(s);
 const setStatus = (t)=>$("#status").textContent=t;
 
+// ---- Token handling (PKCE already done in auth.html) ----
 function clearPkce(){ sessionStorage.removeItem("pkce_verifier"); sessionStorage.removeItem("pkce_state"); }
 function saveToken(t){
   sessionStorage.setItem("sp_access_token", t.access_token);
@@ -57,7 +60,6 @@ function logout(){
   sessionStorage.removeItem("sp_exp_at");
   location.href="auth.html";
 }
-
 async function exchangeAuthCode(code, verifier){
   const body = new URLSearchParams({ client_id: CLIENT_ID, grant_type:"authorization_code", code, redirect_uri: REDIRECT_URI, code_verifier: verifier });
   const r = await fetch("https://accounts.spotify.com/api/token",{ method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded" }, body });
@@ -72,50 +74,48 @@ async function refreshAccessToken(refreshToken){
 }
 async function ensureToken(){
   let {access, refresh, expAt} = getToken();
-  if (access && Date.now() < expAt - 60_000) return access; // 期限60秒前までOK
-  if (refresh){
-    const t = await refreshAccessToken(refresh);
-    saveToken(t);
-    return t.access_token;
-  }
+  if (access && Date.now() < expAt - 60_000) return access;
+  if (refresh){ const t = await refreshAccessToken(refresh); saveToken(t); return t.access_token; }
   throw new Error("No valid token");
 }
 
-function chunk(arr, size){ const out=[]; for(let i=0;i<arr.length;i+=size) out.push(arr.slice(i,i+size)); return out; }
-
-/* ---- Spotify APIヘルパ ---- */
+// ---- API helper ----
 async function spGet(path, params){
   const token = await ensureToken();
-  const url = new URL("https://api.spotify.com/v1/"+path);
-  Object.entries(params||{}).forEach(([k,v])=> url.searchParams.set(k, v));
+  const url = new URL("https://api.spotify.com/v1/" + path);
+  // 余計なパラメータは付けない（null/undefined/""は無視）
+  Object.entries(params||{}).forEach(([k,v])=>{
+    if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, v);
+  });
   const r = await fetch(url, { headers:{ Authorization:"Bearer "+token }});
-  if(!r.ok) throw new Error("API "+path+" "+r.status);
+  if(!r.ok) throw new Error(`API ${path} ${r.status}`);
   return r.json();
 }
+function chunk(arr, size){ const out=[]; for(let i=0;i<arr.length;i+=size) out.push(arr.slice(i,i+size)); return out; }
 
-/* ---- 100曲ロジック ---- */
-/* 1) 全アルバムID取得（ページング対応） */
-async function fetchAllAlbums(artistId, market, include_groups){
-  let items=[], offset=0; 
+// ---- All markets 対応の取得ロジック ----
+async function fetchAllAlbums(artistId, include_groups, allMarkets, market){
+  let items=[], offset=0;
   while(true){
-    const page = await spGet(`artists/${artistId}/albums`, {
-      include_groups, market, limit: 50, offset
-    });
+    const params = { include_groups, limit:50, offset };
+    if (!allMarkets) params.market = market; // All markets の時は market を付けない
+    const page = await spGet(`artists/${artistId}/albums`, params);
     items.push(...(page.items||[]));
-    if (!page.next) break;
+    if(!page.next) break;
     offset += 50;
   }
-  // 同一アルバム重複をIDで排除
+  // ID重複排除
   const seen=new Set(), albums=[];
   for(const a of items){ if(!seen.has(a.id)){ seen.add(a.id); albums.push(a); } }
   return albums;
 }
 
-/* 2) 各アルバムの全トラックID取得（ページング対応） */
-async function fetchAlbumTracks(albumId, market){
+async function fetchAlbumTracks(albumId, allMarkets, market){
   let ids=[], offset=0;
   while(true){
-    const page = await spGet(`albums/${albumId}/tracks`, { market, limit: 50, offset });
+    const params = { limit:50, offset };
+    if (!allMarkets) params.market = market; // All markets の時は market を付けない
+    const page = await spGet(`albums/${albumId}/tracks`, params);
     (page.items||[]).forEach(t=> ids.push(t.id));
     if(!page.next) break;
     offset += 50;
@@ -123,100 +123,119 @@ async function fetchAlbumTracks(albumId, market){
   return ids;
 }
 
-/* 3) トラック詳細(popularity含む)と audio-features を取得 → 人気順TOP_N */
-async function fetchArtistTopN(artistId, market, include_groups, N=100){
-  setStatus("Collecting albums…");
-  const albums = await fetchAllAlbums(artistId, market, include_groups);
-
-  setStatus(`Collecting tracks from ${albums.length} albums…`);
-  let trackIds=[];
-  // アルバムごとに並列（過負荷防止でバッチ）
-  for(const batch of chunk(albums, 10)){
-    const results = await Promise.all(batch.map(a=>fetchAlbumTracks(a.id, market).catch(()=>[])));
-    results.forEach(ids=> trackIds.push(...ids));
+async function fetchArtistInfo(artistId){
+  return spGet(`artists/${artistId}`, {});
+}
+async function searchArtistTrackIds(artistName, pages=20){ // 最大1000曲
+  const ids=new Set();
+  for(let i=0;i<pages;i++){
+    const res = await spGet("search", { q: `artist:"${artistName}"`, type:"track", limit:50, offset:i*50 });
+    (res.tracks?.items||[]).forEach(t=> ids.add(t.id));
+    if(!res.tracks?.next) break;
   }
-  // ID重複除去
-  trackIds = [...new Set(trackIds)];
-
-  setStatus(`Fetching track details (${trackIds.length} tracks)…`);
-  let tracks=[];
-  for(const ids of chunk(trackIds, 50)){
-    const data = await spGet("tracks", { ids: ids.join(",") });
-    tracks.push(...(data.tracks||[]));
-  }
-
-  // 人気順にソート
-  tracks = tracks.filter(Boolean).sort((a,b)=> (b.popularity||0)-(a.popularity||0)).slice(0, N);
-
-  // audio-features（最大100件まとめてOK）
-  setStatus("Fetching audio features…");
-  const idsTop = tracks.map(t=>t.id);
-  const feats  = await spGet("audio-features", { ids: idsTop.join(",") });
-  const featById = Object.fromEntries((feats.audio_features||[]).filter(Boolean).map(f=>[f.id, f]));
-
-  // 整形
-  const rows = tracks.map(t=>{
-    const f = featById[t.id] || {};
-    return {
-      id: t.id,
-      name: t.name,
-      artists: t.artists.map(a=>a.name).join(", "),
-      popularity: t.popularity,
-      isrc: (t.external_ids||{}).isrc || "",
-      preview_url: t.preview_url || "",
-      spotify_url: (t.external_urls||{}).spotify || "",
-      album: (t.album||{}).name || "",
-      release_date: (t.album||{}).release_date || "",
-      duration_ms: t.duration_ms,
-      tempo: f.tempo ?? "",
-      energy: f.energy ?? "",
-      danceability: f.danceability ?? "",
-      valence: f.valence ?? "",
-      loudness: f.loudness ?? ""
-    };
-  });
-  return rows;
+  return [...ids];
 }
 
-/* ---- 画面制御 ---- */
-let lastData = [];
+let lastData=[];
 
 function toCSV(rows){
   if(!rows.length) return "";
   const esc = (s)=>(''+(s??'')).replace(/"/g,'""');
   const head = Object.keys(rows[0]);
   const lines=[ head.join(",") ];
-  for(const r of rows){ lines.push(head.map(k=>`"${esc(r[k])}"`).join(",")); }
+  for(const r of rows) lines.push(head.map(k=>`"${esc(r[k])}"`).join(","));
   return lines.join("\n");
 }
 function download(filename, text, mime){
   const blob = new Blob([text], {type: mime});
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename; a.click();
   URL.revokeObjectURL(a.href);
 }
 
 async function runTop100(){
   try{
-    setStatus("Building Top 100…");
-    const market = $("#market").value || "US";
-    const groups = $("#groups").value || "album,single,appears_on,compilation";
-    lastData = await fetchArtistTopN(ARTIST_ID, market, groups, TOP_N);
+    setStatus("Building Top 100 (all markets)…");
+    const groups     = $("#groups").value || "album,single,appears_on,compilation";
+    const allMarkets = $("#allMarkets").checked;
+    const market     = $("#market").value || "US";
+    const useSearch  = $("#useSearch").checked;
+
+    // 1) 全アルバム収集
+    const albums = await fetchAllAlbums(ARTIST_ID, groups, allMarkets, market);
+    setStatus(`Collecting tracks from ${albums.length} albums…`);
+
+    // 2) 各アルバムの全曲ID（allMarketsなら market を一切付けない）
+    let trackIds=[];
+    for(const batch of chunk(albums, 10)){
+      const results = await Promise.all(batch.map(a=>fetchAlbumTracks(a.id, allMarkets, market).catch(()=>[])));
+      results.forEach(ids=> trackIds.push(...ids));
+    }
+
+    // 3) 検索補完（不足を埋める）
+    if(useSearch){
+      setStatus("Searching tracks for fallback…");
+      const artist = await fetchArtistInfo(ARTIST_ID);
+      const fromSearch = await searchArtistTrackIds(artist.name, 20);
+      trackIds.push(...fromSearch);
+    }
+
+    // 4) 重複排除
+    trackIds = [...new Set(trackIds)];
+
+    // 5) 詳細取得 → popularity 降順で 100
+    setStatus(`Fetching track details (${trackIds.length})…`);
+    let tracks=[];
+    for(const ids of chunk(trackIds, 50)){
+      const data = await spGet("tracks", { ids: ids.join(",") }); // market 無し＝全体情報
+      tracks.push(...(data.tracks||[]));
+    }
+    tracks = tracks.filter(Boolean).sort((a,b)=>(b.popularity||0)-(a.popularity||0)).slice(0, TOP_N);
+
+    // 6) audio-features 取得
+    setStatus("Fetching audio features…");
+    const feats = await spGet("audio-features", { ids: tracks.map(t=>t.id).join(",") });
+    const featById = Object.fromEntries((feats.audio_features||[]).filter(Boolean).map(f=>[f.id,f]));
+
+    // 7) 整形（available_markets 数を付けておく）
+    lastData = tracks.map(t=>{
+      const f = featById[t.id] || {};
+      const avail = Array.isArray(t.available_markets) ? t.available_markets.length
+                   : (t.album && Array.isArray(t.album.available_markets) ? t.album.available_markets.length : "");
+      return {
+        id: t.id,
+        name: t.name,
+        artists: t.artists.map(a=>a.name).join(", "),
+        popularity: t.popularity,
+        isrc: (t.external_ids||{}).isrc || "",
+        preview_url: t.preview_url || "",
+        spotify_url: (t.external_urls||{}).spotify || "",
+        album: (t.album||{}).name || "",
+        release_date: (t.album||{}).release_date || "",
+        available_markets_count: avail,
+        duration_ms: t.duration_ms,
+        tempo: f.tempo ?? "",
+        energy: f.energy ?? "",
+        danceability: f.danceability ?? "",
+        valence: f.valence ?? "",
+        loudness: f.loudness ?? ""
+      };
+    });
 
     const ol = $("#tracks"); ol.innerHTML="";
     lastData.forEach((row,i)=>{
       const li=document.createElement("li");
-      li.textContent=`${i+1}. ${row.name} — ${row.artists} (pop:${row.popularity}, tempo:${row.tempo||"-"})`;
+      li.textContent = `${i+1}. ${row.name} — ${row.artists} (pop:${row.popularity}, markets:${row.available_markets_count||"-"}, tempo:${row.tempo||"-"})`;
       ol.appendChild(li);
     });
+
+    setStatus(`Loaded ${lastData.length} tracks${lastData.length<TOP_N ? " (filled as many as available)" : ""}`);
     $("#app").style.display="block";
-    setStatus(`Loaded ${lastData.length} tracks (market=${market})`);
   }catch(e){
     setStatus(e.message||String(e));
   }
 }
 
-/* ---- 起動処理（PKCEフロー） ---- */
+// ---- Boot (PKCE callback) ----
 (async function init(){
   const qp = new URLSearchParams(location.search);
   const code = qp.get("code"); const state = qp.get("state");
@@ -234,11 +253,11 @@ async function runTop100(){
   $("#app").style.display="block";
 
   $("#btnFetch100").onclick = ()=>runTop100();
-  $("#btnDLjson").onclick   = ()=>lastData.length && download("spotify_top100.json", JSON.stringify(lastData, null, 2), "application/json");
-  $("#btnDLcsv").onclick    = ()=>lastData.length && download("spotify_top100.csv",  toCSV(lastData), "text/csv");
+  $("#btnDLjson").onclick   = ()=>lastData.length && download("spotify_top100_all_markets.json", JSON.stringify(lastData, null, 2), "application/json");
+  $("#btnDLcsv").onclick    = ()=>lastData.length && download("spotify_top100_all_markets.csv",  toCSV(lastData), "text/csv");
   $("#btnLogout").onclick   = ()=>logout();
 
-  // 起動時に自動で100件取得するなら↓を有効化
+  // 自動実行
   runTop100();
 })();
 </script>
