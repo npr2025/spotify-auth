@@ -83,7 +83,7 @@ async function ensureToken(){
 function chunk(arr, size){ const out=[]; for(let i=0;i<arr.length;i+=size) out.push(arr.slice(i,i+size)); return out; }
 function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
 
-/* ---- Spotify API helper with 429 retry ---- */
+/* ---- Spotify API helper with retries (429/5xx) ---- */
 async function spGet(path, params={}, retry=6){
   while(true){
     const token = await ensureToken();
@@ -92,15 +92,14 @@ async function spGet(path, params={}, retry=6){
     const r = await fetch(url, { headers:{ Authorization:"Bearer "+token }});
     if (r.ok) return r.json();
 
-    // 401 → アクセストークン再取得して再試行
-    if (r.status === 401 && retry>0){ sessionStorage.removeItem("sp_access_token"); retry--; continue; }
-    // 429/5xx → リトライ
+    if (r.status === 401 && retry>0){ // token失効
+      sessionStorage.removeItem("sp_access_token"); retry--; continue;
+    }
     if ((r.status === 429 || r.status >= 500) && retry>0){
       const ra = Number(r.headers.get("retry-after"));
-      const backoff = ra ? ra*1000 : (800 * (7 - retry)); // エクスポネンシャル
+      const backoff = ra ? ra*1000 : (600 * (7 - retry)); // 0.6s,1.2s,…
       setStatus(`API ${path} ${r.status} — retry in ${Math.ceil(backoff/1000)}s`);
-      await sleep(backoff);
-      retry--; continue;
+      await sleep(backoff); retry--; continue;
     }
     const txt = await r.text();
     throw new Error(`API ${path} ${r.status} ${txt.slice(0,160)}`);
@@ -112,13 +111,12 @@ async function fetchAllAlbums(artistId, include_groups, allMarkets, market){
   let items=[], offset=0;
   while(true){
     const params = { include_groups, limit:50, offset };
-    if (!allMarkets) params.market = market;
+    if (!allMarkets) params.market = market; // All markets ON の時は付けない
     const page = await spGet(`artists/${artistId}/albums`, params);
     items.push(...(page.items||[]));
     if(!page.next) break;
     offset += 50;
   }
-  // ID重複排除
   const seen=new Set(), albums=[];
   for(const a of items){ if(!seen.has(a.id)){ seen.add(a.id); albums.push(a); } }
   return albums;
@@ -128,7 +126,7 @@ async function fetchAlbumTracks(albumId, allMarkets, market){
   let ids=[], offset=0;
   while(true){
     const params = { limit:50, offset };
-    if (!allMarkets) params.market = market;
+    if (!allMarkets) params.market = market; // All markets ON の時は付けない
     const page = await spGet(`albums/${albumId}/tracks`, params);
     (page.items||[]).forEach(t=> ids.push(t.id));
     if(!page.next) break;
@@ -140,7 +138,7 @@ async function fetchAlbumTracks(albumId, allMarkets, market){
 async function fetchArtistInfo(artistId){
   return spGet(`artists/${artistId}`, {});
 }
-async function searchArtistTrackIds(artistName, pages=20){ // ≤1000件
+async function searchArtistTrackIds(artistName, pages=12){ // ≤600件で控えめ
   const ids=new Set();
   for(let i=0;i<pages;i++){
     const res = await spGet("search", { q: `artist:"${artistName}"`, type:"track", limit:50, offset:i*50 });
@@ -150,24 +148,24 @@ async function searchArtistTrackIds(artistName, pages=20){ // ≤1000件
   return [...ids];
 }
 
-/* ---- Audio features: robust ---- */
+/* ---- Audio features: robust (batch→single fallback) ---- */
 async function fetchAudioFeaturesSafe(trackIds) {
-  const features = {};
+  const out = {};
   for (const batch of chunk(trackIds.filter(Boolean), 50)) {
     try {
       const data = await spGet("audio-features", { ids: batch.join(",") });
-      (data.audio_features || []).forEach(f => { if (f && f.id) features[f.id] = f; });
-    } catch (e) {
+      (data.audio_features || []).forEach(f => { if (f && f.id) out[f.id] = f; });
+    } catch (_) {
       // 失敗したバッチは1件ずつ
       for (const id of batch) {
         try {
           const f = await spGet(`audio-features/${id}`, {});
-          if (f && f.id) features[f.id] = f;
-        } catch (_) { features[id] = null; }
+          if (f && f.id) out[f.id] = f;
+        } catch { out[id] = null; }
       }
     }
   }
-  return features;
+  return out;
 }
 
 /* ---- Top100 builder ---- */
@@ -202,7 +200,9 @@ async function runTop100(){
     // 2) 各アルバムの全曲ID
     let trackIds=[];
     for(const batch of chunk(albums, 10)){
-      const results = await Promise.all(batch.map(a=>fetchAlbumTracks(a.id, allMarkets, market).catch(()=>[])));
+      const results = await Promise.all(
+        batch.map(a=>fetchAlbumTracks(a.id, allMarkets, market).catch(()=>[]))
+      );
       results.forEach(ids=> trackIds.push(...ids));
     }
 
@@ -210,7 +210,7 @@ async function runTop100(){
     if(useSearch){
       setStatus("Searching tracks for fallback…");
       const artist = await fetchArtistInfo(ARTIST_ID);
-      const fromSearch = await searchArtistTrackIds(artist.name, 20);
+      const fromSearch = await searchArtistTrackIds(artist.name, 12);
       trackIds.push(...fromSearch);
     }
 
@@ -221,14 +221,16 @@ async function runTop100(){
     setStatus(`Fetching track details (${trackIds.length})…`);
     let tracks=[];
     for(const ids of chunk(trackIds, 50)){
-      const data = await spGet("tracks", { ids: ids.join(",") }); // marketなし
+      const data = await spGet("tracks", { ids: ids.join(",") }); // market無し
       tracks.push(...(data.tracks||[]));
     }
     tracks = tracks.filter(Boolean).sort((a,b)=>(b.popularity||0)-(a.popularity||0)).slice(0, TOP_N);
 
-    // 6) audio-features
+    // 6) audio-features（403/429でも継続）
     setStatus("Fetching audio features…");
-    const featById = await fetchAudioFeaturesSafe(tracks.map(t=>t.id));
+    let featById = {};
+    try { featById = await fetchAudioFeaturesSafe(tracks.map(t=>t.id)); }
+    catch(e){ setStatus("audio-features skipped: "+(e.message||e)); featById = {}; }
 
     // 7) 整形
     lastData = tracks.map(t=>{
