@@ -1,10 +1,10 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>Spotify Callback — Top 100 (All Markets)</title>
+<title>Spotify — ALL with Links & Private Playlist</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:980px;margin:40px auto">
   <h1>Spotify Authentication</h1>
-  <p id="status">Signed in. Click “Build Top 100”.</p>
+  <p id="status">Signed in. Build ALL → Create Private Playlist.</p>
 
   <section id="app" style="display:block">
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0">
@@ -16,18 +16,28 @@
         </select>
       </label>
       <label><input type="checkbox" id="allMarkets" checked> All markets (no region filter)</label>
-      <label>Market (used only when All markets is OFF):
+      <label>Market (only used when All markets is OFF):
         <select id="market">
           <option value="US" selected>US</option><option value="JP">JP</option>
           <option value="GB">GB</option><option value="DE">DE</option>
         </select>
       </label>
       <label><input type="checkbox" id="useSearch" checked> Search fallback</label>
-      <button id="btnFetch100">Build Top 100</button>
+      <label><input type="checkbox" id="noLimit" checked> No limit (ALL)</label>
+      <button id="btnFetch">Build ALL with Links</button>
+      <button id="btnDLhtml">Download HTML</button>
       <button id="btnDLjson">Download JSON</button>
       <button id="btnDLcsv">Download CSV</button>
-      <button id="btnLogout">Log out</button>
     </div>
+
+    <!-- ★ プレイリスト作成（既定は非公開） -->
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0;padding:10px;border:1px solid #ddd;border-radius:8px">
+      <input id="plName"  style="min-width:320px" value="PROGAPANDA • ALL (TDCS)">
+      <label><input id="plPublic" type="checkbox"> Make Public</label>
+      <button id="btnCreate">Create Playlist (Private by default)</button>
+      <span id="plLink"></span>
+    </div>
+
     <ol id="tracks"></ol>
   </section>
 
@@ -36,7 +46,6 @@
 const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
 const ARTIST_ID    = "55fvQ5I2IZUfcFT2DV02T3"; // The Darrow Chem Syndicate
-const TOP_N        = 100;
 /* ==================== */
 
 const $ = (s)=>document.querySelector(s);
@@ -54,12 +63,7 @@ function getToken(){ return {
   refresh: sessionStorage.getItem("sp_refresh_token"),
   expAt: Number(sessionStorage.getItem("sp_exp_at")||0)
 };}
-function logout(){
-  sessionStorage.removeItem("sp_access_token");
-  sessionStorage.removeItem("sp_refresh_token");
-  sessionStorage.removeItem("sp_exp_at");
-  location.href="auth.html";
-}
+function logoutToAuth(){ location.href="auth.html"; }
 async function exchangeAuthCode(code, verifier){
   const body = new URLSearchParams({ client_id: CLIENT_ID, grant_type:"authorization_code", code, redirect_uri: REDIRECT_URI, code_verifier: verifier });
   const r = await fetch("https://accounts.spotify.com/api/token",{ method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded" }, body });
@@ -82,6 +86,7 @@ async function ensureToken(){
 /* ---- Utils ---- */
 function chunk(arr, size){ const out=[]; for(let i=0;i<arr.length;i+=size) out.push(arr.slice(i,i+size)); return out; }
 function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
+const esc = (s)=>(''+(s??'')).replace(/"/g,'""');
 
 /* ---- Spotify API helper with retries (429/5xx) ---- */
 async function spGet(path, params={}, retry=6){
@@ -92,19 +97,39 @@ async function spGet(path, params={}, retry=6){
     const r = await fetch(url, { headers:{ Authorization:"Bearer "+token }});
     if (r.ok) return r.json();
 
-    if (r.status === 401 && retry>0){ // token失効
-      sessionStorage.removeItem("sp_access_token"); retry--; continue;
-    }
+    if (r.status === 401 && retry>0){ sessionStorage.removeItem("sp_access_token"); retry--; continue; }
     if ((r.status === 429 || r.status >= 500) && retry>0){
       const ra = Number(r.headers.get("retry-after"));
-      const backoff = ra ? ra*1000 : (600 * (7 - retry)); // 0.6s,1.2s,…
-      setStatus(`API ${path} ${r.status} — retry in ${Math.ceil(backoff/1000)}s`);
-      await sleep(backoff); retry--; continue;
+      const backoff = ra ? ra*1000 : (600 * (7 - retry));
+      setStatus(`API ${path} ${r.status} — retry in ${Math.ceil(backoff/1000)}s`); await sleep(backoff); retry--; continue;
     }
     const txt = await r.text();
     throw new Error(`API ${path} ${r.status} ${txt.slice(0,160)}`);
   }
 }
+
+/* ---- POST/PUT helper (for playlist) ---- */
+async function spReq(method, path, body=null, params={}, retry=6){
+  while(true){
+    const token = await ensureToken();
+    const url = new URL("https://api.spotify.com/v1/" + path);
+    Object.entries(params).forEach(([k,v])=>{ if(v!==undefined && v!==null && v!=="") url.searchParams.set(k,v); });
+    const r = await fetch(url, {
+      method,
+      headers:{ Authorization:"Bearer "+token, "Content-Type":"application/json" },
+      body: body ? JSON.stringify(body) : null
+    });
+    if (r.ok) return r.json();
+    if ((r.status===429 || r.status>=500) && retry>0){
+      const ra = Number(r.headers.get("retry-after"));
+      const backoff = ra ? ra*1000 : (600*(7-retry));
+      setStatus(`API ${method} ${path} ${r.status} — retry in ${Math.ceil(backoff/1000)}s`); await sleep(backoff); retry--; continue;
+    }
+    const txt = await r.text();
+    throw new Error(`API ${method} ${path} ${r.status} ${txt.slice(0,160)}`);
+  }
+}
+const spPost = (path, body, params)=>spReq("POST", path, body, params);
 
 /* ---- Data collectors ---- */
 async function fetchAllAlbums(artistId, include_groups, allMarkets, market){
@@ -121,12 +146,11 @@ async function fetchAllAlbums(artistId, include_groups, allMarkets, market){
   for(const a of items){ if(!seen.has(a.id)){ seen.add(a.id); albums.push(a); } }
   return albums;
 }
-
 async function fetchAlbumTracks(albumId, allMarkets, market){
   let ids=[], offset=0;
   while(true){
     const params = { limit:50, offset };
-    if (!allMarkets) params.market = market; // All markets ON の時は付けない
+    if (!allMarkets) params.market = market;
     const page = await spGet(`albums/${albumId}/tracks`, params);
     (page.items||[]).forEach(t=> ids.push(t.id));
     if(!page.next) break;
@@ -134,11 +158,8 @@ async function fetchAlbumTracks(albumId, allMarkets, market){
   }
   return ids;
 }
-
-async function fetchArtistInfo(artistId){
-  return spGet(`artists/${artistId}`, {});
-}
-async function searchArtistTrackIds(artistName, pages=12){ // ≤600件で控えめ
+async function fetchArtistInfo(artistId){ return spGet(`artists/${artistId}`, {}); }
+async function searchArtistTrackIds(artistName, pages=12){
   const ids=new Set();
   for(let i=0;i<pages;i++){
     const res = await spGet("search", { q: `artist:"${artistName}"`, type:"track", limit:50, offset:i*50 });
@@ -148,7 +169,7 @@ async function searchArtistTrackIds(artistName, pages=12){ // ≤600件で控え
   return [...ids];
 }
 
-/* ---- Audio features: robust (batch→single fallback) ---- */
+/* ---- Audio features: robust ---- */
 async function fetchAudioFeaturesSafe(trackIds) {
   const out = {};
   for (const batch of chunk(trackIds.filter(Boolean), 50)) {
@@ -156,7 +177,6 @@ async function fetchAudioFeaturesSafe(trackIds) {
       const data = await spGet("audio-features", { ids: batch.join(",") });
       (data.audio_features || []).forEach(f => { if (f && f.id) out[f.id] = f; });
     } catch (_) {
-      // 失敗したバッチは1件ずつ
       for (const id of batch) {
         try {
           const f = await spGet(`audio-features/${id}`, {});
@@ -168,12 +188,10 @@ async function fetchAudioFeaturesSafe(trackIds) {
   return out;
 }
 
-/* ---- Top100 builder ---- */
+/* ---- Builder ---- */
 let lastData=[];
-
 function toCSV(rows){
   if(!rows.length) return "";
-  const esc = (s)=>(''+(s??'')).replace(/"/g,'""');
   const head = Object.keys(rows[0]);
   const lines=[ head.join(",") ];
   for(const r of rows) lines.push(head.map(k=>`"${esc(r[k])}"`).join(","));
@@ -184,10 +202,19 @@ function download(filename, text, mime){
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename; a.click();
   URL.revokeObjectURL(a.href);
 }
+function htmlList(rows, title="All Tracks — TDCS"){
+  const items = rows.map((r,i)=>{
+    const t = `<a href="${r.track_url}" target="_blank" rel="noopener">${esc(r.name)}</a>`;
+    const al = r.album_url ? ` • <a href="${r.album_url}" target="_blank" rel="noopener">${esc(r.album)}</a>` : "";
+    const as = r.artist_urls ? r.artist_urls.split(" | ").map((u,j)=>`<a href="${u}" target="_blank" rel="noopener">${esc(r.artists.split(", ")[j]||"Artist")}</a>`).join(", ") : esc(r.artists);
+    return `<li>${i+1}. ${t} — ${as}${al} <small>(pop:${r.popularity}${r.tempo?`, tempo:${r.tempo}`:""})</small></li>`;
+  }).join("\n");
+  return `<!doctype html><meta charset="utf-8"><title>${esc(title)}</title><body style="font-family:system-ui,-apple-system;max-width:900px;margin:40px auto"><h1>${esc(title)}</h1><ol>${items}</ol></body>`;
+}
 
-async function runTop100(){
+async function runAll(){
   try{
-    setStatus("Building Top 100…");
+    setStatus("Building ALL with links…");
     const groups     = $("#groups").value || "album,single,appears_on,compilation";
     const allMarkets = $("#allMarkets").checked;
     const market     = $("#market").value || "US";
@@ -200,9 +227,7 @@ async function runTop100(){
     // 2) 各アルバムの全曲ID
     let trackIds=[];
     for(const batch of chunk(albums, 10)){
-      const results = await Promise.all(
-        batch.map(a=>fetchAlbumTracks(a.id, allMarkets, market).catch(()=>[]))
-      );
+      const results = await Promise.all(batch.map(a=>fetchAlbumTracks(a.id, allMarkets, market).catch(()=>[])));
       results.forEach(ids=> trackIds.push(...ids));
     }
 
@@ -217,35 +242,41 @@ async function runTop100(){
     // 4) 重複排除
     trackIds = [...new Set(trackIds)];
 
-    // 5) 詳細取得 → popularity 降順で 100
+    // 5) 詳細取得 → popularity 降順（ALL）
     setStatus(`Fetching track details (${trackIds.length})…`);
     let tracks=[];
     for(const ids of chunk(trackIds, 50)){
-      const data = await spGet("tracks", { ids: ids.join(",") }); // market無し
+      const data = await spGet("tracks", { ids: ids.join(",") });
       tracks.push(...(data.tracks||[]));
     }
-    tracks = tracks.filter(Boolean).sort((a,b)=>(b.popularity||0)-(a.popularity||0)).slice(0, TOP_N);
+    tracks = tracks.filter(Boolean).sort((a,b)=>(b.popularity||0)-(a.popularity||0));
 
-    // 6) audio-features（403/429でも継続）
+    // 6) audio-features（失敗しても続行）
     setStatus("Fetching audio features…");
     let featById = {};
     try { featById = await fetchAudioFeaturesSafe(tracks.map(t=>t.id)); }
     catch(e){ setStatus("audio-features skipped: "+(e.message||e)); featById = {}; }
 
-    // 7) 整形
+    // 7) 整形（リンク含む）
     lastData = tracks.map(t=>{
       const f = featById[t.id] || {};
+      const artistNames = t.artists.map(a=>a.name).join(", ");
+      const artistUrls  = t.artists.map(a=> (a.external_urls&&a.external_urls.spotify)||"").filter(Boolean).join(" | ");
+      const trackUrl    = (t.external_urls&&t.external_urls.spotify) || `https://open.spotify.com/track/${t.id}`;
+      const albumUrl    = (t.album&&t.album.external_urls&&t.album.external_urls.spotify) || "";
       const avail = Array.isArray(t.available_markets) ? t.available_markets.length
                    : (t.album && Array.isArray(t.album.available_markets) ? t.album.available_markets.length : "");
       return {
         id: t.id,
         name: t.name,
-        artists: t.artists.map(a=>a.name).join(", "),
+        artists: artistNames,
+        artist_urls: artistUrls,
         popularity: t.popularity,
         isrc: (t.external_ids||{}).isrc || "",
         preview_url: t.preview_url || "",
-        spotify_url: (t.external_urls||{}).spotify || "",
+        track_url: trackUrl,
         album: (t.album||{}).name || "",
+        album_url: albumUrl,
         release_date: (t.album||{}).release_date || "",
         available_markets_count: avail,
         duration_ms: t.duration_ms,
@@ -257,20 +288,58 @@ async function runTop100(){
       };
     });
 
-    // 8) 表示
+    // 8) 表示（曲名リンク）
     const ol = $("#tracks"); ol.innerHTML="";
-    lastData.forEach((row,i)=>{
+    lastData.forEach((r,i)=>{
       const li=document.createElement("li");
-      li.textContent = `${i+1}. ${row.name} — ${row.artists} (pop:${row.popularity}, markets:${row.available_markets_count||"-"}, tempo:${row.tempo||"-"})`;
+      const a=document.createElement("a");
+      a.href=r.track_url; a.textContent=r.name; a.target="_blank"; a.rel="noopener";
+      li.append(`${i+1}. `); li.append(a); li.append(` — ${r.artists} (pop:${r.popularity}${r.tempo?`, tempo:${r.tempo}`:""})`);
       ol.appendChild(li);
     });
-    setStatus(`Loaded ${lastData.length} tracks${lastData.length<TOP_N ? " (as many as available)" : ""}`);
+    setStatus(`Loaded ${lastData.length} tracks (ALL)`);
   }catch(e){
     setStatus(e.message||String(e));
   }
 }
 
-/* ---- Boot: handle PKCE callback once ---- */
+/* ---- Downloads ---- */
+document.getElementById("btnDLhtml").onclick = ()=> lastData.length &&
+  download("spotify_all_with_links.html", htmlList(lastData), "text/html");
+document.getElementById("btnDLjson").onclick = ()=> lastData.length &&
+  download("spotify_all_with_links.json", JSON.stringify(lastData, null, 2), "application/json");
+document.getElementById("btnDLcsv").onclick  = ()=> lastData.length &&
+  download("spotify_all_with_links.csv",  toCSV(lastData), "text/csv");
+
+/* ---- Playlist (非公開が既定) ---- */
+async function getMe(){ return spGet("me", {}); }
+async function createPlaylist(name, description, isPublic){
+  const me = await getMe();
+  return spPost(`users/${me.id}/playlists`, { name, description, public: !!isPublic });
+}
+async function addTracksToPlaylist(playlistId, trackIds){
+  const uris = [...new Set(trackIds)].filter(Boolean).map(id=>`spotify:track:${id}`);
+  for (const batch of chunk(uris, 100)){
+    await spPost(`playlists/${playlistId}/tracks`, { uris: batch });
+    await sleep(250);
+  }
+}
+document.getElementById("btnCreate").onclick = async ()=>{
+  try{
+    if(!lastData.length){ setStatus("先に Build ALL を実行して曲を集めてね"); return; }
+    const name = $("#plName").value || "TDCS — ALL";
+    const isPublic = $("#plPublic").checked; // 既定はfalse（非公開）
+    setStatus(`Creating ${isPublic?"public":"private"} playlist…`);
+    const pl = await createPlaylist(name, "Auto-built from TDCS discography (all markets).", isPublic);
+    setStatus("Adding tracks…");
+    await addTracksToPlaylist(pl.id, lastData.map(x=>x.id));
+    const url = (pl.external_urls && pl.external_urls.spotify) || `https://open.spotify.com/playlist/${pl.id}`;
+    $("#plLink").innerHTML = `<a href="${url}" target="_blank" rel="noopener">Open playlist</a>`;
+    setStatus(`Done — ${lastData.length} tracks added (${isPublic?"public":"private"}).`);
+  }catch(e){ setStatus("Playlist error: " + (e.message||e)); }
+};
+
+/* ---- Boot: PKCE callback ---- */
 (async function init(){
   const qp = new URLSearchParams(location.search);
   const code = qp.get("code"); const state = qp.get("state");
@@ -280,14 +349,11 @@ async function runTop100(){
     if(!verifier || !savedState || state!==savedState){ setStatus("State/Verifier mismatch. Start from auth.html"); return; }
     try {
       const tok = await exchangeAuthCode(code, verifier);
-      clearPkce(); history.replaceState({}, document.title, location.pathname); // クエリ除去
+      clearPkce(); history.replaceState({}, document.title, location.pathname);
       saveToken(tok);
     } catch(e){ setStatus(e.message); return; }
   }
-  $("#btnFetch100").onclick = ()=>runTop100();
-  $("#btnDLjson").onclick   = ()=>lastData.length && download("spotify_top100_all_markets.json", JSON.stringify(lastData, null, 2), "application/json");
-  $("#btnDLcsv").onclick    = ()=>lastData.length && download("spotify_top100_all_markets.csv",  toCSV(lastData), "text/csv");
-  $("#btnLogout").onclick   = ()=>logout();
+  document.getElementById("btnFetch").onclick = ()=>runAll();
 })();
 </script>
 </body>
