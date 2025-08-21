@@ -1,49 +1,25 @@
 <!doctype html><meta charset="utf-8">
 <title>Spotify Callback</title>
 <pre id="log">Authenticating…</pre>
-<ol id="tracks" style="display:none"></ol>
 <script>
 const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e";
 const REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
-const ARTIST_ID="55fvQ5I2IZUfcFT2DV02T3"; // TDCS
-const log=(m)=>{ const el=document.getElementById("log"); el.textContent += "\n"+m; console.log(m); };
-function clean(){ history.replaceState({}, document.title, location.pathname); }
-
-async function exchange(code, verifier){
-  const body = new URLSearchParams({
-    client_id: CLIENT_ID, grant_type:"authorization_code",
-    code, redirect_uri: REDIRECT_URI, code_verifier: verifier
-  });
-  const r = await fetch("https://accounts.spotify.com/api/token", {
-    method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded" }, body
-  });
-  const json = await r.json();
-  return { ok:r.ok, status:r.status, json };
-}
-
+const log=(m)=>{document.getElementById("log").textContent+="\n"+m;};
+function clean(){history.replaceState({},document.title,location.pathname);}
+async function token(code,ver){const b=new URLSearchParams({client_id:CLIENT_ID,grant_type:"authorization_code",code,redirect_uri:REDIRECT_URI,code_verifier:ver});
+  const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:b});
+  return {ok:r.ok,status:r.status,json:await r.json()};}
 (async()=>{
   log("JS boot");
   const q=new URLSearchParams(location.search);
-  const err=q.get("error"), code=q.get("code"), state=q.get("state");
-  const saved= sessionStorage.getItem("pkce_state");
-  const verifier = sessionStorage.getItem("pkce_verifier");
-  if (err){ log("Auth error: "+err); return; }
-  if (!code){ log("No code in URL → Redirect URI不一致 or auth.html経由してない"); return; }
-  if (!verifier){ log("Missing PKCE verifier → auth.htmlから開始して"); return; }
-  if (!state || state!==saved){ log("State mismatch"); return; }
-
-  const {ok,status,json} = await exchange(code, verifier); clean();
+  log("URL query = "+location.search);
+  const code=q.get("code"), state=q.get("state"), err=q.get("error");
+  const sv=sessionStorage.getItem("pkce_verifier"), ss=sessionStorage.getItem("pkce_state");
+  if(err){log("Authorization error: "+err);return;}
+  if(!code){log("No code in URL → Redirect URI不一致 or auth.html経由してない");return;}
+  if(!sv){log("Missing PKCE verifier → auth.htmlから開始して");return;}
+  if(!state || state!==ss){log("State mismatch");return;}
+  const {ok,status,json}=await token(code,sv); clean();
   log("token status="+status); log(JSON.stringify(json));
-  if (!ok || !json.access_token){ log("Token NG"); return; }
-
-  log("Token OK, expires="+json.expires_in);
-  sessionStorage.removeItem("pkce_verifier"); sessionStorage.removeItem("pkce_state");
-
-  const r = await fetch(`https://api.spotify.com/v1/artists/${ARTIST_ID}/top-tracks?market=US`,
-    { headers:{ Authorization:"Bearer "+json.access_token } });
-  log("api status="+r.status);
-  const data = await r.json();
-  const ol = document.getElementById("tracks"); ol.style.display="block";
-  (data.tracks||[]).forEach((t,i)=>{ const li=document.createElement("li"); li.textContent=`${i+1}. ${t.name} (pop:${t.popularity})`; ol.appendChild(li); });
 })();
 </script>
