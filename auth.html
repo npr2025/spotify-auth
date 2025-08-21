@@ -1,43 +1,21 @@
-<!doctype html>
-<html lang="ja">
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
+<!doctype html><meta charset="utf-8">
 <title>Spotify PKCE Auth</title>
-<meta http-equiv="Content-Security-Policy"
-      content="default-src 'self'; connect-src https://accounts.spotify.com https://api.spotify.com; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'">
-<body>
-  <main style="max-width:640px;margin:40px auto;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;">
-    <h1>Spotify Authentication (PKCE)</h1>
-    <p>このブラウザだけで安全にトークンを取得します（Secret不要）。</p>
-    <button id="login" style="padding:12px 16px;font-size:16px;">Spotify にログイン</button>
-  </main>
-
+<button id="login">Spotify にログイン</button>
 <script>
-const CLIENT_ID = "1fd6350fcf4945a0b3ddffa2d5730d4e";
-const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
-const SCOPE = ""; // 読み取りだけなら空でOK
-
-function b64url(buf){return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");}
-async function sha256(txt){const data=new TextEncoder().encode(txt);return await crypto.subtle.digest("SHA-256",data);}
+const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e";
+const REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
+const SCOPE="";
+function b64url(b){return btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");}
+async function sha256(t){return await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t));}
 function rand(n=64){const a=new Uint8Array(n);crypto.getRandomValues(a);return b64url(a);}
-
 document.getElementById("login").onclick = async () => {
-  const verifier = rand(64);
-  const challenge = b64url(await sha256(verifier));
-  const state = rand(32);
-  sessionStorage.setItem("pkce_verifier", verifier);
-  sessionStorage.setItem("pkce_state", state);
-
-  const params = new URLSearchParams({
-    response_type:"code",
-    client_id: CLIENT_ID,
-    redirect_uri: REDIRECT_URI,
-    code_challenge_method:"S256",
-    code_challenge: challenge,
-    state, scope: SCOPE
+  const verifier=rand(64), challenge=b64url(await sha256(verifier)), state=rand(32);
+  sessionStorage.setItem("pkce_verifier",verifier);
+  sessionStorage.setItem("pkce_state",state);
+  const p = new URLSearchParams({
+    response_type:"code", client_id:CLIENT_ID, redirect_uri:REDIRECT_URI,
+    code_challenge_method:"S256", code_challenge:challenge, state, scope:SCOPE
   });
-  location.href = "https://accounts.spotify.com/authorize?" + params.toString();
+  location.href = "https://accounts.spotify.com/authorize?" + p.toString();
 };
 </script>
-</body>
-</html>
