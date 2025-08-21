@@ -2,73 +2,147 @@
 <meta charset="utf-8">
 <title>Spotify Callback</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<!-- 確認が済んだら script を外部化して CSP を締めてもOK -->
-<meta http-equiv="Content-Security-Policy"
-      content="default-src 'self'; connect-src https://accounts.spotify.com https://api.spotify.com; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:900px;margin:40px auto">
   <h1>Spotify Authentication</h1>
   <p id="status">Signing you in…</p>
 
   <section id="app" style="display:none">
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0">
+      <label>Market:
+        <select id="market">
+          <option value="US">US</option><option value="JP">JP</option>
+          <option value="GB">GB</option><option value="DE">DE</option>
+        </select>
+      </label>
       <button id="btnFetch">Fetch TDCS Top Tracks</button>
+      <button id="btnDLjson">Download JSON</button>
+      <button id="btnDLcsv">Download CSV</button>
       <button id="btnLogout">Log out</button>
     </div>
     <ol id="tracks"></ol>
   </section>
 
 <script>
-const CLIENT_ID   = "1fd6350fcf4945a0b3ddffa2d5730d4e";
-const REDIRECT_URI= "https://npr2025.github.io/spotify-auth/callback.html";
-const ARTIST_ID   = "55fvQ5I2IZUfcFT2DV02T3"; // The Darrow Chem Syndicate
+const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
+const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
+const ARTIST_ID    = "55fvQ5I2IZUfcFT2DV02T3"; // The Darrow Chem Syndicate
 
 const $ = (s)=>document.querySelector(s);
 const setStatus = (t)=>$("#status").textContent=t;
 
 function clearPkce(){ sessionStorage.removeItem("pkce_verifier"); sessionStorage.removeItem("pkce_state"); }
-function saveToken(t){ sessionStorage.setItem("sp_access_token", t.access_token); if(t.refresh_token) sessionStorage.setItem("sp_refresh_token", t.refresh_token); sessionStorage.setItem("sp_exp_at", String(Date.now()+ (t.expires_in||3600)*1000)); }
-function getToken(){ return { access: sessionStorage.getItem("sp_access_token"), refresh: sessionStorage.getItem("sp_refresh_token"), expAt: Number(sessionStorage.getItem("sp_exp_at")||0) }; }
-function logout(){ sessionStorage.removeItem("sp_access_token"); sessionStorage.removeItem("sp_refresh_token"); sessionStorage.removeItem("sp_exp_at"); location.href="auth.html"; }
+function saveToken(t){
+  sessionStorage.setItem("sp_access_token", t.access_token);
+  if (t.refresh_token) sessionStorage.setItem("sp_refresh_token", t.refresh_token);
+  sessionStorage.setItem("sp_exp_at", String(Date.now() + (t.expires_in||3600)*1000));
+}
+function getToken(){ return {
+  access: sessionStorage.getItem("sp_access_token"),
+  refresh: sessionStorage.getItem("sp_refresh_token"),
+  expAt: Number(sessionStorage.getItem("sp_exp_at")||0)
+};}
+function logout(){
+  sessionStorage.removeItem("sp_access_token");
+  sessionStorage.removeItem("sp_refresh_token");
+  sessionStorage.removeItem("sp_exp_at");
+  location.href="auth.html";
+}
 
 async function exchangeAuthCode(code, verifier){
   const body = new URLSearchParams({ client_id: CLIENT_ID, grant_type:"authorization_code", code, redirect_uri: REDIRECT_URI, code_verifier: verifier });
-  const r = await fetch("https://accounts.spotify.com/api/token", { method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded" }, body });
+  const r = await fetch("https://accounts.spotify.com/api/token",{ method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded" }, body });
   if(!r.ok) throw new Error("Token exchange failed: "+r.status);
   return await r.json();
 }
 async function refreshAccessToken(refreshToken){
   const body = new URLSearchParams({ client_id: CLIENT_ID, grant_type:"refresh_token", refresh_token: refreshToken });
-  const r = await fetch("https://accounts.spotify.com/api/token", { method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded" }, body });
+  const r = await fetch("https://accounts.spotify.com/api/token",{ method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded" }, body });
   if(!r.ok) throw new Error("Refresh failed: "+r.status);
   return await r.json();
 }
 async function ensureToken(){
   let {access, refresh, expAt} = getToken();
-  if(access && Date.now() < expAt - 60_000) return access; // 期限60秒前まで有効
-  if(refresh){
+  if (access && Date.now() < expAt - 60_000) return access; // 期限60秒前までOK
+  if (refresh){
     const t = await refreshAccessToken(refresh);
     saveToken(t);
     return t.access_token;
   }
   throw new Error("No valid token");
 }
-async function fetchTopTracks(){
-  const token = await ensureToken();
-  const r = await fetch(`https://api.spotify.com/v1/artists/${ARTIST_ID}/top-tracks?market=US`, { headers:{ Authorization:"Bearer "+token }});
-  if(r.status===401){ // 失効→再試行
-    sessionStorage.removeItem("sp_access_token");
-    return fetchTopTracks();
-  }
-  if(!r.ok) throw new Error("API error: "+r.status);
-  const data = await r.json();
-  const list = $("#tracks"); list.innerHTML="";
-  (data.tracks||[]).forEach((t,i)=>{ const li=document.createElement("li"); li.textContent=`${i+1}. ${t.name} (pop:${t.popularity})`; list.appendChild(li); });
+
+let lastData = []; // ダウンロード用に保持
+
+function toCSV(rows){
+  if(!rows.length) return "";
+  const esc = (s)=>(''+(s??'')).replace(/"/g,'""');
+  const head = Object.keys(rows[0]);
+  const lines = [ head.join(",") ];
+  for(const r of rows){ lines.push(head.map(k=>`"${esc(r[k])}"`).join(",")); }
+  return lines.join("\n");
+}
+function download(filename, text, mime){
+  const blob = new Blob([text], {type: mime});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+  URL.revokeObjectURL(a.href);
 }
 
+async function fetchTopTracks(){
+  setStatus("Loading tracks…");
+  const token = await ensureToken();
+  const market = $("#market").value || "US";
+
+  // 1) top-tracks
+  const r = await fetch(`https://api.spotify.com/v1/artists/${ARTIST_ID}/top-tracks?market=${market}`, {
+    headers:{ Authorization:"Bearer "+token }
+  });
+  if (r.status===401){ sessionStorage.removeItem("sp_access_token"); return fetchTopTracks(); }
+  if (!r.ok) throw new Error("API error: "+r.status);
+  const data = await r.json();
+  const tracks = data.tracks || [];
+
+  // 2) audio-features も取得（分析用）
+  const ids = tracks.map(t=>t.id).join(",");
+  const r2 = await fetch(`https://api.spotify.com/v1/audio-features?ids=${ids}`, {
+    headers:{ Authorization:"Bearer "+token }
+  });
+  const feats = (await r2.json()).audio_features || [];
+  const featById = Object.fromEntries(feats.filter(Boolean).map(f=>[f.id, f]));
+
+  lastData = tracks.map(t=>({
+    id: t.id,
+    name: t.name,
+    artists: t.artists.map(a=>a.name).join(", "),
+    popularity: t.popularity,
+    isrc: (t.external_ids||{}).isrc || "",
+    preview_url: t.preview_url || "",
+    spotify_url: (t.external_urls||{}).spotify || "",
+    duration_ms: t.duration_ms,
+    tempo: (featById[t.id]||{}).tempo ?? "",
+    energy: (featById[t.id]||{}).energy ?? "",
+    danceability: (featById[t.id]||{}).danceability ?? "",
+    valence: (featById[t.id]||{}).valence ?? "",
+    loudness: (featById[t.id]||{}).loudness ?? "",
+  }));
+
+  // 表示
+  const list = $("#tracks"); list.innerHTML="";
+  lastData.forEach((row,i)=>{
+    const li = document.createElement("li");
+    li.textContent = `${i+1}. ${row.name} — ${row.artists}  (pop:${row.popularity}, tempo:${row.tempo||"-"})`;
+    list.appendChild(li);
+  });
+  $("#app").style.display="block";
+  setStatus(`Loaded ${lastData.length} tracks (market=${market})`);
+}
+
+// 起動
 (async function init(){
+  // 認可コードがあれば交換
   const qp = new URLSearchParams(location.search);
   const code = qp.get("code"); const state = qp.get("state");
-  if(code){
+  if (code){
     const savedState = sessionStorage.getItem("pkce_state");
     const verifier   = sessionStorage.getItem("pkce_verifier");
     if(!verifier || !savedState || state!==savedState){ setStatus("State/Verifier mismatch. Start from auth.html"); return; }
@@ -78,12 +152,15 @@ async function fetchTopTracks(){
       saveToken(tok);
     } catch(e){ setStatus(e.message); return; }
   }
-  // ここまで来たら使える
-  setStatus("Signed in"); $("#app").style.display="block";
-  $("#btnFetch").onclick = ()=>fetchTopTracks().catch(e=>setStatus(e.message));
-  $("#btnLogout").onclick= ()=>logout();
+  setStatus("Signed in");
+  $("#app").style.display="block";
 
-  // 初回自動取得
+  $("#btnFetch").onclick   = ()=>fetchTopTracks().catch(e=>setStatus(e.message));
+  $("#btnDLjson").onclick  = ()=>lastData.length && download("spotify_top_tracks.json", JSON.stringify(lastData, null, 2), "application/json");
+  $("#btnDLcsv").onclick   = ()=>lastData.length && download("spotify_top_tracks.csv",  toCSV(lastData), "text/csv");
+  $("#btnLogout").onclick  = ()=>logout();
+
+  // 自動で一回取得
   fetchTopTracks().catch(e=>setStatus(e.message));
 })();
 </script>
