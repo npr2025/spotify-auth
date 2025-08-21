@@ -1,29 +1,48 @@
-<!doctype html><meta charset="utf-8">
-<title>Spotify PKCE Auth</title>
-<h1>Login with Spotify (PKCE)</h1>
-<button id="login">Spotify にログイン</button>
-<p>Authorize URL:</p><pre id="u" style="white-space:break-spaces"></pre>
-<p><a id="open" href="#" target="_blank" rel="noopener">新しいタブで開く</a></p>
+<!doctype html>
+<meta charset="utf-8">
+<title>Spotify Auth (PKCE)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<body style="font-family:system-ui,-apple-system;max-width:900px;margin:40px auto">
+  <h1>Login with Spotify</h1>
+  <p id="log">Ready.</p>
+  <button id="login">Sign in</button>
+
 <script>
-const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e";
-const REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
-const SCOPE="";
-function b64url(b){return btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");}
-async function sha256(t){return await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t));}
+const CLIENT_ID   = "1fd6350fcf4945a0b3ddffa2d5730d4e";
+const REDIRECT_URI= "https://npr2025.github.io/spotify-auth/callback.html";
+/* ★ プレイリスト作成に必要なスコープ（読取のみなら空でOKだが今回は必須） */
+const SCOPE = "playlist-modify-public playlist-modify-private";
+
+const $ = (s)=>document.querySelector(s);
+const log=(m)=>{$("#log").textContent=m;};
+
+function b64url(a){return btoa(String.fromCharCode(...new Uint8Array(a))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");}
 function rand(n=64){const a=new Uint8Array(n);crypto.getRandomValues(a);return b64url(a);}
-async function buildUrl(){
-  const v=rand(64), c=b64url(await sha256(v)), s=rand(32);
-  sessionStorage.setItem("pkce_verifier", v);
-  sessionStorage.setItem("pkce_state", s);
-  const q=new URLSearchParams({
-    response_type:"code", client_id:CLIENT_ID, redirect_uri:REDIRECT_URI,
-    code_challenge_method:"S256", code_challenge:c, state:s, scope:SCOPE
-  }).toString();
-  const url="https://accounts.spotify.com/authorize?"+q;
-  document.getElementById("u").textContent=url;
-  document.getElementById("open").href=url;
-  return url;
+async function sha256(txt){return crypto.subtle.digest("SHA-256", new TextEncoder().encode(txt));}
+
+async function buildAuthorizeUrl(){
+  const verifier = rand(64);
+  const challenge = b64url(await sha256(verifier));
+  const state = rand(32);
+  sessionStorage.setItem("pkce_verifier", verifier);
+  sessionStorage.setItem("pkce_state", state);
+
+  const params = new URLSearchParams({
+    response_type:"code",
+    client_id: CLIENT_ID,
+    redirect_uri: REDIRECT_URI,
+    code_challenge_method:"S256",
+    code_challenge: challenge,
+    state,
+    scope: SCOPE
+  });
+  return "https://accounts.spotify.com/authorize?" + params.toString();
 }
-document.getElementById("login").onclick = async ()=>{ location.href = await buildUrl(); };
-buildUrl();
+
+document.getElementById("login").onclick = async ()=>{
+  log("Redirecting to Spotify…");
+  location.href = await buildAuthorizeUrl();
+};
 </script>
+</body>
+</html>
