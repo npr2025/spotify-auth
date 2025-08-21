@@ -1,10 +1,10 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>Spotify — TDCS ONLY / EXACT 150 (Private Playlist)</title>
+<title>Spotify — TDCS ONLY / EXACT 130 (Private Playlist)</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:980px;margin:40px auto">
   <h1>Spotify Authentication</h1>
-  <p id="status">Signed in. Build TDCS-only (exact 150) → Create Private Playlist.</p>
+  <p id="status">Signed in. Build TDCS-only (exact 130) → Create Private Playlist.</p>
 
   <section id="app" style="display:block">
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0">
@@ -24,7 +24,7 @@
       </label>
       <label><input type="checkbox" id="wantFeatures"> Fetch audio-features (optional)</label>
 
-      <button id="btnFetch">Build TDCS-only (exact 150)</button>
+      <button id="btnFetch">Build TDCS-only (exact 130)</button>
       <button id="btnDLhtml">Download HTML</button>
       <button id="btnDLjson">Download JSON</button>
       <button id="btnDLcsv">Download CSV</button>
@@ -32,7 +32,7 @@
 
     <!-- ★ プレイリスト作成（既定=非公開） -->
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0;padding:10px;border:1px solid #ddd;border-radius:8px">
-      <input id="plName"  style="min-width:320px" value="PROGAPANDA • TOP150 (TDCS ONLY)">
+      <input id="plName"  style="min-width:320px" value="PROGAPANDA • TOP130 (TDCS ONLY)">
       <label><input id="plPublic" type="checkbox"> Make Public</label>
       <button id="btnCreate">Create Playlist (Private by default)</button>
       <span id="plLink"></span>
@@ -46,7 +46,7 @@
 const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
 const ARTIST_ID    = "55fvQ5I2IZUfcFT2DV02T3"; // The Darrow Chem Syndicate
-const EXACT_LIMIT  = 150;                         // ← ちょうど150に固定
+const EXACT_LIMIT  = 130;                         // ← ちょうど130に固定
 /* ========================== */
 
 const $=(s)=>document.querySelector(s);
@@ -174,7 +174,7 @@ function toCSV(rows){
   return lines.join("\n");
 }
 function download(name,text,mime){const b=new Blob([text],{type:mime}); const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=name; a.click(); URL.revokeObjectURL(a.href);}
-function htmlList(rows,title="TDCS ONLY — 150"){
+function htmlList(rows,title="TDCS ONLY — 130"){
   const items=rows.map((r,i)=>{
     const t = `<a href="${r.track_url}" target="_blank" rel="noopener">${escHtml(r.name)}</a>`;
     const al = r.album_url ? ` • <a href="${r.album_url}" target="_blank" rel="noopener">${escHtml(r.album)}</a>` : "";
@@ -188,7 +188,7 @@ function htmlList(rows,title="TDCS ONLY — 150"){
 async function runTDCSOnly(){
   if(running) return; running=true;
   try{
-    setStatus("Building TDCS-only (exact 150) …");
+    setStatus("Building TDCS-only (exact 130) …");
     const groups=$("#groups").value||"album,single,compilation";
     const allMarkets=$("#allMarkets").checked; const market=$("#market").value||"US";
 
@@ -211,7 +211,7 @@ async function runTDCSOnly(){
     let tracks=[]; for(const ids of chunk(trackIds,50)){ const d=await spGet("tracks",{ids:ids.join(",")}); tracks.push(...(d.tracks||[])); await sleep(80); }
     tracks = tracks.filter(t=> t && t.artists?.some(a=>a?.id===ARTIST_ID));
 
-    // 5) 人気降順 → ★ちょうど150曲に固定★
+    // 5) 人気降順 → ★ちょうど130曲に固定★
     tracks = tracks.sort((a,b)=>(b.popularity||0)-(a.popularity||0));
     if (tracks.length >= EXACT_LIMIT) {
       tracks = tracks.slice(0, EXACT_LIMIT);
@@ -222,7 +222,7 @@ async function runTDCSOnly(){
     // 6) features（任意）
     let featById={}; try{ featById=await fetchAudioFeaturesSafe(tracks.map(t=>t.id)); } catch(e){ setStatus("features skipped: "+(e.message||e)); }
 
-    // 7) 整形（リンク入り）→ 以降は lastData だけを使う（＝150超えは絶対に出ない）
+    // 7) 整形（リンク入り）→ 以降は lastData だけを使う（＝130超えは絶対に出ない）
     lastData=tracks.map(t=>{
       const f=featById[t.id]||{};
       const artistNames=t.artists.map(a=>a.name).join(", ");
@@ -237,7 +237,7 @@ async function runTDCSOnly(){
         valence:f.valence??"",loudness:f.loudness??""};
     });
 
-    // 8) 表示（=150曲だけ）
+    // 8) 表示（=130曲だけ）
     const ol=$("#tracks"); ol.innerHTML="";
     lastData.forEach((r,i)=>{
       const li=document.createElement("li");
@@ -250,12 +250,12 @@ async function runTDCSOnly(){
   finally{ running=false; }
 }
 
-/* ---- Downloads（=150曲だけを書き出し） ---- */
-document.getElementById("btnDLhtml").onclick=()=>lastData.length&&download("tdcs_only_150.html",htmlList(lastData),"text/html");
-document.getElementById("btnDLjson").onclick=()=>lastData.length&&download("tdcs_only_150.json",JSON.stringify(lastData,null,2),"application/json");
-document.getElementById("btnDLcsv").onclick =()=>lastData.length&&download("tdcs_only_150.csv",toCSV(lastData),"text/csv");
+/* ---- Downloads（=130曲だけを書き出し） ---- */
+document.getElementById("btnDLhtml").onclick=()=>lastData.length&&download("tdcs_only_130.html",htmlList(lastData),"text/html");
+document.getElementById("btnDLjson").onclick=()=>lastData.length&&download("tdcs_only_130.json",JSON.stringify(lastData,null,2),"application/json");
+document.getElementById("btnDLcsv").onclick =()=>lastData.length&&download("tdcs_only_130.csv",toCSV(lastData),"text/csv");
 
-/* ---- Playlist（既定=非公開／150曲だけ追加） ---- */
+/* ---- Playlist（既定=非公開／130曲だけ追加） ---- */
 async function getMe(){return spGet("me",{});}
 async function createPlaylist(name,desc,isPublic){
   const me=await getMe();
@@ -268,10 +268,10 @@ async function addTracksToPlaylist(playlistId,trackIds){
 document.getElementById("btnCreate").onclick=async()=>{
   try{
     if(!lastData.length){ setStatus("先に Build TDCS-only を実行して曲を用意してね"); return; }
-    const name=$("#plName").value||"PROGAPANDA • TOP150 (TDCS ONLY)";
+    const name=$("#plName").value||"PROGAPANDA • TOP130 (TDCS ONLY)";
     const isPublic=$("#plPublic").checked; // 既定OFF = 非公開
     setStatus(`Creating ${isPublic?"public":"private"} playlist…`);
-    const pl=await createPlaylist(name,"Auto-built (TDCS ONLY, exact 150).",isPublic);
+    const pl=await createPlaylist(name,"Auto-built (TDCS ONLY, exact 130).",isPublic);
     setStatus("Adding tracks…");
     await addTracksToPlaylist(pl.id,lastData.map(x=>x.id));
     const url = pl.external_urls?.spotify || `https://open.spotify.com/playlist/${pl.id}`;
