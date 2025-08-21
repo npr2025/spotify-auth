@@ -1,25 +1,91 @@
-<!doctype html><meta charset="utf-8">
+<!doctype html>
+<meta charset="utf-8">
 <title>Spotify Callback</title>
-<pre id="log">Authenticating…</pre>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- 確認が済んだら script を外部化して CSP を締めてもOK -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; connect-src https://accounts.spotify.com https://api.spotify.com; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:900px;margin:40px auto">
+  <h1>Spotify Authentication</h1>
+  <p id="status">Signing you in…</p>
+
+  <section id="app" style="display:none">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0">
+      <button id="btnFetch">Fetch TDCS Top Tracks</button>
+      <button id="btnLogout">Log out</button>
+    </div>
+    <ol id="tracks"></ol>
+  </section>
+
 <script>
-const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e";
-const REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
-const log=(m)=>{document.getElementById("log").textContent+="\n"+m;};
-function clean(){history.replaceState({},document.title,location.pathname);}
-async function token(code,ver){const b=new URLSearchParams({client_id:CLIENT_ID,grant_type:"authorization_code",code,redirect_uri:REDIRECT_URI,code_verifier:ver});
-  const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:b});
-  return {ok:r.ok,status:r.status,json:await r.json()};}
-(async()=>{
-  log("JS boot");
-  const q=new URLSearchParams(location.search);
-  log("URL query = "+location.search);
-  const code=q.get("code"), state=q.get("state"), err=q.get("error");
-  const sv=sessionStorage.getItem("pkce_verifier"), ss=sessionStorage.getItem("pkce_state");
-  if(err){log("Authorization error: "+err);return;}
-  if(!code){log("No code in URL → Redirect URI不一致 or auth.html経由してない");return;}
-  if(!sv){log("Missing PKCE verifier → auth.htmlから開始して");return;}
-  if(!state || state!==ss){log("State mismatch");return;}
-  const {ok,status,json}=await token(code,sv); clean();
-  log("token status="+status); log(JSON.stringify(json));
+const CLIENT_ID   = "1fd6350fcf4945a0b3ddffa2d5730d4e";
+const REDIRECT_URI= "https://npr2025.github.io/spotify-auth/callback.html";
+const ARTIST_ID   = "55fvQ5I2IZUfcFT2DV02T3"; // The Darrow Chem Syndicate
+
+const $ = (s)=>document.querySelector(s);
+const setStatus = (t)=>$("#status").textContent=t;
+
+function clearPkce(){ sessionStorage.removeItem("pkce_verifier"); sessionStorage.removeItem("pkce_state"); }
+function saveToken(t){ sessionStorage.setItem("sp_access_token", t.access_token); if(t.refresh_token) sessionStorage.setItem("sp_refresh_token", t.refresh_token); sessionStorage.setItem("sp_exp_at", String(Date.now()+ (t.expires_in||3600)*1000)); }
+function getToken(){ return { access: sessionStorage.getItem("sp_access_token"), refresh: sessionStorage.getItem("sp_refresh_token"), expAt: Number(sessionStorage.getItem("sp_exp_at")||0) }; }
+function logout(){ sessionStorage.removeItem("sp_access_token"); sessionStorage.removeItem("sp_refresh_token"); sessionStorage.removeItem("sp_exp_at"); location.href="auth.html"; }
+
+async function exchangeAuthCode(code, verifier){
+  const body = new URLSearchParams({ client_id: CLIENT_ID, grant_type:"authorization_code", code, redirect_uri: REDIRECT_URI, code_verifier: verifier });
+  const r = await fetch("https://accounts.spotify.com/api/token", { method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded" }, body });
+  if(!r.ok) throw new Error("Token exchange failed: "+r.status);
+  return await r.json();
+}
+async function refreshAccessToken(refreshToken){
+  const body = new URLSearchParams({ client_id: CLIENT_ID, grant_type:"refresh_token", refresh_token: refreshToken });
+  const r = await fetch("https://accounts.spotify.com/api/token", { method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded" }, body });
+  if(!r.ok) throw new Error("Refresh failed: "+r.status);
+  return await r.json();
+}
+async function ensureToken(){
+  let {access, refresh, expAt} = getToken();
+  if(access && Date.now() < expAt - 60_000) return access; // 期限60秒前まで有効
+  if(refresh){
+    const t = await refreshAccessToken(refresh);
+    saveToken(t);
+    return t.access_token;
+  }
+  throw new Error("No valid token");
+}
+async function fetchTopTracks(){
+  const token = await ensureToken();
+  const r = await fetch(`https://api.spotify.com/v1/artists/${ARTIST_ID}/top-tracks?market=US`, { headers:{ Authorization:"Bearer "+token }});
+  if(r.status===401){ // 失効→再試行
+    sessionStorage.removeItem("sp_access_token");
+    return fetchTopTracks();
+  }
+  if(!r.ok) throw new Error("API error: "+r.status);
+  const data = await r.json();
+  const list = $("#tracks"); list.innerHTML="";
+  (data.tracks||[]).forEach((t,i)=>{ const li=document.createElement("li"); li.textContent=`${i+1}. ${t.name} (pop:${t.popularity})`; list.appendChild(li); });
+}
+
+(async function init(){
+  const qp = new URLSearchParams(location.search);
+  const code = qp.get("code"); const state = qp.get("state");
+  if(code){
+    const savedState = sessionStorage.getItem("pkce_state");
+    const verifier   = sessionStorage.getItem("pkce_verifier");
+    if(!verifier || !savedState || state!==savedState){ setStatus("State/Verifier mismatch. Start from auth.html"); return; }
+    try {
+      const tok = await exchangeAuthCode(code, verifier);
+      clearPkce(); history.replaceState({}, document.title, location.pathname); // クエリ除去
+      saveToken(tok);
+    } catch(e){ setStatus(e.message); return; }
+  }
+  // ここまで来たら使える
+  setStatus("Signed in"); $("#app").style.display="block";
+  $("#btnFetch").onclick = ()=>fetchTopTracks().catch(e=>setStatus(e.message));
+  $("#btnLogout").onclick= ()=>logout();
+
+  // 初回自動取得
+  fetchTopTracks().catch(e=>setStatus(e.message));
 })();
 </script>
+</body>
+</html>
