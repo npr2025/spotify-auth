@@ -1,16 +1,16 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>Spotify — TDCS ONLY / EXACT 120 (Private Playlist)</title>
+<title>Spotify — TDCS ONLY / EXACT 150 (Private Playlist)</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:980px;margin:40px auto">
   <h1>Spotify Authentication</h1>
-  <p id="status">Signed in. Build TDCS-only (exact 120) → Create Private Playlist.</p>
+  <p id="status">Signed in. Build TDCS-only (exact 150) → Create Private Playlist.</p>
 
   <section id="app" style="display:block">
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0">
       <label>Groups:
         <select id="groups">
-          <!-- appears_on を外す（他人名義混入を避ける） -->
+          <!-- 他人混入を避けるため appears_on は既定で外す -->
           <option value="album,single,compilation" selected>Albums + Singles + Compilations</option>
           <option value="album,single">Albums + Singles</option>
         </select>
@@ -24,7 +24,7 @@
       </label>
       <label><input type="checkbox" id="wantFeatures"> Fetch audio-features (optional)</label>
 
-      <button id="btnFetch">Build TDCS-only (exact 120)</button>
+      <button id="btnFetch">Build TDCS-only (exact 150)</button>
       <button id="btnDLhtml">Download HTML</button>
       <button id="btnDLjson">Download JSON</button>
       <button id="btnDLcsv">Download CSV</button>
@@ -32,7 +32,7 @@
 
     <!-- ★ プレイリスト作成（既定=非公開） -->
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0;padding:10px;border:1px solid #ddd;border-radius:8px">
-      <input id="plName"  style="min-width:320px" value="PROGAPANDA • TOP120 (TDCS ONLY)">
+      <input id="plName"  style="min-width:320px" value="PROGAPANDA • TOP150 (TDCS ONLY)">
       <label><input id="plPublic" type="checkbox"> Make Public</label>
       <button id="btnCreate">Create Playlist (Private by default)</button>
       <span id="plLink"></span>
@@ -46,11 +46,17 @@
 const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
 const ARTIST_ID    = "55fvQ5I2IZUfcFT2DV02T3"; // The Darrow Chem Syndicate
-const EXACT_LIMIT  = 120;                         // ← ちょうど120に固定
+const EXACT_LIMIT  = 150;                         // ← ちょうど150に固定
 /* ========================== */
 
 const $=(s)=>document.querySelector(s);
 const setStatus=(t)=>{$("#status").textContent=t; console.log(t);};
+
+/* ---- Small utils ---- */
+const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
+function chunk(arr,n){const out=[];for(let i=0;i<arr.length;i+=n) out.push(arr.slice(i,i+n)); return out;}
+function escHtml(s){return (''+(s??'')).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function escCsv(s){return (''+(s??'')).replace(/"/g,'""');}
 
 /* ---- PKCE token handling ---- */
 function clearPkce(){sessionStorage.removeItem("pkce_verifier");sessionStorage.removeItem("pkce_state");}
@@ -74,11 +80,6 @@ async function ensureToken(){
   throw new Error("No valid token (open auth.html and sign in)");
 }
 
-/* ---- Utils ---- */
-function chunk(a,n){const o=[];for(let i=0;i<a.length;i+=n)o.push(a.slice(i,i+n));return o;}
-const esc=(s)=>(''+(s??'')).replace(/"/g,'""');
-const delay=(ms)=>new Promise(r=>setTimeout(r,ms));
-
 /* ---- Spotify helpers（指数バックオフ） ---- */
 async function spGet(path, params={}, retry=8, base=600){
   let attempt=0;
@@ -94,7 +95,7 @@ async function spGet(path, params={}, retry=8, base=600){
       const ra=Number(r.headers.get("retry-after"))||0;
       const backoff = ra? ra*1000 : base * Math.pow(2, attempt++);
       setStatus(`API ${path} ${r.status} — retry in ${Math.ceil(backoff/1000)}s`);
-      await delay(backoff); retry--; continue;
+      await sleep(backoff); retry--; continue;
     }
     const txt=await r.text(); throw new Error(`API ${path} ${r.status} ${txt.slice(0,160)}`);
   }
@@ -111,14 +112,14 @@ async function spReq(method,path,body=null,params={},retry=8,base=600){
       const ra=Number(r.headers.get("retry-after"))||0;
       const backoff = ra? ra*1000 : base * Math.pow(2, attempt++);
       setStatus(`API ${method} ${path} ${r.status} — retry in ${Math.ceil(backoff/1000)}s`);
-      await delay(backoff); retry--; continue;
+      await sleep(backoff); retry--; continue;
     }
     const txt=await r.text(); throw new Error(`API ${method} ${path} ${r.status} ${txt.slice(0,160)}`);
   }
 }
 const spPost=(path,body,params)=>spReq("POST",path,body,params);
 
-/* ---- Collectors（TDCS限定） ---- */
+/* ---- Collectors（TDCS限定：アルバムも曲もTDCSを含む） ---- */
 async function fetchAllAlbums(artistId, include_groups, allMarkets, market){
   let items=[],offset=0;
   while(true){
@@ -156,54 +157,61 @@ async function fetchAudioFeaturesSafe(trackIds){
       const data=await spGet("audio-features",{ids:batch.join(",")});
       (data.audio_features||[]).forEach(f=>{if(f&&f.id) out[f.id]=f;});
     }catch(_){
+      // バッチ失敗は単発で拾う（それでもダメなら null）
       for(const id of batch){ try{ const f=await spGet(`audio-features/${id}`,{}); if(f&&f.id) out[f.id]=f; } catch{ out[id]=null; } }
     }
-    await delay(1000);
+    await sleep(1000);
   } return out;
 }
 
 /* ---- Builder ---- */
 let running=false, lastData=[];
-function toCSV(rows){ if(!rows.length) return ""; const head=Object.keys(rows[0]); const lines=[head.join(",")];
-  for(const r of rows) lines.push(head.map(k=>`"${esc(r[k])}"`).join(",")); return lines.join("\n");}
+function toCSV(rows){
+  if(!rows.length) return "";
+  const head = Object.keys(rows[0]);
+  const lines=[ head.join(",") ];
+  for(const r of rows) lines.push(head.map(k=>`"${escCsv(r[k])}"`).join(","));
+  return lines.join("\n");
+}
 function download(name,text,mime){const b=new Blob([text],{type:mime}); const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=name; a.click(); URL.revokeObjectURL(a.href);}
-function htmlList(rows,title="TDCS ONLY — 120"){
-  const items=rows.map((r,i)=>{const t=`<a href="${r.track_url}" target="_blank" rel="noopener">${esc(r.name)}</a>`;
-    const al=r.album_url?` • <a href="${r.album_url}" target="_blank" rel="noopener">${esc(r.album)}</a>`:"";
-    const as=r.artist_urls? r.artist_urls.split(" | ").map((u,j)=>`<a href="${u}" target="_blank" rel="noopener">${esc(r.artists.split(", ")[j]||"Artist")}</a>`).join(", "):esc(r.artists);
-    return `<li>${i+1}. ${t} — ${as}${al} <small>(pop:${r.popularity}${r.tempo?`, tempo:${r.tempo}`:""})</small></li>`;}).join("\n");
-  return `<!doctype html><meta charset="utf-8"><title>${esc(title)}</title><body style="font-family:system-ui,-apple-system;max-width:900px;margin:40px auto"><h1>${esc(title)}</h1><ol>${items}</ol></body>`;
+function htmlList(rows,title="TDCS ONLY — 150"){
+  const items=rows.map((r,i)=>{
+    const t = `<a href="${r.track_url}" target="_blank" rel="noopener">${escHtml(r.name)}</a>`;
+    const al = r.album_url ? ` • <a href="${r.album_url}" target="_blank" rel="noopener">${escHtml(r.album)}</a>` : "";
+    const as = r.artist_urls ? r.artist_urls.split(" | ").map((u,j)=>`<a href="${u}" target="_blank" rel="noopener">${escHtml(r.artists.split(", ")[j]||"Artist")}</a>`).join(", ")
+                             : escHtml(r.artists);
+    return `<li>${i+1}. ${t} — ${as}${al} <small>(pop:${r.popularity}${r.tempo?`, tempo:${r.tempo}`:""})</small></li>`;
+  }).join("\n");
+  return `<!doctype html><meta charset="utf-8"><title>${escHtml(title)}</title><body style="font-family:system-ui,-apple-system;max-width:900px;margin:40px auto"><h1>${escHtml(title)}</h1><ol>${items}</ol></body>`;
 }
 
 async function runTDCSOnly(){
   if(running) return; running=true;
   try{
-    setStatus("Building TDCS-only…");
+    setStatus("Building TDCS-only (exact 150) …");
     const groups=$("#groups").value||"album,single,compilation";
     const allMarkets=$("#allMarkets").checked; const market=$("#market").value||"US";
 
-    // 1) TDCS名義アルバム群
+    // 1) TDCS名義のアルバム群
     const albums=await fetchAllAlbums(ARTIST_ID,groups,allMarkets,market);
     setStatus(`Collecting from ${albums.length} TDCS albums…`);
 
-    // 2) 各アルバムから TDCS 含む曲のみ
+    // 2) 各アルバムから TDCS 含む曲のみ抽出
     let trackIds=[];
     for(const batch of chunk(albums,8)){
       const packs = await Promise.all(batch.map(a=>fetchAlbumTracks_TDCS(a,allMarkets,market,ARTIST_ID).catch(()=>[])));
       packs.forEach(ids=>trackIds.push(...ids));
-      await delay(120);
+      await sleep(120);
     }
     // 3) 重複排除
     trackIds=[...new Set(trackIds)];
 
-    // 4) 詳細取得
+    // 4) 詳細取得 → 最終ガード（曲にもTDCSがいるものだけ）
     setStatus(`Fetching track details (${trackIds.length})…`);
-    let tracks=[]; for(const ids of chunk(trackIds,50)){ const d=await spGet("tracks",{ids:ids.join(",")}); tracks.push(...(d.tracks||[])); await delay(80); }
-
-    // 5) 念のための最終フィルタ（曲にもTDCSがいるものだけ）
+    let tracks=[]; for(const ids of chunk(trackIds,50)){ const d=await spGet("tracks",{ids:ids.join(",")}); tracks.push(...(d.tracks||[])); await sleep(80); }
     tracks = tracks.filter(t=> t && t.artists?.some(a=>a?.id===ARTIST_ID));
 
-    // 6) 人気降順 → 120曲ちょうど
+    // 5) 人気降順 → ★ちょうど150曲に固定★
     tracks = tracks.sort((a,b)=>(b.popularity||0)-(a.popularity||0));
     if (tracks.length >= EXACT_LIMIT) {
       tracks = tracks.slice(0, EXACT_LIMIT);
@@ -211,10 +219,10 @@ async function runTDCSOnly(){
       setStatus(`Only ${tracks.length} tracks found for TDCS-only. (不足: ${EXACT_LIMIT - tracks.length})`);
     }
 
-    // 7) features（任意）
+    // 6) features（任意）
     let featById={}; try{ featById=await fetchAudioFeaturesSafe(tracks.map(t=>t.id)); } catch(e){ setStatus("features skipped: "+(e.message||e)); }
 
-    // 8) 整形
+    // 7) 整形（リンク入り）→ 以降は lastData だけを使う（＝150超えは絶対に出ない）
     lastData=tracks.map(t=>{
       const f=featById[t.id]||{};
       const artistNames=t.artists.map(a=>a.name).join(", ");
@@ -229,23 +237,25 @@ async function runTDCSOnly(){
         valence:f.valence??"",loudness:f.loudness??""};
     });
 
-    // 9) 表示
+    // 8) 表示（=150曲だけ）
     const ol=$("#tracks"); ol.innerHTML="";
-    lastData.forEach((r,i)=>{const li=document.createElement("li"); const a=document.createElement("a");
-      a.href=r.track_url; a.textContent=r.name; a.target="_blank"; a.rel="noopener";
-      li.append(`${i+1}. `); li.append(a); li.append(` — ${r.artists} (pop:${r.popularity}${r.tempo?`, tempo:${r.tempo}`:""})`);
-      ol.appendChild(li);});
-    setStatus(`Loaded ${lastData.length} tracks — TDCS ONLY${lastData.length===EXACT_LIMIT?" (exact 120)":""}`);
+    lastData.forEach((r,i)=>{
+      const li=document.createElement("li");
+      const a=document.createElement("a"); a.href=r.track_url; a.textContent=r.name; a.target="_blank"; a.rel="noopener";
+      li.append(`${i+1}. `, a, ` — ${r.artists} (pop:${r.popularity}${r.tempo?`, tempo:${r.tempo}`:""})`);
+      ol.appendChild(li);
+    });
+    setStatus(`Loaded ${lastData.length} tracks — TDCS ONLY (EXACT ${EXACT_LIMIT})`);
   }catch(e){ setStatus(e.message||String(e)); }
   finally{ running=false; }
 }
 
-/* ---- Downloads ---- */
-document.getElementById("btnDLhtml").onclick=()=>lastData.length&&download("tdcs_only_120.html",htmlList(lastData),"text/html");
-document.getElementById("btnDLjson").onclick=()=>lastData.length&&download("tdcs_only_120.json",JSON.stringify(lastData,null,2),"application/json");
-document.getElementById("btnDLcsv").onclick =()=>lastData.length&&download("tdcs_only_120.csv",toCSV(lastData),"text/csv");
+/* ---- Downloads（=150曲だけを書き出し） ---- */
+document.getElementById("btnDLhtml").onclick=()=>lastData.length&&download("tdcs_only_150.html",htmlList(lastData),"text/html");
+document.getElementById("btnDLjson").onclick=()=>lastData.length&&download("tdcs_only_150.json",JSON.stringify(lastData,null,2),"application/json");
+document.getElementById("btnDLcsv").onclick =()=>lastData.length&&download("tdcs_only_150.csv",toCSV(lastData),"text/csv");
 
-/* ---- Playlist（既定=非公開） ---- */
+/* ---- Playlist（既定=非公開／150曲だけ追加） ---- */
 async function getMe(){return spGet("me",{});}
 async function createPlaylist(name,desc,isPublic){
   const me=await getMe();
@@ -253,15 +263,15 @@ async function createPlaylist(name,desc,isPublic){
 }
 async function addTracksToPlaylist(playlistId,trackIds){
   const uris=[...new Set(trackIds)].filter(Boolean).map(id=>`spotify:track:${id}`);
-  for(const batch of chunk(uris,100)){ await spPost(`playlists/${playlistId}/tracks`,{uris:batch}); await delay(250); }
+  for(const batch of chunk(uris,100)){ await spPost(`playlists/${playlistId}/tracks`,{uris:batch}); await sleep(250); }
 }
 document.getElementById("btnCreate").onclick=async()=>{
   try{
     if(!lastData.length){ setStatus("先に Build TDCS-only を実行して曲を用意してね"); return; }
-    const name=$("#plName").value||"PROGAPANDA • TOP120 (TDCS ONLY)";
+    const name=$("#plName").value||"PROGAPANDA • TOP150 (TDCS ONLY)";
     const isPublic=$("#plPublic").checked; // 既定OFF = 非公開
     setStatus(`Creating ${isPublic?"public":"private"} playlist…`);
-    const pl=await createPlaylist(name,"Auto-built (TDCS ONLY, exact 120).",isPublic);
+    const pl=await createPlaylist(name,"Auto-built (TDCS ONLY, exact 150).",isPublic);
     setStatus("Adding tracks…");
     await addTracksToPlaylist(pl.id,lastData.map(x=>x.id));
     const url = pl.external_urls?.spotify || `https://open.spotify.com/playlist/${pl.id}`;
