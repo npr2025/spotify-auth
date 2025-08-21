@@ -1,22 +1,20 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>Spotify — ALL (Strict) & Private Playlist</title>
+<title>Spotify — TDCS ONLY / EXACT 120 (Private Playlist)</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:980px;margin:40px auto">
   <h1>Spotify Authentication</h1>
-  <p id="status">Signed in. Build ALL → Create Private Playlist.</p>
+  <p id="status">Signed in. Build TDCS-only (exact 120) → Create Private Playlist.</p>
 
   <section id="app" style="display:block">
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0">
       <label>Groups:
         <select id="groups">
-          <option value="album,single,appears_on,compilation" selected>All</option>
+          <!-- appears_on を外す（他人名義混入を避ける） -->
+          <option value="album,single,compilation" selected>Albums + Singles + Compilations</option>
           <option value="album,single">Albums + Singles</option>
-          <option value="appears_on,compilation">Appears/Compilations</option>
         </select>
       </label>
-      <label><input type="checkbox" id="strict" checked> Strict artist filter</label>
-      <label><input type="checkbox" id="primaryOnly"> Primary only</label>
       <label><input type="checkbox" id="allMarkets" checked> All markets (no region filter)</label>
       <label>Market (only when All markets is OFF):
         <select id="market">
@@ -24,10 +22,9 @@
           <option value="GB">GB</option><option value="DE">DE</option>
         </select>
       </label>
-      <label><input type="checkbox" id="useTopTracks" checked> Fallback: artist Top Tracks (multi markets)</label>
-      <label><input type="checkbox" id="noLimit" checked> No limit (ALL)</label>
       <label><input type="checkbox" id="wantFeatures"> Fetch audio-features (optional)</label>
-      <button id="btnFetch">Build ALL (strict) with Links</button>
+
+      <button id="btnFetch">Build TDCS-only (exact 120)</button>
       <button id="btnDLhtml">Download HTML</button>
       <button id="btnDLjson">Download JSON</button>
       <button id="btnDLcsv">Download CSV</button>
@@ -35,7 +32,7 @@
 
     <!-- ★ プレイリスト作成（既定=非公開） -->
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0;padding:10px;border:1px solid #ddd;border-radius:8px">
-      <input id="plName"  style="min-width:320px" value="PROGAPANDA • ALL (TDCS)">
+      <input id="plName"  style="min-width:320px" value="PROGAPANDA • TOP120 (TDCS ONLY)">
       <label><input id="plPublic" type="checkbox"> Make Public</label>
       <button id="btnCreate">Create Playlist (Private by default)</button>
       <span id="plLink"></span>
@@ -45,12 +42,12 @@
   </section>
 
 <script>
-/* ====== Config ====== */
+/* ====== Fixed config ====== */
 const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
 const ARTIST_ID    = "55fvQ5I2IZUfcFT2DV02T3"; // The Darrow Chem Syndicate
-const TOP_MARKETS  = ["US","JP","GB","DE","BR","MX","CA","AU","FR","ES"]; // Top Tracks補完用
-/* ==================== */
+const EXACT_LIMIT  = 120;                         // ← ちょうど120に固定
+/* ========================== */
 
 const $=(s)=>document.querySelector(s);
 const setStatus=(t)=>{$("#status").textContent=t; console.log(t);};
@@ -82,7 +79,7 @@ function chunk(a,n){const o=[];for(let i=0;i<a.length;i+=n)o.push(a.slice(i,i+n)
 const esc=(s)=>(''+(s??'')).replace(/"/g,'""');
 const delay=(ms)=>new Promise(r=>setTimeout(r,ms));
 
-/* ---- Spotify helpers（強化：指数バックオフ） ---- */
+/* ---- Spotify helpers（指数バックオフ） ---- */
 async function spGet(path, params={}, retry=8, base=600){
   let attempt=0;
   while(true){
@@ -121,7 +118,7 @@ async function spReq(method,path,body=null,params={},retry=8,base=600){
 }
 const spPost=(path,body,params)=>spReq("POST",path,body,params);
 
-/* ---- Collectors（厳密フィルタ付き） ---- */
+/* ---- Collectors（TDCS限定） ---- */
 async function fetchAllAlbums(artistId, include_groups, allMarkets, market){
   let items=[],offset=0;
   while(true){
@@ -129,41 +126,31 @@ async function fetchAllAlbums(artistId, include_groups, allMarkets, market){
     const page=await spGet(`artists/${artistId}/albums`,params);
     items.push(...(page.items||[])); if(!page.next) break; offset+=50;
   }
-  const seen=new Set(), albums=[]; for(const a of items){ if(!seen.has(a.id)){seen.add(a.id); albums.push(a);} }
+  // 重複除去
+  const seen=new Set(), albums=[];
+  for(const a of items){ if(!seen.has(a.id)){ seen.add(a.id); albums.push(a); } }
   return albums;
 }
 
-async function fetchAlbumTracksStrict(albumId, allMarkets, market, artistId, primaryOnly){
-  let tracks=[], offset=0;
+async function fetchAlbumTracks_TDCS(album, allMarkets, market, artistId){
+  // アルバム自体に TDCS が含まれない場合はスキップ
+  const albumHasTDCS = (album.artists||[]).some(a=>a?.id===artistId);
+  if(!albumHasTDCS) return [];
+  let keep=[], offset=0;
   while(true){
     const params={limit:50,offset}; if(!allMarkets) params.market=market;
-    const page=await spGet(`albums/${albumId}/tracks`,params);
-    const keep=(page.items||[]).filter(t=>{
-      const has = Array.isArray(t.artists) && t.artists.some(a=>a?.id===artistId);
-      if(!has) return false;
-      if(primaryOnly) return t.artists?.[0]?.id===artistId;
-      return true;
-    });
-    tracks.push(...keep.map(t=>t.id));
+    const page=await spGet(`albums/${album.id}/tracks`,params);
+    // 各曲の artists[] にも TDCS が含まれるものだけ採用
+    const ok=(page.items||[]).filter(t=> Array.isArray(t.artists) && t.artists.some(a=>a?.id===artistId) );
+    keep.push(...ok.map(t=>t.id));
     if(!page.next) break; offset+=50;
   }
-  return tracks;
-}
-
-async function fetchArtistTopTracksMulti(artistId){
-  const ids=new Set();
-  for(const m of TOP_MARKETS){
-    try{
-      const res=await spGet(`artists/${artistId}/top-tracks`,{market:m});
-      (res.tracks||[]).forEach(t=>ids.add(t.id));
-      await delay(150); // 軽いスロットリング
-    }catch{}
-  }
-  return [...ids];
+  return keep;
 }
 
 /* ---- Audio features（任意） ---- */
 async function fetchAudioFeaturesSafe(trackIds){
+  if(!$("#wantFeatures").checked) return {};
   const out={}; for(const batch of chunk(trackIds.filter(Boolean),50)){
     try{
       const data=await spGet("audio-features",{ids:batch.join(",")});
@@ -171,6 +158,7 @@ async function fetchAudioFeaturesSafe(trackIds){
     }catch(_){
       for(const id of batch){ try{ const f=await spGet(`audio-features/${id}`,{}); if(f&&f.id) out[f.id]=f; } catch{ out[id]=null; } }
     }
+    await delay(1000);
   } return out;
 }
 
@@ -179,7 +167,7 @@ let running=false, lastData=[];
 function toCSV(rows){ if(!rows.length) return ""; const head=Object.keys(rows[0]); const lines=[head.join(",")];
   for(const r of rows) lines.push(head.map(k=>`"${esc(r[k])}"`).join(",")); return lines.join("\n");}
 function download(name,text,mime){const b=new Blob([text],{type:mime}); const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=name; a.click(); URL.revokeObjectURL(a.href);}
-function htmlList(rows,title="All Tracks — TDCS"){
+function htmlList(rows,title="TDCS ONLY — 120"){
   const items=rows.map((r,i)=>{const t=`<a href="${r.track_url}" target="_blank" rel="noopener">${esc(r.name)}</a>`;
     const al=r.album_url?` • <a href="${r.album_url}" target="_blank" rel="noopener">${esc(r.album)}</a>`:"";
     const as=r.artist_urls? r.artist_urls.split(" | ").map((u,j)=>`<a href="${u}" target="_blank" rel="noopener">${esc(r.artists.split(", ")[j]||"Artist")}</a>`).join(", "):esc(r.artists);
@@ -187,53 +175,46 @@ function htmlList(rows,title="All Tracks — TDCS"){
   return `<!doctype html><meta charset="utf-8"><title>${esc(title)}</title><body style="font-family:system-ui,-apple-system;max-width:900px;margin:40px auto"><h1>${esc(title)}</h1><ol>${items}</ol></body>`;
 }
 
-async function runAll(){
+async function runTDCSOnly(){
   if(running) return; running=true;
   try{
-    setStatus("Building ALL (strict)…");
-    const groups=$("#groups").value||"album,single,appears_on,compilation";
+    setStatus("Building TDCS-only…");
+    const groups=$("#groups").value||"album,single,compilation";
     const allMarkets=$("#allMarkets").checked; const market=$("#market").value||"US";
-    const strict=$("#strict").checked; const primaryOnly=$("#primaryOnly").checked;
-    const useTop=$("#useTopTracks").checked; const noLimit=$("#noLimit").checked;
-    const wantFeatures=$("#wantFeatures").checked;
 
-    // 1) 全アルバム
+    // 1) TDCS名義アルバム群
     const albums=await fetchAllAlbums(ARTIST_ID,groups,allMarkets,market);
-    setStatus(`Collecting from ${albums.length} albums…`);
+    setStatus(`Collecting from ${albums.length} TDCS albums…`);
 
-    // 2) アルバムから曲を厳密抽出
+    // 2) 各アルバムから TDCS 含む曲のみ
     let trackIds=[];
     for(const batch of chunk(albums,8)){
-      const packs = await Promise.all(batch.map(a=>fetchAlbumTracksStrict(a.id,allMarkets,market,ARTIST_ID,primaryOnly).catch(()=>[])));
+      const packs = await Promise.all(batch.map(a=>fetchAlbumTracks_TDCS(a,allMarkets,market,ARTIST_ID).catch(()=>[])));
       packs.forEach(ids=>trackIds.push(...ids));
-      await delay(120); // 穏やかに
+      await delay(120);
     }
-
-    // 3) 補完（アーティスト Top Tracks のみ）
-    if(useTop){
-      setStatus("Adding artist Top Tracks (multi markets) …");
-      const extra = await fetchArtistTopTracksMulti(ARTIST_ID);
-      trackIds.push(...extra);
-    }
-
-    // 4) 重複排除 → 詳細取得（ALL）
+    // 3) 重複排除
     trackIds=[...new Set(trackIds)];
+
+    // 4) 詳細取得
     setStatus(`Fetching track details (${trackIds.length})…`);
     let tracks=[]; for(const ids of chunk(trackIds,50)){ const d=await spGet("tracks",{ids:ids.join(",")}); tracks.push(...(d.tracks||[])); await delay(80); }
-    // 念のためここでも厳密フィルタ（検索/TopTracksで混入しないが安全のため）
-    if(strict){
-      tracks = tracks.filter(t=>{
-        const has = t.artists?.some(a=>a?.id===ARTIST_ID);
-        return primaryOnly ? (has && t.artists?.[0]?.id===ARTIST_ID) : has;
-      });
+
+    // 5) 念のための最終フィルタ（曲にもTDCSがいるものだけ）
+    tracks = tracks.filter(t=> t && t.artists?.some(a=>a?.id===ARTIST_ID));
+
+    // 6) 人気降順 → 120曲ちょうど
+    tracks = tracks.sort((a,b)=>(b.popularity||0)-(a.popularity||0));
+    if (tracks.length >= EXACT_LIMIT) {
+      tracks = tracks.slice(0, EXACT_LIMIT);
+    } else {
+      setStatus(`Only ${tracks.length} tracks found for TDCS-only. (不足: ${EXACT_LIMIT - tracks.length})`);
     }
-    tracks = tracks.filter(Boolean).sort((a,b)=>(b.popularity||0)-(a.popularity||0));
-    if(!noLimit) tracks = tracks.slice(0,120);
 
-    // 5) audio-features（任意）
-    let featById={}; if(wantFeatures){ setStatus("Fetching audio-features…"); featById=await fetchAudioFeaturesSafe(tracks.map(t=>t.id)); }
+    // 7) features（任意）
+    let featById={}; try{ featById=await fetchAudioFeaturesSafe(tracks.map(t=>t.id)); } catch(e){ setStatus("features skipped: "+(e.message||e)); }
 
-    // 6) 整形
+    // 8) 整形
     lastData=tracks.map(t=>{
       const f=featById[t.id]||{};
       const artistNames=t.artists.map(a=>a.name).join(", ");
@@ -248,21 +229,21 @@ async function runAll(){
         valence:f.valence??"",loudness:f.loudness??""};
     });
 
-    // 7) 表示
+    // 9) 表示
     const ol=$("#tracks"); ol.innerHTML="";
     lastData.forEach((r,i)=>{const li=document.createElement("li"); const a=document.createElement("a");
       a.href=r.track_url; a.textContent=r.name; a.target="_blank"; a.rel="noopener";
       li.append(`${i+1}. `); li.append(a); li.append(` — ${r.artists} (pop:${r.popularity}${r.tempo?`, tempo:${r.tempo}`:""})`);
       ol.appendChild(li);});
-    setStatus(`Loaded ${lastData.length} tracks ${strict?"[strict]":""} ${noLimit?"(ALL)":""}`);
+    setStatus(`Loaded ${lastData.length} tracks — TDCS ONLY${lastData.length===EXACT_LIMIT?" (exact 120)":""}`);
   }catch(e){ setStatus(e.message||String(e)); }
   finally{ running=false; }
 }
 
 /* ---- Downloads ---- */
-document.getElementById("btnDLhtml").onclick=()=>lastData.length&&download("spotify_all_with_links.html",htmlList(lastData),"text/html");
-document.getElementById("btnDLjson").onclick=()=>lastData.length&&download("spotify_all_with_links.json",JSON.stringify(lastData,null,2),"application/json");
-document.getElementById("btnDLcsv").onclick =()=>lastData.length&&download("spotify_all_with_links.csv",toCSV(lastData),"text/csv");
+document.getElementById("btnDLhtml").onclick=()=>lastData.length&&download("tdcs_only_120.html",htmlList(lastData),"text/html");
+document.getElementById("btnDLjson").onclick=()=>lastData.length&&download("tdcs_only_120.json",JSON.stringify(lastData,null,2),"application/json");
+document.getElementById("btnDLcsv").onclick =()=>lastData.length&&download("tdcs_only_120.csv",toCSV(lastData),"text/csv");
 
 /* ---- Playlist（既定=非公開） ---- */
 async function getMe(){return spGet("me",{});}
@@ -276,11 +257,11 @@ async function addTracksToPlaylist(playlistId,trackIds){
 }
 document.getElementById("btnCreate").onclick=async()=>{
   try{
-    if(!lastData.length){ setStatus("先に Build ALL を実行して曲を用意してね"); return; }
-    const name=$("#plName").value||"TDCS — ALL";
+    if(!lastData.length){ setStatus("先に Build TDCS-only を実行して曲を用意してね"); return; }
+    const name=$("#plName").value||"PROGAPANDA • TOP120 (TDCS ONLY)";
     const isPublic=$("#plPublic").checked; // 既定OFF = 非公開
     setStatus(`Creating ${isPublic?"public":"private"} playlist…`);
-    const pl=await createPlaylist(name,"Auto-built from TDCS discography (strict, all markets).",isPublic);
+    const pl=await createPlaylist(name,"Auto-built (TDCS ONLY, exact 120).",isPublic);
     setStatus("Adding tracks…");
     await addTracksToPlaylist(pl.id,lastData.map(x=>x.id));
     const url = pl.external_urls?.spotify || `https://open.spotify.com/playlist/${pl.id}`;
@@ -299,7 +280,7 @@ document.getElementById("btnCreate").onclick=async()=>{
     try{ const tok=await exchangeAuthCode(code,verifier); clearPkce(); history.replaceState({},document.title,location.pathname); saveToken(tok);}
     catch(e){ setStatus(e.message); return; }
   }
-  document.getElementById("btnFetch").onclick=()=>runAll();
+  document.getElementById("btnFetch").onclick=()=>runTDCSOnly();
 })();
 </script>
 </body>
