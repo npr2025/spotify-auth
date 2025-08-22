@@ -3,424 +3,75 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TDCS 130→100 (Remix-only, Pins enforced)</title>
+<title>Spotify Auth Callback</title>
 <style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1100px;margin:36px auto;padding:0 12px}
-  button{padding:8px 12px;border:1px solid #bbb;border-radius:8px;background:#f6f6f6;cursor:pointer}
-  button:disabled{opacity:.45;cursor:not-allowed}
-  input,select{padding:6px 8px;border:1px solid #ccc;border-radius:6px}
-  #row{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
-  #pins{display:grid;grid-template-columns:180px 1fr 160px;gap:8px;align-items:center;margin:10px 0;padding:10px;border:1px dashed #ddd;border-radius:8px;background:#fafafa}
-  #log{background:#0b1220;color:#cfe3ff;padding:10px;border-radius:8px;max-height:360px;overflow:auto;white-space:pre-wrap;margin-top:12px}
-  #debug{font-size:13px;color:#333;background:#f6f6f9;border:1px solid #e5e6ef;border-radius:8px;padding:8px;margin:12px 0}
-  ol{line-height:1.5}
-  label.small{font-size:12px;color:#666}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:900px;margin:36px auto;padding:0 12px}
+  #log{background:#0b1220;color:#cfe3ff;padding:12px;border-radius:8px;white-space:pre-wrap;max-height:420px;overflow:auto;margin-top:12px}
+  a.btn,button{display:inline-block;margin:6px 8px 0 0;padding:9px 12px;border:1px solid #bbb;border-radius:8px;background:#fff;text-decoration:none;cursor:pointer}
 </style>
 </head>
 <body>
-<h1>Spotify Authentication</h1>
-<p id="status">Booting…</p>
-
-<div id="row">
-  <label>Market
-    <select id="market">
-      <option>US</option><option selected>JP</option><option>GB</option><option>DE</option>
-    </select>
-  </label>
-  <button id="btn130">Build 130 (Remix-only)</button>
-  <button id="btn100" disabled>Pick Balanced 100 (Remix-only)</button>
-  <button id="btnHead5" disabled>Optimize Head-5</button>
-  <input id="plName" style="min-width:360px" value="PROGAPANDA • Balanced100 (TDCS Remixes)">
-  <label><input id="plPublic" type="checkbox"> Make Public</label>
-  <button id="btnCreate" disabled>Create Playlist</button>
-</div>
-
-<div id="pins">
-  <div><b>Pin Track IDs（固定）</b><div class="small">※空欄は無視、重複は自動排除／Remixのみ採用／“Mix”は全面除外</div></div>
-  <input id="pinOpen"  value="0ueNjvhtXGDFkJQ5WBQ4mE" placeholder="先頭 (#1)">
-  <span class="small">先頭 (#1)</span>
-
-  <div></div>
-  <input id="pinEarly" value="63dYSEftdSYwMAFBNfQYsA" placeholder="上旬（#4目安）">
-  <span class="small">上旬 (目安 #4)</span>
-
-  <div></div>
-  <input id="pinMid"   value="3NQuIFfQPhTICaXGYe5dAt" placeholder="中盤（#55目安）">
-  <span class="small">中盤 (目安 #55)</span>
-
-  <div></div>
-  <input id="pinLate"  value="7ltcrdlVsXyU5HU9VCAj6P" placeholder="後半（#95目安）">
-  <span class="small">後半 (目安 #95)</span>
-</div>
-
-<div id="debug">
-  <b>Token:</b> <span id="tokstate">–</span> |
-  <button id="btnRefresh">Refresh token</button>
-  <button id="btnReauth">Re-auth</button>
-</div>
-
-<ol id="tracks"></ol>
+<h1>Spotify Auth Callback</h1>
+<p id="status">Waiting for code…</p>
+<p>
+  <button id="btnBack">アプリへ戻る</button>
+</p>
 <pre id="log"></pre>
 
 <script>
-/*** 固定（あなたの環境） ***/
 const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
-const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
-const ARTIST_ID    = "55fvQ5I2IZUfcFT2DV02T3";
-const ARTIST_NAME  = "The Darrow Chem Syndicate";
-const USER_ID      = "22fqn5mozguuegi2t3l2zeugy";
-const DESIRED_SCOPES = ["playlist-modify-private","playlist-modify-public"];
-const EXACT_LIMIT_130 = 130;
-const EXACT_LIMIT_100 = 100;
+const TOKEN_URL    = "https://accounts.spotify.com/api/token";
+const REDIRECT_TO  = () => sessionStorage.getItem("return_to") || "./";
 
-/*** 便利関数 ***/
-const $=s=>document.querySelector(s);
-const log=m=>{const el=$("#log"); el.textContent+=m+"\n"; el.scrollTop=el.scrollHeight; console.log(m);}
-const setStatus=t=>{ $("#status").textContent=t; log(t); }
-async function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+const log  = m => { const el=document.querySelector("#log"); el.textContent += m+"\n"; el.scrollTop=el.scrollHeight; console.log(m); };
+const setStatus = t => { document.querySelector("#status").textContent = t; log(t); };
 
-/*** 厳格フィルタ：Remixのみ / “Mix”は1文字でも入ってたら除外 ***/
-// 「Remix」はOK（単語）。「mix」が単語で入ってたら却下（Remix内の“mix”は単語一致しないのでOK）
-function isRemixOnly(name){
-  const s = name || "";
-  const hasRemix = /\bremix\b/i.test(s);
-  const hasMixWord = /\bmix\b/i.test(s); // “club mix”, “extended mix”, “continuous mix”, などを除外
-  return hasRemix && !hasMixWord;
-}
+document.querySelector("#btnBack").onclick = ()=> location.replace(REDIRECT_TO());
 
-/*** トークン管理（自動更新・スコープ検証） ***/
-function saveToken(t){
+async function exchange(){
+  const qp = new URLSearchParams(location.search);
+  const code  = qp.get("code");
+  const state = qp.get("state");
+  const err   = qp.get("error");
+  if(err){ setStatus("auth error: "+err); return; }
+  if(!code){ setStatus("code not found."); return; }
+
+  const savedState   = sessionStorage.getItem("pkce_state");
+  const codeVerifier = sessionStorage.getItem("pkce_verifier");
+  if(!savedState || !codeVerifier){ setStatus("missing PKCE params in sessionStorage."); return; }
+  if(state !== savedState){ setStatus("state mismatch."); return; }
+
+  setStatus("Exchanging code → token…");
+  const body = new URLSearchParams({
+    client_id: CLIENT_ID,
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: location.origin + location.pathname, // このcallback.html自身
+    code_verifier: codeVerifier
+  });
+  const r = await fetch(TOKEN_URL,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
+  if(!r.ok){ setStatus("token exchange failed: "+r.status+" "+(await r.text())); return; }
+  const t = await r.json();
+
   const expAt = Date.now() + (t.expires_in||3600)*1000;
   sessionStorage.setItem("sp_access_token", t.access_token);
-  if(t.refresh_token) sessionStorage.setItem("sp_refresh_token", t.refresh_token);
   sessionStorage.setItem("sp_exp_at", String(expAt));
   sessionStorage.setItem("sp_scope", t.scope||"");
-  updateTokenDebug();
-}
-function clearToken(){
-  ["sp_access_token","sp_refresh_token","sp_exp_at","sp_scope","pkce_state","pkce_verifier"].forEach(k=>sessionStorage.removeItem(k));
-  updateTokenDebug();
-}
-function scopeOk(required){
-  const s=(sessionStorage.getItem("sp_scope")||"").split(" ");
-  return required.every(x=>s.includes(x));
-}
-function updateTokenDebug(){
-  const exp=+sessionStorage.getItem("sp_exp_at")||0;
-  const left = exp? Math.max(0, Math.floor((exp-Date.now())/1000)) : 0;
-  const rt = !!sessionStorage.getItem("sp_refresh_token");
-  const sc = sessionStorage.getItem("sp_scope")||"";
-  $("#tokstate").textContent = (sessionStorage.getItem("sp_access_token")?"OK":"NONE")+
-    ` / exp in ${left}s / refresh:${rt?"yes":"no"} / scope:[${sc}]`;
-}
-async function tokenByCode(code,verifier){
-  const body=new URLSearchParams({
-    client_id:CLIENT_ID, grant_type:"authorization_code", code, redirect_uri:REDIRECT_URI, code_verifier:verifier
-  });
-  const r=await fetch("https://accounts.spotify.com/api/token",{
-    method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"}, body
-  });
-  if(!r.ok) throw new Error(`Token exchange ${r.status}`);
-  return r.json();
-}
-async function refreshTokenNow(){
-  const rt=sessionStorage.getItem("sp_refresh_token");
-  if(!rt) throw new Error("No refresh_token");
-  const r=await fetch("https://accounts.spotify.com/api/token",{
-    method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"},
-    body:new URLSearchParams({client_id:CLIENT_ID,grant_type:"refresh_token",refresh_token:rt})
-  });
-  if(!r.ok){ clearToken(); throw new Error(`Refresh ${r.status}`); }
-  const t=await r.json(); saveToken(t); log("Token refreshed.");
-}
-async function ensureToken(requiredScopes=DESIRED_SCOPES){
-  updateTokenDebug();
-  if(!scopeOk(requiredScopes)) { log("Scope insufficient → re-auth"); reauth(); await new Promise(()=>{}); }
-  const tok=sessionStorage.getItem("sp_access_token");
-  const exp=+sessionStorage.getItem("sp_exp_at")||0;
-  if(tok && Date.now()<exp-120000) return tok; // 2分マージン
-  const rt=sessionStorage.getItem("sp_refresh_token");
-  if(rt){ await refreshTokenNow(); return sessionStorage.getItem("sp_access_token"); }
-  reauth(); await new Promise(()=>{});
-}
-function reauth(){ location.href="auth.html"; }
-
-/*** API（レートセーフ） ***/
-let GAP_MS = 1500; // Search-onlyなので控えめ
-async function spGet(path,params={}){
-  const u=new URL("https://api.spotify.com/v1/"+path);
-  Object.entries(params).forEach(([k,v])=>{ if(v!=null&&v!=="") u.searchParams.set(k,v);});
-  await sleep(GAP_MS);
-  const r=await fetch(u,{headers:{Authorization:"Bearer "+await ensureToken()}});
-  if(r.status===401){ log("401 → refresh and retry"); await refreshTokenNow(); return spGet(path,params); }
-  if(r.status===429){ const ra=+r.headers.get("retry-after")||2; log(`429 → wait ${ra}s`); await sleep(ra*1000); return spGet(path,params); }
-  if(!r.ok) throw new Error(`${path} ${r.status}`);
-  return r.json();
-}
-async function spPost(path,body,scopeNeed=["playlist-modify-private"]){
-  await ensureToken(scopeNeed);
-  await sleep(GAP_MS);
-  const r=await fetch("https://api.spotify.com/v1/"+path,{
-    method:"POST",
-    headers:{Authorization:"Bearer "+sessionStorage.getItem("sp_access_token"),"Content-Type":"application/json"},
-    body:JSON.stringify(body)
-  });
-  if(r.status===401){ log("POST 401 → refresh and retry"); await refreshTokenNow(); return spPost(path,body,scopeNeed); }
-  if(r.status===429){ const ra=+r.headers.get("retry-after")||2; log(`POST 429 → wait ${ra}s`); await sleep(ra*1000); return spPost(path,body,scopeNeed); }
-  if(!r.ok) throw new Error(`POST ${path} ${r.status} ${await r.text()}`);
-  return r.json();
-}
-
-/*** Search（Remix-only / Mix除外 を検索段階でも適用） ***/
-async function searchAllRemixesByArtist(market="US", maxPages=20){
-  const keep=[], seen=new Set(); let offset=0;
-  const q = `artist:"${ARTIST_NAME}" remix`; // クエリでもremixで絞る
-  for(let i=0;i<maxPages;i++){
-    const d=await spGet("search",{ q, type:"track", market, limit:50, offset });
-    const items=d?.tracks?.items||[];
-    for(const t of items){
-      if(!t?.name) continue;
-      if(!t.artists?.some(a=>a.id===ARTIST_ID)) continue;
-      if(!isRemixOnly(t.name)) continue; // ★ 厳格適用
-      if(!seen.has(t.id)){ seen.add(t.id); keep.push(t); }
-    }
-    log(`page ${i+1}: fetched ${items.length}, remixes kept ${keep.length}`);
-    if(!d?.tracks?.next) break;
-    offset += 50;
+  if(t.refresh_token){
+    sessionStorage.setItem("sp_refresh_token", t.refresh_token);
+    localStorage.setItem("sp_refresh_token", t.refresh_token); // 長期保持
   }
-  return keep;
+  // PKCEワーク変数を掃除
+  sessionStorage.removeItem("pkce_state");
+  sessionStorage.removeItem("pkce_verifier");
+
+  setStatus("Authorized. returning to app…");
+  // クエリを消してから戻る
+  history.replaceState({}, document.title, location.pathname);
+  setTimeout(()=>location.replace(REDIRECT_TO()), 400);
 }
 
-async function fetchTrackMeta(id, market="US"){
-  const t=await spGet(`tracks/${id}`,{market});
-  if(!t || !t.id) throw new Error("Track not found: "+id);
-  if(!t.artists?.some(a=>a.id===ARTIST_ID)) throw new Error("Not TDCS track: "+id);
-  const title=t.name||"";
-  if(!isRemixOnly(title)) throw new Error("Pin must be REMIX-only (no 'Mix'): " + title);
-  const artists=t.artists.map(a=>a.name).join(", ");
-  return {
-    id:t.id, name:t.name, artists,
-    popularity:t.popularity||0,
-    track_url:t.external_urls?.spotify || `https://open.spotify.com/track/${t.id}`,
-    album:t.album?.name||"", album_url:t.album?.external_urls?.spotify||""
-  };
-}
-
-/*** 整形・選曲 ***/
-let base130=[], lastData=[];
-function render(list){
-  const ol=$("#tracks"); ol.innerHTML="";
-  list.forEach((r,i)=>{
-    const li=document.createElement("li");
-    const a=document.createElement("a"); a.href=r.track_url; a.textContent=r.name; a.target="_blank"; a.rel="noopener";
-    li.append(`${i+1}. `, a, ` — ${r.artists} (pop:${r.popularity})`);
-    ol.appendChild(li);
-  });
-  const on=list.length>0; $("#btn100").disabled=!on; $("#btnHead5").disabled=!on; $("#btnCreate").disabled=!on;
-}
-function pickBalanced100(rows){
-  // features無し前提：pop偏重 + 同一アルバム最大2曲 + 100曲ちょうど
-  rows.forEach(r=>{ r._score = (r.popularity||0)/100; });
-  const byScore=[...rows].sort((a,b)=>b._score-a._score);
-  const picked=[], seen=new Set(), albumCnt={};
-  const okAlbum=r=>{ const k=r.album+"::"+r.artists; albumCnt[k]=(albumCnt[k]||0)+1; return albumCnt[k]<=2; };
-  for(const r of byScore){
-    if(picked.length>=EXACT_LIMIT_100) break;
-    if(!seen.has(r.id) && okAlbum(r)){ picked.push(r); seen.add(r.id); }
-  }
-  return picked;
-}
-
-/*** Pins ***/
-function getPinIds(){
-  return {
-    open: ($("#pinOpen").value||"").trim(),
-    early:($("#pinEarly").value||"").trim(),
-    mid:  ($("#pinMid").value||"").trim(),
-    late: ($("#pinLate").value||"").trim()
-  };
-}
-function dropDupAndKeepLen(list, keepSet, targetLen){
-  // 重複排除しつつ targetLen まで削る（Pinは守る）
-  const out=[]; const seen=new Set();
-  for(const r of list){
-    if(seen.has(r.id)) continue;
-    seen.add(r.id); out.push(r);
-  }
-  while(out.length>targetLen){
-    const last = out[out.length-1];
-    if(keepSet.has(last.id)){
-      // 後方から非Pinを探して間引く
-      let idx = -1;
-      for(let i=out.length-1;i>=0;i--){ if(!keepSet.has(out[i].id)){ idx=i; break; } }
-      if(idx<0) break;
-      out.splice(idx,1);
-    }else out.pop();
-  }
-  return out;
-}
-async function ensurePinsInBase(market){
-  // base130 にピンが必ず含まれる（Remix-only ルールで検証）
-  const pins=getPinIds();
-  const pinList=[pins.open,pins.early,pins.mid,pins.late].filter(Boolean);
-  const have=new Set(base130.map(x=>x.id));
-  for(const id of pinList){
-    if(!have.has(id)){
-      try{
-        const row=await fetchTrackMeta(id, market);
-        base130.unshift(row);
-        have.add(id);
-      }catch(e){ log("PIN include warn: "+e.message); }
-    }
-  }
-  // 130ちょうどに調整（Pin優先で非Pin末尾を削る）
-  const keepSet=new Set(pinList);
-  base130 = dropDupAndKeepLen(base130, keepSet, EXACT_LIMIT_130);
-}
-async function forcePinsInto100(list, market){
-  // 100曲リストに必ずピンを含め、配置も反映（Remix-only ルール）
-  const pins=getPinIds();
-  const plan=[
-    {id:pins.open,  pos:0},      // #1
-    {id:pins.early, pos:7},      // #8
-    {id:pins.mid,   pos:44},     // #45
-    {id:pins.late,  pos:74}      // #75
-  ].filter(p=>p.id);
-  // 無いピンはAPIで取得
-  const byId=new Map(list.map(x=>[x.id,x]));
-  for(const p of plan){
-    if(!byId.has(p.id)){
-      try{
-        const row=await fetchTrackMeta(p.id, market);
-        list.push(row);
-        byId.set(row.id,row);
-      }catch(e){ log("PIN add warn: "+e.message); }
-    }
-  }
-  // ピン配置
-  const pinSet=new Set(plan.map(p=>p.id));
-  list = list.filter(x=>!pinSet.has(x.id)); // いったん外す
-  for(const p of plan){
-    const row=byId.get(p.id);
-    if(!row) continue;
-    const pos=Math.min(Math.max(p.pos,0), list.length);
-    list.splice(pos,0,row);
-  }
-  // 100曲ちょうどに（非Pinから間引き）
-  list = dropDupAndKeepLen(list, pinSet, EXACT_LIMIT_100);
-  return list;
-}
-
-/*** 130作成 → 100（Remix-only）→ Pins反映 → Head-5 → Playlist ***/
-let lastData=[];
-
-async function build130(){
-  $("#btn130").disabled=true;
-  try{
-    const mk=$("#market").value||"US";
-    setStatus(`Searching REMIXES of "${ARTIST_NAME}" in ${mk}… (Exclude any 'Mix')`);
-    let tracks=await searchAllRemixesByArtist(mk, 20);
-    if(tracks.length===0) throw new Error("No REMIX tracks found.");
-    // 整形（人気順）
-    tracks = tracks
-      .filter(t=>t && t.artists?.some(a=>a?.id===ARTIST_ID))
-      .sort((a,b)=>(b.popularity||0)-(a.popularity||0));
-    // 最大 130 → Pin を必ず含めて 130 に揃える
-    base130 = tracks.slice(0, Math.min(EXACT_LIMIT_130, tracks.length)).map(t=>{
-      const artists=t.artists.map(a=>a.name).join(", ");
-      return {
-        id:t.id, name:t.name, artists,
-        popularity:t.popularity||0,
-        track_url:t.external_urls?.spotify || `https://open.spotify.com/track/${t.id}`,
-        album:t.album?.name||"", album_url:t.album?.external_urls?.spotify||""
-      };
-    });
-    await ensurePinsInBase(mk);
-    base130.sort((a,b)=>(b.popularity||0)-(a.popularity||0));
-    lastData=base130.slice();
-    render(lastData);
-    setStatus(`Loaded ${lastData.length} REMIX tracks — TDCS ONLY (EXACT 130 if available)`);
-  }catch(e){ setStatus("Build error: "+(e.message||e)); }
-  $("#btn130").disabled=false;
-}
-$("#btn130").onclick=build130;
-
-$("#btn100").onclick=async ()=>{
-  if(!base130.length) return;
-  const mk=$("#market").value||"US";
-  // 再フィルタ（安全側）
-  const remixOnly = base130.filter(t => isRemixOnly(t.name));
-  let list = pickBalanced100(remixOnly);
-  list = await forcePinsInto100(list, mk);   // ★ ピンを必ず含め、所定位置へ
-  lastData = list;
-  render(lastData);
-  setStatus(`Balanced 100 (Remix-only) + Pins — ${lastData.length}`);
-};
-
-$("#btnHead5").onclick=()=>{
-  // Head-5 は“ピン位置はそのまま”で、非ピンの先頭5枠を人気順で最適化
-  if(!lastData.length) return;
-  const pins=getPinIds(); const pinSet=new Set(Object.values(pins).filter(Boolean));
-  const isPinned = x=>pinSet.has(x.id);
-  const pool=lastData.filter(t=>!isPinned(t)).map(t=>({t, pop:t.popularity||0})).sort((a,b)=>b.pop-a.pop);
-  const take=()=>pool.shift()?.t;
-  const head=[take(),take(),take(),take(),take()].filter(Boolean);
-  // 非ピンの先頭5スロットを head で差し替え（ピンは動かさない）
-  const nonPinIdxs = lastData.map((x,i)=>({x,i})).filter(v=>!isPinned(v.x)).map(v=>v.i).slice(0,head.length);
-  head.forEach((h,k)=>{ lastData[nonPinIdxs[k]] = h; });
-  render(lastData);
-  setStatus("Head-5 optimized (Pins preserved)");
-};
-
-async function createPlaylist(){
-  try{
-    if(!lastData.length) return;
-    const isPublic=$("#plPublic").checked;
-    const scopeNeed=[isPublic?"playlist-modify-public":"playlist-modify-private"];
-    const me=await spGet("me");
-    if(me?.id && me.id!==USER_ID) throw new Error(`Signed in as ${me.id}. Please sign in as ${USER_ID}.`);
-    const pl=await spPost(`users/${USER_ID}/playlists`,{
-      name:$("#plName").value||"PROGAPANDA • Balanced100 (TDCS Remixes)",
-      description:"Auto-curated REMIX-only (no Mix). Pins enforced. TDCS 130→100.",
-      public:!!isPublic
-    }, scopeNeed);
-    const uris=[...new Set(lastData.map(x=>"spotify:track:"+x.id))];
-    for(let i=0;i<uris.length;i+=100){
-      await spPost(`playlists/${pl.id}/tracks`,{uris:uris.slice(i,i+100)}, scopeNeed);
-      await sleep(300);
-    }
-    const url=pl.external_urls?.spotify || `https://open.spotify.com/playlist/${pl.id}`;
-    setStatus(`Done — ${lastData.length} tracks added (${isPublic?"public":"private"}). ${url}`);
-  }catch(e){ setStatus("Playlist error: "+(e.message||e)); }
-}
-$("#btnCreate").onclick=createPlaylist;
-
-/*** Token ops ***/
-$("#btnRefresh").onclick=()=>refreshTokenNow().catch(e=>setStatus("Refresh error: "+e.message));
-$("#btnReauth").onclick=()=>{ clearToken(); location.href="auth.html"; };
-
-/*** 起動（PKCEコールバック） ***/
-(async function boot(){
-  try{
-    const qp=new URLSearchParams(location.search);
-    const code=qp.get("code"), state=qp.get("state");
-    if(code){
-      const saved=sessionStorage.getItem("pkce_state");
-      const verifier=sessionStorage.getItem("pkce_verifier");
-      if(saved && verifier && state===saved){
-        const tok=await tokenByCode(code,verifier);
-        saveToken(tok);
-        sessionStorage.removeItem("pkce_state");
-        sessionStorage.removeItem("pkce_verifier");
-        history.replaceState({},document.title,location.pathname);
-      }
-    }
-    await ensureToken();
-    setStatus("Signed in. ①Build 130（Remix-only）→ ②Pick Balanced 100（Pins反映）→ ③Head-5 → ④Create Playlist（非公開デフォルト）");
-  }catch(e){
-    setStatus("Boot error: "+(e.message||e));
-  }
-})();
+exchange().catch(e=>setStatus("callback error: "+(e.message||e)));
 </script>
 </body>
 </html>
