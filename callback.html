@@ -5,88 +5,87 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Spotify – TDCS 130 → Balanced 100 → Head-5 → Playlist</title>
 <style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:980px;margin:40px auto;padding:0 12px}
-  h1{margin:0 0 12px}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1000px;margin:38px auto;padding:0 12px}
+  h1{margin:0 0 10px}
   label{display:inline-flex;align-items:center;gap:6px}
-  select,input[type="text"]{padding:6px 8px;border:1px solid #ccc;border-radius:6px}
-  button{padding:6px 10px;border:1px solid #bbb;border-radius:6px;background:#f7f7f7;cursor:pointer}
+  select,input[type="text"]{padding:6px 8px;border:1px solid #c9c9c9;border-radius:6px}
+  button{padding:6px 10px;border:1px solid #bbb;border-radius:6px;background:#f6f6f6;cursor:pointer}
   button:disabled{opacity:.45;cursor:not-allowed}
-  #bar{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
-  #actions{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0}
+  #bar,#actions{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
   #playlist{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px;border:1px solid #ddd;border-radius:8px;margin:8px 0}
-  #tracks{line-height:1.5}
+  #tracks{line-height:1.55}
   #log{background:#0b1220;color:#cfe3ff;padding:10px;border-radius:8px;max-height:360px;overflow:auto;white-space:pre-wrap}
 </style>
 </head>
 <body>
-  <h1>Spotify Authentication</h1>
-  <p id="status">Ready.</p>
+<h1>Spotify Authentication</h1>
+<p id="status">Ready.</p>
 
-  <div id="bar">
-    <label>Groups:
-      <select id="groups">
-        <option value="album,single" selected>Albums + Singles</option>
-        <option value="album,single,compilation">+ Compilations（件数増）</option>
-      </select>
-    </label>
-    <label><input type="checkbox" id="allMarkets"> All markets</label>
-    <label>Market（All markets OFFの時のみ）
-      <select id="market"><option selected>US</option><option>JP</option><option>GB</option><option>DE</option></select>
-    </label>
-    <label><input type="checkbox" id="wantFeatures"> Fetch audio-features（任意）</label>
-    <label><input type="checkbox" id="fastMode" checked> Fast mode（429回避優先）</label>
-    <label><input type="checkbox" id="ultraSafe" checked> Ultra-safe（さらに遅延／並列1）</label>
+<div id="bar">
+  <label>Groups:
+    <select id="groups">
+      <option value="album,single" selected>Albums + Singles</option>
+      <option value="album,single,compilation">+ Compilations（件数増）</option>
+    </select>
+  </label>
+  <label><input type="checkbox" id="allMarkets"> All markets（region filter無効）</label>
+  <label>Market（All markets OFF時のみ）
+    <select id="market"><option>US</option><option selected>JP</option><option>GB</option><option>DE</option></select>
+  </label>
+  <label><input type="checkbox" id="wantFeatures"> Fetch audio-features（任意）</label>
+  <label><input type="checkbox" id="fastMode" checked> Fast mode（429回避優先）</label>
+  <label><input type="checkbox" id="ultraSafe" checked> Ultra-safe（さらに遅延/並列1）</label>
+</div>
+
+<div id="actions">
+  <button id="btnFetch">Build TDCS-only (exact 130)</button>
+  <button id="btnPick100" disabled>Pick Balanced 100</button>
+  <button id="btnHead5" disabled>Optimize Head-5</button>
+  <button id="btnDLhtml" disabled>Download HTML</button>
+  <button id="btnDLjson" disabled>Download JSON</button>
+  <button id="btnDLcsv"  disabled>Download CSV</button>
+  <button id="btnAbort"  style="margin-left:auto">Abort</button>
+</div>
+
+<details style="margin:10px 0">
+  <summary>▼ Head-5 Pin（任意／固定したい曲ID）</summary>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
+    <input id="pin1" placeholder="Track ID for #1 (Opener)"    style="min-width:260px">
+    <input id="pin2" placeholder="Track ID for #2 (Accelerator)"style="min-width:260px">
+    <input id="pin3" placeholder="Track ID for #3 (Anthem)"     style="min-width:260px">
+    <input id="pin4" placeholder="Track ID for #4 (Contrast)"   style="min-width:260px">
+    <input id="pin5" placeholder="Track ID for #5 (Payoff)"     style="min-width:260px">
   </div>
+</details>
 
-  <div id="actions">
-    <button id="btnFetch">Build TDCS-only (exact 130)</button>
-    <button id="btnPick100" disabled>Pick Balanced 100</button>
-    <button id="btnHead5" disabled>Optimize Head-5</button>
-    <button id="btnDLhtml" disabled>Download HTML</button>
-    <button id="btnDLjson" disabled>Download JSON</button>
-    <button id="btnDLcsv"  disabled>Download CSV</button>
-    <button id="btnAbort"  style="margin-left:auto">Abort</button>
-  </div>
+<div id="playlist">
+  <input id="plName" style="min-width:360px" value="PROGAPANDA • Balanced100 (TDCS ONLY)">
+  <label><input id="plPublic" type="checkbox"> Make Public</label>
+  <button id="btnCreate" disabled>Create Playlist (Private by default)</button>
+  <span id="plLink" style="margin-left:8px"></span>
+</div>
 
-  <details style="margin:10px 0">
-    <summary>▼ Head-5 Pin（任意／固定したい曲ID）</summary>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
-      <input id="pin1" placeholder="Track ID for #1 (Opener)"    style="min-width:260px">
-      <input id="pin2" placeholder="Track ID for #2 (Accelerator)"style="min-width:260px">
-      <input id="pin3" placeholder="Track ID for #3 (Anthem)"     style="min-width:260px">
-      <input id="pin4" placeholder="Track ID for #4 (Contrast)"   style="min-width:260px">
-      <input id="pin5" placeholder="Track ID for #5 (Payoff)"     style="min-width:260px">
-    </div>
-  </details>
-
-  <div id="playlist">
-    <input id="plName" style="min-width:320px" value="PROGAPANDA • Balanced100 (TDCS ONLY)">
-    <label><input id="plPublic" type="checkbox"> Make Public</label>
-    <button id="btnCreate" disabled>Create Playlist (Private by default)</button>
-    <span id="plLink" style="margin-left:8px"></span>
-  </div>
-
-  <ol id="tracks"></ol>
-  <pre id="log"></pre>
+<ol id="tracks"></ol>
+<pre id="log"></pre>
 
 <script>
-/* ========= 固定値 ========= */
+/* ===== 固定設定 ===== */
 const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
-const ARTIST_ID    = "55fvQ5I2IZUfcFT2DV02T3";       // The Darrow Chem Syndicate
+const ARTIST_ID    = "55fvQ5I2IZUfcFT2DV02T3";       // TDCS
 const USER_ID      = "22fqn5mozguuegi2t3l2zeugy";    // あなたのSpotifyユーザーID
 const EXACT_LIMIT  = 130;
 
-/* ========= 429対策・実行制御 ========= */
-let PAGE_DELAY_MS    = 2000; // albumsページ間ディレイ
-let TRACK_BATCH_SIZE = 1;    // アルバム並列数
-let RETRY_CEIL_MS    = 60000;
-let MAX_RETRY        = 20;
+/* ===== 429対策／実行制御（超強化） ===== */
+let PAGE_DELAY_MS    = 4000; // アルバムページ間
+let TRACK_BATCH_SIZE = 1;    // 並列=1
+let RETRY_CEIL_MS    = 70000;
+let MAX_RETRY        = 24;
 let g429Count        = 0;
 let ABORT            = false;
 
-// リクエスト間隔の下限（グローバル・スロットル）
-let GAP_MS  = 2000; // Ultra-safe前提で2s開始
+// 全API共通の最小間隔（ms）
+let GAP_MS  = 5000;          // 5秒スタート
 let NEXT_AT = 0;
 async function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 async function throttle(){
@@ -96,17 +95,17 @@ async function throttle(){
   NEXT_AT = Date.now() + GAP_MS;
 }
 
-/* ========= DOMユーティリティ ========= */
+/* ===== DOMユーティリティ ===== */
 const $  = s => document.querySelector(s);
 const log= m => { const el=$("#log"); el.textContent += m+"\n"; el.scrollTop = el.scrollHeight; console.log(m); };
 const setStatus = t => { $("#status").textContent = t; log(t); };
 
-/* ========= 状態 ========= */
+/* ===== 状態 ===== */
 let base130 = [];
 let lastData = [];
 let featuresById = {};
 
-/* ========= 認証（PKCEトークン保持） ========= */
+/* ===== 認証（PKCEトークン管理） ===== */
 function saveToken(t){
   sessionStorage.setItem("sp_access_token", t.access_token);
   if (t.refresh_token) sessionStorage.setItem("sp_refresh_token", t.refresh_token);
@@ -138,7 +137,7 @@ async function ensureToken(minScope="playlist-modify-private"){
   forceReauth(); await new Promise(()=>{});
 }
 
-/* ========= APIラッパ（強スロットル＋バックオフ） ========= */
+/* ===== APIラッパ（スロットル＋バックオフ） ===== */
 function buildURL(path, params={}){
   const url=new URL("https://api.spotify.com/v1/"+path);
   Object.entries(params).forEach(([k,v])=>{ if(v!==undefined&&v!==null&&v!=="") url.searchParams.set(k,v); });
@@ -151,14 +150,15 @@ async function spGet(path, params={}, retry=MAX_RETRY){
     await throttle();
     const token=await ensureToken();
     const res=await fetch(buildURL(path, params),{ headers:{ Authorization:"Bearer "+token } });
-    if(res.ok){ GAP_MS=Math.max(1200, Math.floor(GAP_MS*0.95)); return res.json(); }
+    if(res.ok){ GAP_MS=Math.max(3000, Math.floor(GAP_MS*0.95)); return res.json(); }
     if(res.status===401){ sessionStorage.removeItem("sp_access_token"); continue; }
     if(res.status===429 || res.status>=500){
       g429Count += (res.status===429)?1:0;
-      GAP_MS = Math.min(7000, Math.floor(GAP_MS*1.6)+200);
+      GAP_MS = Math.min(8000, Math.floor(GAP_MS*1.6)+400);           // 429出たら間隔拡張
+      PAGE_DELAY_MS = Math.min(7000, PAGE_DELAY_MS+800);             // ページ遅延も拡張
       if(retry--<=0) throw new Error(`API ${path} ${res.status} (retries exhausted)`);
       const ra=+res.headers.get("retry-after")||0;
-      const base=1200*Math.pow(2,attempt++), jitter=Math.floor(Math.random()*1000);
+      const base=2000*Math.pow(2,attempt++), jitter=Math.floor(Math.random()*1200);
       const wait = ra? ra*1000 : Math.min(RETRY_CEIL_MS, base)+jitter;
       setStatus(`API ${path} ${res.status} → wait ${Math.ceil(wait/1000)}s (try ${attempt})`);
       await sleep(wait); continue;
@@ -175,13 +175,13 @@ async function spPost(path, body, minScope="playlist-modify-private"){
     const res=await fetch("https://api.spotify.com/v1/"+path,{
       method:"POST", headers:{ Authorization:"Bearer "+token, "Content-Type":"application/json" }, body:JSON.stringify(body||{})
     });
-    if(res.ok){ GAP_MS=Math.max(1200, Math.floor(GAP_MS*0.95)); return res.json(); }
+    if(res.ok){ GAP_MS=Math.max(3000, Math.floor(GAP_MS*0.95)); return res.json(); }
     if(res.status===401){ sessionStorage.removeItem("sp_access_token"); continue; }
     if(res.status===429 || res.status>=500){
-      GAP_MS = Math.min(7000, Math.floor(GAP_MS*1.6)+200);
+      GAP_MS = Math.min(8000, Math.floor(GAP_MS*1.6)+400);
       if(retry--<=0) throw new Error(`POST ${path} ${res.status} (retries exhausted)`);
       const ra=+res.headers.get("retry-after")||0;
-      const base=1200*Math.pow(2,attempt++), jitter=Math.floor(Math.random()*1000);
+      const base=2000*Math.pow(2,attempt++), jitter=Math.floor(Math.random()*1200);
       const wait= ra? ra*1000 : Math.min(RETRY_CEIL_MS, base)+jitter;
       setStatus(`POST ${path} ${res.status} → wait ${Math.ceil(wait/1000)}s (try ${attempt})`);
       await sleep(wait); continue;
@@ -190,7 +190,25 @@ async function spPost(path, body, minScope="playlist-modify-private"){
   }
 }
 
-/* ========= 収集：本人曲のみ ========= */
+/* ===== まず Top-Tracks 連合（各国）で集める ===== */
+const DEFAULT_MARKETS = ["US","JP","GB","DE","FR","ES","BR","AU","CA","MX","KR","IN"];
+async function fetchTopTracksUnion(markets){
+  const ids=new Set(), rows=[];
+  for(const m of markets){
+    const d=await spGet(`artists/${ARTIST_ID}/top-tracks`, { market:m });
+    (d.tracks||[]).forEach(t=>{
+      if(t.artists?.some(a=>a?.id===ARTIST_ID) && !ids.has(t.id)){
+        ids.add(t.id);
+        rows.push(t);
+      }
+    });
+    await sleep(250);
+    if(ABORT) throw new Error("Aborted");
+  }
+  return rows;
+}
+
+/* ===== 不足分だけアルバムをクロール（本人曲のみ保持） ===== */
 async function fetchAllAlbumsPhased(includeGroups, allMarkets, market, pageLimit){
   const order = includeGroups.includes("compilation")
     ? ["album","single","compilation"] : ["album","single"];
@@ -209,8 +227,8 @@ async function fetchAllAlbumsPhased(includeGroups, allMarkets, market, pageLimit
         items.push(...(page.items||[]));
         if(!page.next) break;
         offset += pageLimit;
-        if(local429>=2){ PAGE_DELAY_MS = Math.min(PAGE_DELAY_MS+300, 3000); local429=0; log(`↺ increase PAGE_DELAY_MS → ${PAGE_DELAY_MS}ms`); }
-      }catch(_){ log(`page error on ${grp}; soft backoff…`); await sleep(1500); }
+        if(local429>=1){ PAGE_DELAY_MS = Math.min(7000, PAGE_DELAY_MS+800); local429=0; log(`↺ increase PAGE_DELAY_MS → ${PAGE_DELAY_MS}ms`); }
+      }catch(_){ log(`page error on ${grp}; soft backoff…`); await sleep(1800); }
       if(ABORT) throw new Error("Aborted");
     }
   }
@@ -228,13 +246,13 @@ async function fetchAlbumTracks_TDCS(album, allMarkets, market){
     keep.push(...ok.map(t=>t.id));
     if(!page.next) break;
     offset+=50;
-    await sleep(220);
+    await sleep(260);
     if(ABORT) throw new Error("Aborted");
   }
   return keep;
 }
 
-/* ========= audio-features ========= */
+/* ===== audio-features ===== */
 function chunk(a,n){ const o=[]; for(let i=0;i<a.length;i+=n) o.push(a.slice(i,i+n)); return o; }
 async function fetchAudioFeaturesSafe(ids){
   const out={};
@@ -243,13 +261,13 @@ async function fetchAudioFeaturesSafe(ids){
       const d=await spGet("audio-features",{ ids: batch.join(",") });
       (d.audio_features||[]).forEach(f=>{ if(f&&f.id) out[f.id]=f; });
     }catch(_){}
-    await sleep(320);
+    await sleep(350);
     if(ABORT) throw new Error("Aborted");
   }
   return out;
 }
 
-/* ========= 表示＆DL ========= */
+/* ===== 表示/保存 ===== */
 function renderList(rows){
   const ol=$("#tracks"); ol.innerHTML="";
   rows.forEach((r,i)=>{
@@ -271,57 +289,73 @@ function asCSV(rows){
   return lines.join("\n");
 }
 
-/* ========= 130作成 ========= */
+/* ===== 130作成（Top-Tracks連合 → 不足分アルバムクロール） ===== */
 async function build130(){
   $("#btnFetch").disabled=true; $("#btnAbort").disabled=false; ABORT=false;
   try{
+    // UI → 実行設定
     let groups = $("#groups").value;
     let allMk  = $("#allMarkets").checked;
     let mk     = $("#market").value || "US";
-    g429Count = 0;
+    g429Count  = 0;
 
     if($("#fastMode").checked){ groups="album,single"; allMk=false; mk="US"; }
     if($("#ultraSafe").checked){
-      PAGE_DELAY_MS=2500; TRACK_BATCH_SIZE=1; RETRY_CEIL_MS=60000; MAX_RETRY=20; GAP_MS=2000;
+      PAGE_DELAY_MS=5000; TRACK_BATCH_SIZE=1; RETRY_CEIL_MS=70000; MAX_RETRY=24; GAP_MS=5000;
     } else if($("#fastMode").checked){
-      PAGE_DELAY_MS=1200; TRACK_BATCH_SIZE=2; RETRY_CEIL_MS=30000; MAX_RETRY=12; GAP_MS=1400;
+      PAGE_DELAY_MS=2500; TRACK_BATCH_SIZE=1; RETRY_CEIL_MS=40000; MAX_RETRY=16; GAP_MS=3000;
     } else {
-      PAGE_DELAY_MS=900;  TRACK_BATCH_SIZE=3; RETRY_CEIL_MS=30000; MAX_RETRY=12; GAP_MS=1200;
+      PAGE_DELAY_MS=1800; TRACK_BATCH_SIZE=2; RETRY_CEIL_MS=40000; MAX_RETRY=16; GAP_MS=2500;
     }
     $("#groups").value=groups; $("#allMarkets").checked=allMk; $("#market").value=mk;
 
-    const pageLimit = $("#ultraSafe").checked ? 20 : 50;
+    const pageLimit = $("#ultraSafe").checked ? 10 : 20; // さらに軽量化
 
-    setStatus(`Scanning albums… (groups=${groups}, allMk=${allMk}, market=${mk}, delay=${PAGE_DELAY_MS}ms, batch=${TRACK_BATCH_SIZE}, limit=${pageLimit})`);
-    const albums=await fetchAllAlbumsPhased(groups,allMk,mk,pageLimit);
+    // 1) 各国Top-Tracks連合
+    const mkts = allMk ? DEFAULT_MARKETS : [mk];
+    setStatus(`Top-Tracks union… markets=${mkts.join(", ")}`);
+    let tracks = await fetchTopTracksUnion(mkts);
 
-    setStatus(`Collecting TDCS tracks from ${albums.length} albums…`);
-    let ids=[];
-    for (const pack of chunk(albums, TRACK_BATCH_SIZE)){
-      const res=await Promise.all(pack.map(a=>fetchAlbumTracks_TDCS(a,allMk,mk).catch(()=>[])));
-      res.forEach(list=>ids.push(...list));
-      await sleep(200);
-      if(ABORT) throw new Error("Aborted");
+    // 2) 不足分だけアルバムクロール
+    if(tracks.length < EXACT_LIMIT){
+      setStatus(`Scanning albums… (groups=${groups}, allMk=${allMk}, market=${mk}, delay=${PAGE_DELAY_MS}ms, limit=${pageLimit})`);
+      const albums=await fetchAllAlbumsPhased(groups,allMk,mk,pageLimit);
+
+      setStatus(`Collecting TDCS tracks from ${albums.length} albums…`);
+      const idsTop=new Set(tracks.map(t=>t.id));
+      for (const pack of chunk(albums, TRACK_BATCH_SIZE)){
+        const res=await Promise.all(pack.map(a=>fetchAlbumTracks_TDCS(a,allMk,mk).catch(()=>[])));
+        const ids=[...new Set(res.flat())].filter(id=>!idsTop.has(id));
+        if(ids.length){
+          for (const b of chunk(ids,50)){
+            const d=await spGet("tracks",{ ids:b.join(",") });
+            (d.tracks||[]).forEach(t=>{
+              if(t && t.artists?.some(a=>a?.id===ARTIST_ID) && !idsTop.has(t.id)){
+                idsTop.add(t.id);
+                tracks.push(t);
+              }
+            });
+            await sleep(90);
+            if(ABORT) throw new Error("Aborted");
+          }
+        }
+        await sleep(200);
+        if(tracks.length>=EXACT_LIMIT) break;
+      }
     }
-    ids=[...new Set(ids)];
 
-    setStatus(`Fetching ${ids.length} tracks meta…`);
-    let tracks=[];
-    for(const batch of chunk(ids,50)){
-      const d=await spGet("tracks",{ ids: batch.join(",") });
-      tracks.push(...(d.tracks||[]));
-      await sleep(70);
-      if(ABORT) throw new Error("Aborted");
-    }
-    tracks=tracks.filter(t=> t && t.artists?.some(a=>a?.id===ARTIST_ID));
-
+    // 3) features（任意）
     if($("#wantFeatures").checked){
       setStatus("Fetching audio-features…");
-      featuresById=await fetchAudioFeaturesSafe(tracks.map(t=>t.id));
+      const ids=[...new Set(tracks.map(t=>t.id))];
+      featuresById=await fetchAudioFeaturesSafe(ids);
     }else featuresById={};
 
-    tracks = tracks.sort((a,b)=>(b.popularity||0)-(a.popularity||0))
-                   .slice(0, Math.min(EXACT_LIMIT, tracks.length));
+    // 4) 整形→130固定
+    tracks = tracks
+      .filter(t=> t && t.artists?.some(a=>a?.id===ARTIST_ID))
+      .sort((a,b)=>(b.popularity||0)-(a.popularity||0))
+      .slice(0, Math.min(EXACT_LIMIT, tracks.length));
 
     base130 = tracks.map(t=>{
       const f=featuresById[t.id]||{};
@@ -345,7 +379,7 @@ async function build130(){
   }
 }
 
-/* ========= Balanced 100 ========= */
+/* ===== Balanced 100 ===== */
 function norm01(v,min,max){ if(v==null||isNaN(v)) return .5; if(max===min) return .5; return (v-min)/(max-min); }
 function flagAlt(n){ return /\b(remix|radio|extended|vip|edit|rework|version)\b/i.test(n||""); }
 function pickBalanced100(rows){
@@ -400,7 +434,7 @@ function pickBalanced100(rows){
   return picked.slice(0,100);
 }
 
-/* ========= Head-5 ========= */
+/* ===== Head-5 ===== */
 function head5Optimize(){
   if(!lastData.length){ alert("先にリストを作ってね"); return; }
   const safe=(v,d)=>(v==null||isNaN(v))?d:v, ALT=/\b(remix|radio|extended|vip|edit|rework|version)\b/i;
@@ -428,7 +462,7 @@ function head5Optimize(){
   setStatus(`Head-5 fixed: ${head.map(h=>h.name).join(' / ')} — total ${lastData.length}`);
 }
 
-/* ========= プレイリスト作成 ========= */
+/* ===== プレイリスト作成（非公開が既定） ===== */
 async function createPlaylist(){
   try{
     if(!lastData.length){ setStatus("先にリストを作ってから"); return; }
@@ -445,7 +479,7 @@ async function createPlaylist(){
     const uris=[...new Set(lastData.map(x=>x.id))].map(id=>"spotify:track:"+id);
     for(const batch of chunk(uris,100)){
       await spPost(`playlists/${pl.id}/tracks`,{ uris: batch }, need);
-      await sleep(250);
+      await sleep(350);
     }
     const url=pl.external_urls?.spotify || `https://open.spotify.com/playlist/${pl.id}`;
     $("#plLink").innerHTML=`<a href="${url}" target="_blank" rel="noopener">Open playlist</a>`;
@@ -455,19 +489,19 @@ async function createPlaylist(){
   }
 }
 
-/* ========= ダウンロード類 ========= */
+/* ===== DLボタン ===== */
 $("#btnDLhtml").onclick = ()=> lastData.length && download("current_list.html","<!doctype html><meta charset=utf-8><title>List</title><ol>"+lastData.map((r,i)=>`<li>${i+1}. <a href="${r.track_url}" target=_blank rel=noopener>${r.name}</a> — ${r.artists}</li>`).join("")+"</ol>","text/html");
 $("#btnDLjson").onclick = ()=> lastData.length && download("current_list.json", JSON.stringify(lastData,null,2), "application/json");
 $("#btnDLcsv").onclick  = ()=> lastData.length && download("current_list.csv", asCSV(lastData), "text/csv");
 
-/* ========= イベント ========= */
+/* ===== イベント ===== */
 $("#btnFetch").onclick  = build130;
 $("#btnPick100").onclick= ()=>{ if(!base130.length){ alert("先に130曲を作って"); return; } lastData=pickBalanced100(base130.slice()); renderList(lastData); setStatus(`Balanced 100 built — ${lastData.length}`); };
 $("#btnHead5").onclick  = head5Optimize;
 $("#btnCreate").onclick = createPlaylist;
 $("#btnAbort").onclick  = ()=>{ ABORT=true; setStatus("Abort requested. 現在のAPI呼び出し完了後に停止します。"); };
 
-/* ========= 起動（PKCEコールバック処理） ========= */
+/* ===== 起動（PKCEコールバック） ===== */
 (async function boot(){
   try{
     const qp=new URLSearchParams(location.search), code=qp.get("code"), state=qp.get("state");
