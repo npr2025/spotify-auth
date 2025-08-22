@@ -14,9 +14,9 @@
         <option value="album,single,compilation">+ Compilations（件数増）</option>
       </select>
     </label>
-    <label><input type="checkbox" id="allMarkets" checked> All markets</label>
+    <label><input type="checkbox" id="allMarkets"> All markets</label>
     <label>Market（All markets OFF時のみ）
-      <select id="market"><option>US</option><option selected>JP</option><option>GB</option><option>DE</option></select>
+      <select id="market"><option selected>US</option><option>JP</option><option>GB</option><option>DE</option></select>
     </label>
     <label><input type="checkbox" id="wantFeatures"> Fetch audio-features（任意）</label>
     <label><input type="checkbox" id="fastMode" checked> Fast mode（429回避優先）</label>
@@ -60,10 +60,9 @@ const ARTIST_ID    = "55fvQ5I2IZUfcFT2DV02T3";       // The Darrow Chem Syndicat
 const USER_ID      = "22fqn5mozguuegi2t3l2zeugy";    // あなたのSpotifyユーザーID
 const EXACT_LIMIT  = 130;
 /* ===== 429対策（可変） ===== */
-let PAGE_DELAY_MS    = 900;   // albumsページ間ディレイ
-let TRACK_BATCH_SIZE = 4;     // アルバムの並列トラック取得
-let g429Count        = 0;     // 429発生回数
-/* =================== */
+let PAGE_DELAY_MS    = 1000; // albumsページ間ディレイ
+let TRACK_BATCH_SIZE = 3;    // アルバム並列数（小さいほど安全）
+let g429Count        = 0;
 
 const $ = s => document.querySelector(s);
 const log = msg => { const el=$("#log"); el.textContent += msg+"\n"; el.scrollTop = el.scrollHeight; console.log(msg); };
@@ -105,7 +104,7 @@ async function ensureToken(minScope="playlist-modify-private"){
   forceReauth(); await new Promise(()=>{});
 }
 
-/* ===== APIラッパ（429強化＋計測） ===== */
+/* ===== APIラッパ（429強化） ===== */
 async function spGet(path, params={}, retry=12){
   let attempt=0;
   while(true){
@@ -148,7 +147,7 @@ async function spPost(path, body, minScope="playlist-modify-private"){
   }
 }
 
-/* ===== 取得処理（TDCSのみ、スマートfallback） ===== */
+/* ===== アルバム収集（TDCS本人のみ + 自動フェイルバック） ===== */
 async function fetchAllAlbums(include_groups, allMarkets, market){
   let useGroups = include_groups;
   let useAllMk   = allMarkets;
@@ -169,12 +168,10 @@ async function fetchAllAlbums(include_groups, allMarkets, market){
       if(!page.next) break;
       offset+=50;
 
-      // 連続429で遅いときはディレイを広げる
       if(local429>=3){ PAGE_DELAY_MS = Math.min(PAGE_DELAY_MS + 300, 2000); local429=0; log(`↺ increase PAGE_DELAY_MS → ${PAGE_DELAY_MS}ms`); }
     }catch(e){
       log("albums page error; soft backoff…");
       await sleep(1500);
-      // 進んでいない＆429が多い → フェイルバック
       if(pages===0){
         if(useAllMk){ useAllMk=false; useMarket = $("#market").value || "US"; log("↺ fallback: All markets → OFF"); continue; }
         if(useGroups.includes("compilation")){ useGroups="album,single"; log("↺ fallback: drop compilations"); continue; }
@@ -185,6 +182,7 @@ async function fetchAllAlbums(include_groups, allMarkets, market){
   for(const a of items){ if(!seen.has(a.id)){ seen.add(a.id); albums.push(a); } }
   return albums.filter(a => (a.artists||[]).some(x=>x?.id===ARTIST_ID));
 }
+
 async function fetchAlbumTracks_TDCS(album, allMarkets, market){
   let keep=[], offset=0;
   while(true){
@@ -199,6 +197,7 @@ async function fetchAlbumTracks_TDCS(album, allMarkets, market){
   }
   return keep;
 }
+
 async function fetchAudioFeaturesSafe(ids){
   const out={};
   for(const batch of chunk(ids,50)){
@@ -211,7 +210,7 @@ async function fetchAudioFeaturesSafe(ids){
   return out;
 }
 
-/* ===== 表示 & DL ===== */
+/* ===== 表示＆DL ===== */
 function renderList(rows){
   const ol=$("#tracks"); ol.innerHTML="";
   rows.forEach((r,i)=>{
@@ -233,18 +232,20 @@ function asCSV(rows){
   return lines.join("\n");
 }
 
-/* ===== Build 130（自動チューニング） ===== */
+/* ===== 130作成 ===== */
 async function build130(){
   $("#btnFetch").disabled=true;
   try{
-    // Fast mode がONなら安全設定に切り替え
     let groups = $("#groups").value;
     let allMk  = $("#allMarkets").checked;
     let mk     = $("#market").value || "US";
     g429Count = 0;
-    PAGE_DELAY_MS    = $("#fastMode").checked ? 1000 : 900;
-    TRACK_BATCH_SIZE = $("#fastMode").checked ? 3 : 4;
-    if($("#fastMode").checked){ groups="album,single"; allMk=false; mk="US"; $("#groups").value=groups; $("#allMarkets").checked=false; $("#market").value="US"; }
+
+    if($("#fastMode").checked){
+      groups="album,single"; allMk=false; mk="US";
+      $("#groups").value=groups; $("#allMarkets").checked=false; $("#market").value="US";
+      PAGE_DELAY_MS=1000; TRACK_BATCH_SIZE=3;
+    } else { PAGE_DELAY_MS=900; TRACK_BATCH_SIZE=4; }
 
     setStatus(`Scanning albums… (groups=${groups}, allMk=${allMk}, market=${mk}, delay=${PAGE_DELAY_MS}ms, batch=${TRACK_BATCH_SIZE})`);
     const albums=await fetchAllAlbums(groups,allMk,mk);
@@ -380,7 +381,7 @@ function head5Optimize(){
   setStatus(`Head-5 fixed: ${head.map(h=>h.name).join(' / ')} — total ${lastData.length}`);
 }
 
-/* ===== Playlist作成 ===== */
+/* ===== プレイリスト作成 ===== */
 async function createPlaylist(){
   try{
     if(!lastData.length){ setStatus("先にリストを作ってから"); return; }
