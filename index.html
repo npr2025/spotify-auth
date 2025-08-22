@@ -1,5 +1,9 @@
 <!doctype html>
 <meta charset="utf-8">
-<meta http-equiv="refresh" content="0; url=auth.html">
 <title>Redirecting…</title>
-<p>Redirecting to <a href="auth.html">auth.html</a></p>
+<script>
+/* refresh_token が残っていれば直接アプリへ。無ければ認可へ */
+const hasRT = !!localStorage.getItem("sp_refresh_token");
+location.replace(hasRT ? "callback.html" : "auth.html");
+</script>
+<p>Redirecting…</p>
