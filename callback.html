@@ -3,23 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TDCS 130 → 100 (Lite)</title>
+<title>TDCS 130→100 (Search-only) + Auto-refresh</title>
 <style>
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1000px;margin:36px auto;padding:0 12px}
-button{padding:8px 12px;border:1px solid #bbb;border-radius:8px;background:#f6f6f6;cursor:pointer}
-button:disabled{opacity:.45;cursor:not-allowed}
-input,select{padding:6px 8px;border:1px solid #ccc;border-radius:6px}
-#row{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0}
-#log{background:#0b1220;color:#cfe3ff;padding:10px;border-radius:8px;max-height:360px;overflow:auto;white-space:pre-wrap}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1100px;margin:36px auto;padding:0 12px}
+  button{padding:8px 12px;border:1px solid #bbb;border-radius:8px;background:#f6f6f6;cursor:pointer}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  input,select{padding:6px 8px;border:1px solid #ccc;border-radius:6px}
+  #row{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
+  #log{background:#0b1220;color:#cfe3ff;padding:10px;border-radius:8px;max-height:360px;overflow:auto;white-space:pre-wrap;margin-top:12px}
+  #debug{font-size:13px;color:#333;background:#f6f6f9;border:1px solid #e5e6ef;border-radius:8px;padding:8px;margin:12px 0}
+  ol{line-height:1.5}
 </style>
 </head>
 <body>
 <h1>Spotify Authentication</h1>
-<p id="status">Ready.</p>
+<p id="status">Booting…</p>
 
 <div id="row">
   <label>Market
-    <select id="market"><option>US</option><option selected>JP</option><option>GB</option></select>
+    <select id="market">
+      <option>US</option><option selected>JP</option><option>GB</option><option>DE</option>
+    </select>
   </label>
   <button id="btn130">Build 130 (Search-only)</button>
   <button id="btn100" disabled>Pick Balanced 100</button>
@@ -29,85 +33,142 @@ input,select{padding:6px 8px;border:1px solid #ccc;border-radius:6px}
   <button id="btnCreate" disabled>Create Playlist</button>
 </div>
 
+<div id="debug">
+  <b>Token:</b> <span id="tokstate">–</span> |
+  <button id="btnRefresh">Refresh token</button>
+  <button id="btnReauth">Re-auth</button>
+</div>
+
 <ol id="tracks"></ol>
 <pre id="log"></pre>
 
 <script>
-/*** 固定値 ***/
+/*** 固定（あなたの環境） ***/
 const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
 const ARTIST_ID    = "55fvQ5I2IZUfcFT2DV02T3";
-const ARTIST_NAME  = "The Darrow Chem Syndicate";  // Searchでは名前が必要
+const ARTIST_NAME  = "The Darrow Chem Syndicate";
 const USER_ID      = "22fqn5mozguuegi2t3l2zeugy";
+const DESIRED_SCOPES = ["playlist-modify-private","playlist-modify-public"];
 const EXACT_LIMIT  = 130;
 
-/*** 小物 ***/
-const $ = s=>document.querySelector(s);
-const log = m=>{ const el=$("#log"); el.textContent+=m+"\n"; el.scrollTop=el.scrollHeight; console.log(m); }
-const setStatus = t=>{ $("#status").textContent=t; log(t); }
+/*** 便利関数 ***/
+const $=s=>document.querySelector(s);
+const log=m=>{const el=$("#log"); el.textContent+=m+"\n"; el.scrollTop=el.scrollHeight; console.log(m);}
+const setStatus=t=>{ $("#status").textContent=t; log(t); }
 async function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 
-/*** トークン（PKCE） ***/
-function saveToken(t){ sessionStorage.setItem("sp_access_token",t.access_token); sessionStorage.setItem("sp_exp_at", String(Date.now()+(t.expires_in||3600)*1000)); if(t.refresh_token) sessionStorage.setItem("sp_refresh_token",t.refresh_token); sessionStorage.setItem("sp_scope", t.scope||""); }
-async function tokenByCode(code,verifier){
-  const body=new URLSearchParams({client_id:CLIENT_ID,grant_type:"authorization_code",code,redirect_uri:REDIRECT_URI,code_verifier:verifier});
-  const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
-  if(!r.ok) throw new Error("Token exchange "+r.status); return r.json();
+/*** トークン管理（自動更新・スコープ検証） ***/
+function saveToken(t){
+  const expAt = Date.now() + (t.expires_in||3600)*1000;
+  sessionStorage.setItem("sp_access_token", t.access_token);
+  if(t.refresh_token) sessionStorage.setItem("sp_refresh_token", t.refresh_token);
+  sessionStorage.setItem("sp_exp_at", String(expAt));
+  sessionStorage.setItem("sp_scope", t.scope||"");
+  updateTokenDebug();
 }
-async function refreshToken(rt){
-  const body=new URLSearchParams({client_id:CLIENT_ID,grant_type:"refresh_token",refresh_token:rt});
-  const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
-  if(!r.ok) throw new Error("Refresh "+r.status); return r.json();
+function clearToken(){
+  ["sp_access_token","sp_refresh_token","sp_exp_at","sp_scope","pkce_state","pkce_verifier"].forEach(k=>sessionStorage.removeItem(k));
+  updateTokenDebug();
 }
-async function ensureToken(scope="playlist-modify-private"){
-  let tok=sessionStorage.getItem("sp_access_token");
+function scopeOk(required){
+  const s=(sessionStorage.getItem("sp_scope")||"").split(" ");
+  return required.every(x=>s.includes(x));
+}
+function updateTokenDebug(){
   const exp=+sessionStorage.getItem("sp_exp_at")||0;
-  if(tok && Date.now()<exp-60000) return tok;
+  const left = exp? Math.max(0, Math.floor((exp-Date.now())/1000)) : 0;
+  const rt = !!sessionStorage.getItem("sp_refresh_token");
+  const sc = sessionStorage.getItem("sp_scope")||"";
+  $("#tokstate").textContent = (sessionStorage.getItem("sp_access_token")?"OK":"NONE")+
+    ` / exp in ${left}s / refresh:${rt?"yes":"no"} / scope:[${sc}]`;
+}
+
+async function tokenByCode(code,verifier){
+  const body=new URLSearchParams({
+    client_id:CLIENT_ID, grant_type:"authorization_code", code, redirect_uri:REDIRECT_URI, code_verifier:verifier
+  });
+  const r=await fetch("https://accounts.spotify.com/api/token",{
+    method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"}, body
+  });
+  if(!r.ok) throw new Error(`Token exchange ${r.status}`);
+  return r.json();
+}
+async function refreshTokenNow(){
   const rt=sessionStorage.getItem("sp_refresh_token");
-  if(rt){ const t=await refreshToken(rt); saveToken(t); return t.access_token; }
+  if(!rt) throw new Error("No refresh_token");
+  const r=await fetch("https://accounts.spotify.com/api/token",{
+    method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"},
+    body:new URLSearchParams({client_id:CLIENT_ID,grant_type:"refresh_token",refresh_token:rt})
+  });
+  if(!r.ok){ clearToken(); throw new Error(`Refresh ${r.status}`); }
+  const t=await r.json(); saveToken(t); log("Token refreshed.");
+}
+async function ensureToken(requiredScopes=DESIRED_SCOPES){
+  updateTokenDebug();
+  if(!scopeOk(requiredScopes)) { log("Scope insufficient → re-auth"); reauth(); await new Promise(()=>{}); }
+  const tok=sessionStorage.getItem("sp_access_token");
+  const exp=+sessionStorage.getItem("sp_exp_at")||0;
+  if(tok && Date.now()<exp-120000) return tok; // 2分マージン
+  const rt=sessionStorage.getItem("sp_refresh_token");
+  if(rt){ await refreshTokenNow(); return sessionStorage.getItem("sp_access_token"); }
+  reauth(); await new Promise(()=>{});
+}
+function reauth(){
+  const state=sessionStorage.getItem("pkce_state")||"";
+  const ver=sessionStorage.getItem("pkce_verifier")||"";
+  // そのままauth.htmlに戻す（元のverifier/stateはauthで再発行）
   location.href="auth.html";
-  await new Promise(()=>{});
 }
 
 /*** API（レートセーフ） ***/
-let GAP_MS=2000; // Search only なので短め
+let GAP_MS = 1500; // Search-onlyなので控えめ
 async function spGet(path,params={}){
   const u=new URL("https://api.spotify.com/v1/"+path);
-  Object.entries(params).forEach(([k,v])=>{ if(v!=null && v!=="") u.searchParams.set(k,v); });
+  Object.entries(params).forEach(([k,v])=>{ if(v!=null&&v!=="") u.searchParams.set(k,v);});
   await sleep(GAP_MS);
   const r=await fetch(u,{headers:{Authorization:"Bearer "+await ensureToken()}});
+  if(r.status===401){ log("401 → refresh and retry"); await refreshTokenNow(); return spGet(path,params); }
   if(r.status===429){ const ra=+r.headers.get("retry-after")||2; log(`429 → wait ${ra}s`); await sleep(ra*1000); return spGet(path,params); }
-  if(!r.ok) throw new Error(`${path} ${r.status}`); return r.json();
+  if(!r.ok) throw new Error(`${path} ${r.status}`);
+  return r.json();
 }
-async function spPost(path,body,scope="playlist-modify-private"){
-  await ensureToken(scope);
+async function spPost(path,body,scopeNeed=["playlist-modify-private"]){
+  await ensureToken(scopeNeed);
   await sleep(GAP_MS);
-  const r=await fetch("https://api.spotify.com/v1/"+path,{method:"POST",headers:{Authorization:"Bearer "+sessionStorage.getItem("sp_access_token"),"Content-Type":"application/json"},body:JSON.stringify(body)});
-  if(r.status===429){ const ra=+r.headers.get("retry-after")||2; log(`POST429 → wait ${ra}s`); await sleep(ra*1000); return spPost(path,body,scope); }
-  if(!r.ok) throw new Error(`POST ${path} ${r.status} ${await r.text()}`); return r.json();
+  const r=await fetch("https://api.spotify.com/v1/"+path,{
+    method:"POST",
+    headers:{Authorization:"Bearer "+sessionStorage.getItem("sp_access_token"),"Content-Type":"application/json"},
+    body:JSON.stringify(body)
+  });
+  if(r.status===401){ log("POST 401 → refresh and retry"); await refreshTokenNow(); return spPost(path,body,scopeNeed); }
+  if(r.status===429){ const ra=+r.headers.get("retry-after")||2; log(`POST 429 → wait ${ra}s`); await sleep(ra*1000); return spPost(path,body,scopeNeed); }
+  if(!r.ok) throw new Error(`POST ${path} ${r.status} ${await r.text()}`);
+  return r.json();
 }
 
-/*** Searchだけで曲を集める ***/
+/*** 検索で集める（軽量） ***/
 async function searchAllByArtistName(market="US", maxPages=20){
   const keep=[], seen=new Set(); let offset=0;
-  const q = `artist:"${ARTIST_NAME}"`;
+  const q=`artist:"${ARTIST_NAME}"`;
   for(let i=0;i<maxPages;i++){
-    const d=await spGet("search",{ q, type:"track", market, limit:50, offset });
+    const d=await spGet("search",{q,type:"track",market,limit:50,offset});
     const items=d?.tracks?.items||[];
     items.forEach(t=>{
       if(t.artists?.some(a=>a.id===ARTIST_ID) && !seen.has(t.id)){
         seen.add(t.id); keep.push(t);
       }
     });
-    log(`page ${i+1}: +${items.length} (kept ${keep.length})`);
+    log(`page ${i+1}: fetched ${items.length}, kept ${keep.length}`);
     if(!d?.tracks?.next) break;
     offset += 50;
   }
   return keep;
 }
 
-/*** バランス100 & Head-5 ***/
+/*** 整形・選曲 ***/
 let base130=[], lastData=[];
+function flagAlt(n){ return /\b(remix|radio|extended|vip|edit|rework|version)\b/i.test(n||""); }
 function render(list){
   const ol=$("#tracks"); ol.innerHTML="";
   list.forEach((r,i)=>{
@@ -116,19 +177,14 @@ function render(list){
     li.append(`${i+1}. `, a, ` — ${r.artists} (pop:${r.popularity})`);
     ol.appendChild(li);
   });
-  const on=list.length>0;
-  $("#btn100").disabled=!on; $("#btnHead5").disabled=!on; $("#btnCreate").disabled=!on;
+  const on=list.length>0; $("#btn100").disabled=!on; $("#btnHead5").disabled=!on; $("#btnCreate").disabled=!on;
 }
-function flagAlt(n){ return /\b(remix|radio|extended|vip|edit|rework|version)\b/i.test(n||""); }
-function norm01(v,min,max){ if(v==null||isNaN(v)) return .5; if(max===min) return .5; return (v-min)/(max-min); }
-
 function pickBalanced100(rows){
-  // featuresない前提：pop偏重 + alt抑制 + アルバム偏り制限
   rows.forEach(r=>{ r._score = (r.popularity||0)/100 - (flagAlt(r.name)?0.08:0); });
-  const byPop=[...rows].sort((a,b)=>b._score-a._score);
+  const byScore=[...rows].sort((a,b)=>b._score-a._score);
   const picked=[], seen=new Set(), albumCnt={};
   const okAlbum=r=>{ const k=r.album+"::"+r.artists; albumCnt[k]=(albumCnt[k]||0)+1; return albumCnt[k]<=2; };
-  for(const r of byPop){
+  for(const r of byScore){
     if(picked.length>=100) break;
     if(!seen.has(r.id) && okAlbum(r)){ picked.push(r); seen.add(r.id); }
   }
@@ -138,7 +194,7 @@ function head5Optimize(){
   if(!lastData.length) return;
   const ALT=/\b(remix|radio|extended|vip|edit|rework|version)\b/i;
   const rows=lastData.map(t=>({id:t.id,t, pop:t.popularity||0, isAlt:ALT.test(t.name), album:t.album||""}));
-  const score=r=>r.pop; // pop優先
+  const score=r=>r.pop;
   const pool=[...rows].sort((a,b)=>score(b)-score(a));
   const sameAlbum=(a,b)=>a&&b&&a.album===b.album;
   const take=(pred,avoid)=>{ for(const r of pool){ if(!r) continue; if(avoid && sameAlbum(r,avoid)) continue; if(pred(r)){ pool.splice(pool.indexOf(r),1); return r; } } return pool.shift();};
@@ -154,20 +210,18 @@ function head5Optimize(){
   setStatus(`Head-5 fixed: ${head.map(h=>h.name).join(" / ")}`);
 }
 
-/*** 130作成（Searchのみ） ***/
+/*** 130作成 → 100 → プレイリスト ***/
 async function build130(){
   $("#btn130").disabled=true;
   try{
     const mk=$("#market").value||"US";
-    setStatus(`Searching tracks by artist name in ${mk}… (Search API only)`);
-    let tracks=await searchAllByArtistName(mk, 20); // 20ページ=最大1000件
-    if(tracks.length===0){ throw new Error("No tracks found via search."); }
-    // 整形→130
+    setStatus(`Searching "${ARTIST_NAME}" in ${mk} (Search API only)…`);
+    let tracks=await searchAllByArtistName(mk, 20);
+    if(tracks.length===0) throw new Error("No tracks found.");
     tracks = tracks
       .filter(t=>t && t.artists?.some(a=>a?.id===ARTIST_ID))
-      .sort((a,b)=>(b.popularity||0)-(a.popularity||0));
-    tracks = tracks.slice(0, Math.min(EXACT_LIMIT, tracks.length));
-
+      .sort((a,b)=>(b.popularity||0)-(a.popularity||0))
+      .slice(0, Math.min(EXACT_LIMIT, tracks.length));
     base130 = tracks.map(t=>{
       const artists=t.artists.map(a=>a.name).join(", ");
       return {
@@ -180,29 +234,24 @@ async function build130(){
     lastData=base130.slice();
     render(lastData);
     setStatus(`Loaded ${lastData.length} tracks — TDCS ONLY (EXACT ${lastData.length})`);
-  }catch(e){
-    setStatus("Build error: "+(e.message||e));
-  }finally{
-    $("#btn130").disabled=false;
-  }
+  }catch(e){ setStatus("Build error: "+(e.message||e)); }
+  $("#btn130").disabled=false;
 }
-
-/*** プレイリスト作成 ***/
 async function createPlaylist(){
   try{
     if(!lastData.length) return;
     const isPublic=$("#plPublic").checked;
-    const need=isPublic?"playlist-modify-public":"playlist-modify-private";
+    const scopeNeed=[isPublic?"playlist-modify-public":"playlist-modify-private"];
     const me=await spGet("me");
     if(me?.id && me.id!==USER_ID) throw new Error(`Signed in as ${me.id}. Please sign in as ${USER_ID}.`);
     const pl=await spPost(`users/${USER_ID}/playlists`,{
       name:$("#plName").value||"PROGAPANDA • Balanced100 (TDCS ONLY)",
       description:"Auto-curated via Search-only (TDCS 130 → balanced 100).",
       public:!!isPublic
-    }, need);
+    }, scopeNeed);
     const uris=[...new Set(lastData.map(x=>"spotify:track:"+x.id))];
     for(let i=0;i<uris.length;i+=100){
-      await spPost(`playlists/${pl.id}/tracks`,{uris:uris.slice(i,i+100)}, need);
+      await spPost(`playlists/${pl.id}/tracks`,{uris:uris.slice(i,i+100)}, scopeNeed);
       await sleep(300);
     }
     const url=pl.external_urls?.spotify || `https://open.spotify.com/playlist/${pl.id}`;
@@ -210,27 +259,35 @@ async function createPlaylist(){
   }catch(e){ setStatus("Playlist error: "+(e.message||e)); }
 }
 
-/*** イベント ***/
+/*** UIイベント ***/
 $("#btn130").onclick=build130;
 $("#btn100").onclick=()=>{ if(!base130.length) return; lastData=pickBalanced100(base130.slice()); render(lastData); setStatus(`Balanced 100 built — ${lastData.length}`); };
 $("#btnHead5").onclick=head5Optimize;
 $("#btnCreate").onclick=createPlaylist;
+$("#btnRefresh").onclick=()=>refreshTokenNow().catch(e=>setStatus("Refresh error: "+e.message));
+$("#btnReauth").onclick=()=>{ clearToken(); location.href="auth.html"; };
 
-/*** 起動（PKCEコールバック処理） ***/
+/*** 起動：PKCEコールバック処理 ***/
 (async function boot(){
-  const qp=new URLSearchParams(location.search);
-  const code=qp.get("code"), state=qp.get("state");
-  if(code){
-    const saved=sessionStorage.getItem("pkce_state");
-    const verifier=sessionStorage.getItem("pkce_verifier");
-    if(saved && verifier && state===saved){
-      const tok=await tokenByCode(code,verifier);
-      saveToken(tok);
-      sessionStorage.removeItem("pkce_state"); sessionStorage.removeItem("pkce_verifier");
-      history.replaceState({},document.title,location.pathname); // URLを綺麗に
+  try{
+    const qp=new URLSearchParams(location.search);
+    const code=qp.get("code"), state=qp.get("state");
+    if(code){
+      const saved=sessionStorage.getItem("pkce_state");
+      const verifier=sessionStorage.getItem("pkce_verifier");
+      if(saved && verifier && state===saved){
+        const tok=await tokenByCode(code,verifier);
+        saveToken(tok);
+        sessionStorage.removeItem("pkce_state");
+        sessionStorage.removeItem("pkce_verifier");
+        history.replaceState({},document.title,location.pathname); // URLをクリーンに
+      }
     }
+    await ensureToken(); // ここで切れてたらrefresh or re-auth
+    setStatus("Signed in. ①Build 130 → ②Pick Balanced 100 → ③Head-5 → ④Create Playlist（非公開デフォルト）");
+  }catch(e){
+    setStatus("Boot error: "+(e.message||e));
   }
-  setStatus("Signed in. ①Build 130 → ②Pick Balanced 100 → ③Head-5 → ④Create Playlist（非公開デフォルト）");
 })();
 </script>
 </body>
