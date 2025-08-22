@@ -1,61 +1,52 @@
 <!doctype html>
 <html lang="ja">
-<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Spotify Auth (PKCE)</title>
 <style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:760px;margin:40px auto;padding:0 12px}
-  button{padding:10px 14px;border:1px solid #bbb;border-radius:8px;background:#f6f6f6;cursor:pointer}
-  #log{white-space:pre-wrap;background:#0b1220;color:#cfe3ff;padding:10px;border-radius:8px;margin-top:14px}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;margin:40px auto;max-width:720px;padding:0 12px}
+  code{background:#f4f4f4;padding:2px 6px;border-radius:4px}
 </style>
-</head>
-<body>
-<h1>Spotify 認可</h1>
-<p>Spotify にサインインして権限（playlist-modify-private / playlist-modify-public）を付与します。</p>
-<button id="go">Sign in with Spotify</button>
-<pre id="log"></pre>
-
+<h1>Spotify Authentication</h1>
+<p id="msg">Preparing PKCE…</p>
 <script>
-/*** あなたの設定と合わせる ***/
 const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
-const SCOPES       = "playlist-modify-private playlist-modify-public";
+const SCOPES = ["playlist-modify-private","playlist-modify-public"];
 
-/*** ユーティリティ（PKCE） ***/
-const log = m => { const el=document.getElementById("log"); el.textContent += m + "\n"; console.log(m); };
-const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-async function sha256(s){ const data=new TextEncoder().encode(s); const hash=await crypto.subtle.digest("SHA-256", data); return b64url(hash); }
-function randHex(n=64){ const a=new Uint8Array(n); crypto.getRandomValues(a); return Array.from(a).map(x=>("0"+x.toString(16)).slice(-2)).join(""); }
+function randStr(n=64){
+  const abc="abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-._~";
+  let s=""; for(let i=0;i<n;i++) s+=abc[Math.floor(Math.random()*abc.length)]; return s;
+}
+async function sha256(s){ const b=new TextEncoder().encode(s); return await crypto.subtle.digest("SHA-256",b); }
+function base64url(ab){ return btoa(String.fromCharCode(...new Uint8Array(ab))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); }
 
-/*** 認可へリダイレクト ***/
-async function startAuth(){
+(async ()=>{
   try{
-    const verifier = randHex(64);
-    const challenge = await sha256(verifier);
-    const state = randHex(16);
+    // 旧トークン掃除（リダイレクトループ対策）
+    ["sp_access_token","sp_refresh_token","sp_exp_at","sp_scope"].forEach(k=>sessionStorage.removeItem(k));
 
-    sessionStorage.setItem("pkce_verifier", verifier);
+    const state = randStr(32);
+    const verifier = randStr(64);
+    const challenge = base64url(await sha256(verifier));
+
     sessionStorage.setItem("pkce_state", state);
+    sessionStorage.setItem("pkce_verifier", verifier);
 
     const u = new URL("https://accounts.spotify.com/authorize");
     u.searchParams.set("client_id", CLIENT_ID);
-    u.searchParams.set("response_type", "code");
+    u.searchParams.set("response_type","code");
     u.searchParams.set("redirect_uri", REDIRECT_URI);
-    u.searchParams.set("scope", SCOPES);
-    u.searchParams.set("state", state);
-    u.searchParams.set("code_challenge_method", "S256");
-    u.searchParams.set("code_challenge", challenge);
-    u.searchParams.set("show_dialog", "true"); // 毎回確認したいとき
+    u.searchParams.set("code_challenge_method","S256");
+    u.searchParams.set("code_challenge",challenge);
+    u.searchParams.set("state",state);
+    u.searchParams.set("scope", SCOPES.join(" "));
 
-    log("Redirect to Spotify…");
+    document.getElementById("msg").textContent = "Redirecting to Spotify…";
     location.href = u.toString();
-  }catch(e){ log("Auth init error: "+(e.message||e)); }
-}
-
-document.getElementById("go").onclick = startAuth;
-// 自動開始（手動にしたい場合はコメントアウト）
-setTimeout(startAuth, 400);
+  }catch(e){
+    document.getElementById("msg").textContent = "Auth init error: "+e.message;
+  }
+})();
 </script>
-</body>
 </html>
