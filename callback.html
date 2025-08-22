@@ -47,7 +47,7 @@
   <label><input id="chkBPM" type="checkbox"> BPM 110–145</label>
 
   <button id="btn130">① Build 130（WORLD×Remix-only）</button>
-  <button id="btn120" disabled>② Trim to 120（補充ロジック内蔵）</button>
+  <button id="btn120" disabled>② Trim to 120（不足時は補充／不足なら削らない）</button>
   <button id="btn100" disabled>③ Pick Balanced 100（Pins/非連続）</button>
   <button id="btnHead5" disabled>④ Optimize Head-5</button>
 
@@ -223,7 +223,6 @@ async function spPost(path,body,scopeNeed=["playlist-modify-private"]){
 
 /*** WORLD検索 ***/
 const WORLD_MARKETS = ["US","JP","GB","DE","FR","ES","BR","AU","CA","MX"];
-
 async function searchRemixesInMarket(market, maxResults, requireBreaks){
   const keep=[], seen=new Set();
   const pages = Math.ceil(maxResults/50);
@@ -243,7 +242,6 @@ async function searchRemixesInMarket(market, maxResults, requireBreaks){
   }
   return keep;
 }
-
 async function searchWorldRemixes(maxResults, useAllMarkets, requireBreaks){
   const mk = $("#market").value;
   const targets = useAllMarkets ? WORLD_MARKETS : [mk];
@@ -290,6 +288,16 @@ function capByAlbum(rows, cap=2){
     if(cnt[key] < cap){ res.push(r); cnt[key]++; }
   }
   return res;
+}
+function shrinkToLimit(list, pinSet, target){
+  const out=[]; const seen=new Set();
+  for(const r of list){ if(!seen.has(r.id)){ out.push(r); seen.add(r.id);} }
+  while(out.length>target){
+    let idx=-1;
+    for(let i=out.length-1;i>=0;i--){ if(!pinSet.has(out[i].id)){ idx=i; break; } }
+    if(idx<0) break; out.splice(idx,1);
+  }
+  return out;
 }
 function getPinIds(){
   return {
@@ -413,9 +421,8 @@ $("#btn130").onclick=async ()=>{
   $("#btn130").disabled = false;
 };
 
-/*** ② 130→120（不足時は自動補充） ***/
+/*** 補充 ***/
 async function topUpPool(target){
-  // All marketsがOFFなら WORLD で補充。ONなら depth+200 で再サーチして補充。
   const useAll = $("#allMk").checked;
   const needBreaks = $("#chkBreaks").checked;
   let added = 0;
@@ -455,29 +462,35 @@ async function topUpPool(target){
   if(added) log(`Top-up added ${added}, pool=${pool.length}`);
 }
 
+/*** ② 130→120（pool<120 の時は削らない） ***/
 $("#btn120").onclick = async ()=>{
   try{
     if(pool.length < LIMIT_120){
       await topUpPool(LIMIT_120);
     }
-    // 120段階は album≤3 として確保率を上げる
     const mk=$("#market").value||"US";
-    base120 = capByAlbum(pool, 3).slice(0, Math.min(LIMIT_120, pool.length));
-    const ensured = await ensurePins(base120, mk);
-    base120 = ensured.list;
 
-    // 120に揃える（非Pinから）
-    const keepSet = ensured.pinSet;
-    const out=[]; const seen=new Set();
-    for(const r of base120){ if(!seen.has(r.id)){ out.push(r); seen.add(r.id);} }
-    while(out.length>LIMIT_120){
-      let idx=-1;
-      for(let i=out.length-1;i>=0;i--){ if(!keepSet.has(out[i].id)){ idx=i; break; } }
-      if(idx<0) break; out.splice(idx,1);
+    let work = [...pool];  // ★ poolをそのままベースに
+    // pool が 120 以上の時だけ cap album≤3 → 120 へ調整
+    if(work.length > LIMIT_120){
+      work = capByAlbum(work, 3);
+      if(work.length > LIMIT_120) work = work.slice(0, LIMIT_120 + 10);
+      log(`Apply cap album≤3 because pool>${LIMIT_120}: now ${work.length}`);
+    }else{
+      log(`Pool ${work.length} < ${LIMIT_120}: **no cap applied / no reduction**`);
     }
-    base120 = out;
+
+    const ensured = await ensurePins(work, mk);
+    work = ensured.list;
+
+    // 最終的に 120 を越える場合だけ縮める（非ピンから）
+    if(work.length > LIMIT_120){
+      work = shrinkToLimit(work, ensured.pinSet, LIMIT_120);
+    }
+
+    base120 = work;
     render(base120);
-    setStatus(`Trimmed to ${Math.min(LIMIT_120,pool.length)} (cap album≤3, pins ensured) — ${base120.length}${base120.length<LIMIT_120?" 〈不足のまま次へ〉":""}`);
+    setStatus(`Ready for 120 step — ${base120.length} tracks`);
     $("#btn100").disabled = base120.length===0;
   }catch(e){ setStatus("Trim error: "+(e.message||e)); }
 };
@@ -494,17 +507,11 @@ $("#btn100").onclick = async ()=>{
     work = ensured.list;
     const pinSet = ensured.pinSet;
 
-    // 100に揃える
-    const dedup=[]; const seen=new Set();
-    for(const r of work){ if(!seen.has(r.id)){ dedup.push(r); seen.add(r.id);} }
-    while(dedup.length>LIMIT_100){
-      let idx=-1;
-      for(let i=dedup.length-1;i>=0;i--){ if(!pinSet.has(dedup[i].id)){ idx=i; break; } }
-      if(idx<0) break; dedup.splice(idx,1);
-    }
+    // 100に揃える（非ピンを間引き）
+    work = shrinkToLimit(work, pinSet, LIMIT_100);
 
     // 連続リミキサー回避
-    final100 = avoidAdjacency(dedup, pinSet).slice(0, LIMIT_100);
+    final100 = avoidAdjacency(work, pinSet).slice(0, LIMIT_100);
     render(final100);
     setStatus(`Balanced 100 ready (Pins #1/#8/#45/#75, no shared-remixer adjacency) — ${final100.length}`);
     $("#btnHead5").disabled = final100.length===0;
@@ -536,7 +543,7 @@ $("#btnCreate").onclick = async ()=>{
     if(me?.id && me.id!==USER_ID) throw new Error(`Signed in as ${me.id}. Please sign in as ${USER_ID}.`);
     const pl=await spPost(`users/${USER_ID}/playlists`,{
       name:$("#plName").value||"PROGAPANDA • Balanced100 (TDCS Remixes)",
-      description:"WORLD search • Remix-only (no Mix). Pins at #1/#8/#45/#75. 130→120→100 for flow.",
+      description:"WORLD search • Remix-only (no Mix). Pins at #1/#8/#45/#75. 130→120(no reduction if pool<120)→100.",
       public:!!isPublic
     }, scopeNeed);
     const uris=[...new Set(final100.map(x=>"spotify:track:"+x.id))];
@@ -570,7 +577,7 @@ $("#btnReauth").onclick=()=>{ clearToken(); location.href="auth.html"; };
       }
     }
     await ensureToken();
-    setStatus("Signed in. ①Build 130 → ②Trim 120（不足時はWORLD補充/深掘り）→ ③Balanced 100（Pins #1/#8/#45/#75＆共有リミキサー連続なし）→ ④Head-5 → ⑤Create Playlist");
+    setStatus("Signed in. ①Build 130 → ②Trim 120（不足時は補充／pool<120は削らない）→ ③Balanced 100（Pins #1/#8/#45/#75＆共有リミキサー連続なし）→ ④Head-5 → ⑤Create Playlist");
   }catch(e){ setStatus("Boot error: "+(e.message||e)); }
 })();
 </script>
