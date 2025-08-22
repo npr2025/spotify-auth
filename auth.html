@@ -15,27 +15,46 @@
 <p>Spotify にサインインして権限（playlist-modify-private / playlist-modify-public）を付与します。</p>
 <button id="go">Sign in with Spotify</button>
 <pre id="log"></pre>
+
 <script>
+/*** 固定設定（自分のアプリに合わせて！） ***/
 const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
 const SCOPES       = "playlist-modify-private playlist-modify-public";
 
+/*** Storage フェイルセーフ ***/
+const SafeStore = (()=> {
+  let mem = {};
+  const pick = (...stores)=> stores.find(s=>{ try{ const k=`__t${Math.random()}`; s.setItem(k,"1"); s.removeItem(k); return true;}catch{ return false; }});
+  const primary = pick(window.localStorage, window.sessionStorage);
+  return {
+    get(k){ try{ return (primary?primary.getItem(k):mem[k])||null; }catch{ return mem[k]||null; } },
+    set(k,v){ try{ if(primary) primary.setItem(k,v); else mem[k]=v; }catch{ mem[k]=v; } },
+    del(k){ try{ if(primary) primary.removeItem(k); else delete mem[k]; }catch{ delete mem[k]; } }
+  };
+})();
+
+/*** Util ***/
 const log = m => { const el=document.getElementById("log"); el.textContent += m + "\n"; console.log(m); };
 const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 async function sha256(s){ const data=new TextEncoder().encode(s); const hash=await crypto.subtle.digest("SHA-256", data); return b64url(hash); }
-function randVerifier(len=64){
+/* RFC7636: code_verifier は [A-Z a-z 0-9 -._~] の 43–128 文字 */
+function randVerifier(len=96){
   const chars="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
   const a=new Uint8Array(len); crypto.getRandomValues(a);
   return Array.from(a).map(x=>chars[x%chars.length]).join("");
 }
+
+/*** 認可へリダイレクト ***/
 async function startAuth(){
   try{
-    if(!window.sessionStorage) throw new Error("sessionStorage unavailable");
-    const verifier = randVerifier(64);
+    const verifier = randVerifier(96);
     const challenge = await sha256(verifier);
     const state = randVerifier(32);
-    sessionStorage.setItem("pkce_verifier", verifier);
-    sessionStorage.setItem("pkce_state", state);
+
+    SafeStore.set("pkce_verifier", verifier);
+    SafeStore.set("pkce_state", state);
+
     const u = new URL("https://accounts.spotify.com/authorize");
     u.searchParams.set("client_id", CLIENT_ID);
     u.searchParams.set("response_type", "code");
@@ -44,11 +63,14 @@ async function startAuth(){
     u.searchParams.set("state", state);
     u.searchParams.set("code_challenge_method", "S256");
     u.searchParams.set("code_challenge", challenge);
-    u.searchParams.set("show_dialog", "true");
+    // show_dialogはfalse寄りに。再認可ループ防止
+    // u.searchParams.set("show_dialog", "false");
+
     log("Redirect to Spotify…");
     location.assign(u.toString());
   }catch(e){ log("Auth init error: "+(e.message||e)); }
 }
+
 document.getElementById("go").onclick = startAuth;
 /* 自動開始（ブロック時はボタン） */
 setTimeout(startAuth, 400);
