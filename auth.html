@@ -1,52 +1,148 @@
 <!doctype html>
 <html lang="ja">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spotify Auth (PKCE)</title>
+<title>Spotify Auth (PKCE) — TDCS 130→100</title>
 <style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;margin:40px auto;max-width:720px;padding:0 12px}
-  code{background:#f4f4f4;padding:2px 6px;border-radius:4px}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:900px;margin:36px auto;padding:0 12px}
+  h1{margin:0 0 8px}
+  button{padding:8px 12px;border:1px solid #bbb;border-radius:8px;background:#f6f6f6;cursor:pointer}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  #log{background:#0b1220;color:#cfe3ff;padding:12px;border-radius:8px;white-space:pre-wrap;max-height:360px;overflow:auto;margin-top:12px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
+  .hint{color:#666;font-size:13px}
 </style>
-<h1>Spotify Authentication</h1>
-<p id="msg">Preparing PKCE…</p>
+</head>
+<body>
+<h1>Spotify Authentication (PKCE)</h1>
+<p id="status">Booting…</p>
+
+<div class="row">
+  <button id="btnSignin">Sign in with Spotify</button>
+  <button id="btnForce">Force re-consent (show_dialog)</button>
+  <button id="btnClear">Clear tokens</button>
+</div>
+<p class="hint">通常はこのページを開くだけで「自動リフレッシュ → callback.html」へ移動します。止まる場合は Force を押してください。</p>
+
+<pre id="log"></pre>
+
 <script>
-const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
-const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
-const SCOPES = ["playlist-modify-private","playlist-modify-public"];
+/*** 固定（あなたの環境） ***/
+const CLIENT_ID     = "1fd6350fcf4945a0b3ddffa2d5730d4e";
+const REDIRECT_URI  = "https://npr2025.github.io/spotify-auth/callback.html";
+const SCOPES        = ["playlist-modify-private","playlist-modify-public"]; // 必要権限
+const AUTH_URL      = "https://accounts.spotify.com/authorize";
+const TOKEN_URL     = "https://accounts.spotify.com/api/token";
 
-function randStr(n=64){
-  const abc="abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-._~";
-  let s=""; for(let i=0;i<n;i++) s+=abc[Math.floor(Math.random()*abc.length)]; return s;
+/*** utils ***/
+const log = (m)=>{ const el=document.querySelector("#log"); el.textContent += m + "\n"; el.scrollTop = el.scrollHeight; console.log(m); };
+const setStatus = (t)=>{ document.querySelector("#status").textContent = t; log(t); };
+const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
+const b64url = (buf)=>{
+  return btoa(String.fromCharCode.apply(null, new Uint8Array(buf)))
+    .replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+};
+async function sha256(bytes){
+  const enc = new TextEncoder().encode(bytes);
+  const digest = await crypto.subtle.digest("SHA-256", enc);
+  return b64url(digest);
 }
-async function sha256(s){ const b=new TextEncoder().encode(s); return await crypto.subtle.digest("SHA-256",b); }
-function base64url(ab){ return btoa(String.fromCharCode(...new Uint8Array(ab))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); }
 
-(async ()=>{
+/*** storage helpers（refresh_token は localStorage にも永続化） ***/
+function put(k,v,perm=false){ (perm?localStorage:sessionStorage).setItem(k,v); }
+function get(k){ return sessionStorage.getItem(k) ?? localStorage.getItem(k) ?? null; }
+function delAll(){
+  ["sp_access_token","sp_refresh_token","sp_exp_at","sp_scope","pkce_state","pkce_verifier"].forEach(k=>{
+    sessionStorage.removeItem(k); localStorage.removeItem(k);
+  });
+}
+
+/*** 認可フロー（PKCE / S256） ***/
+async function startAuth({forceDialog=false}={}){
+  // PKCE
+  const state = crypto.getRandomValues(new Uint8Array(16)).join("");
+  const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
+  const challenge = await sha256(verifier);
+  sessionStorage.setItem("pkce_state", state);
+  sessionStorage.setItem("pkce_verifier", verifier);
+
+  const u = new URL(AUTH_URL);
+  u.searchParams.set("client_id", CLIENT_ID);
+  u.searchParams.set("response_type", "code");
+  u.searchParams.set("redirect_uri", REDIRECT_URI);
+  u.searchParams.set("scope", SCOPES.join(" "));
+  u.searchParams.set("code_challenge_method", "S256");
+  u.searchParams.set("code_challenge", challenge);
+  u.searchParams.set("state", state);
+  if(forceDialog) u.searchParams.set("show_dialog", "true"); // refresh_token を確実に再発行
+
+  log("→ Redirecting to Spotify authorize…");
+  location.href = u.toString();
+}
+
+/*** 既存 refresh_token で自動リフレッシュ（最速） ***/
+async function tryAutoRefresh(){
+  const refresh = get("sp_refresh_token");
+  if(!refresh){ log("no stored refresh_token"); return false; }
+
+  setStatus("Found refresh_token → refreshing access_token…");
+  const body = new URLSearchParams({
+    client_id: CLIENT_ID,
+    grant_type: "refresh_token",
+    refresh_token: refresh
+  });
+  const r = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: {"Content-Type":"application/x-www-form-urlencoded"},
+    body
+  });
+  if(!r.ok){
+    log("refresh failed: " + r.status);
+    return false;
+  }
+  const t = await r.json();
+  const expAt = Date.now() + (t.expires_in||3600)*1000;
+  sessionStorage.setItem("sp_access_token", t.access_token);
+  sessionStorage.setItem("sp_exp_at", String(expAt));
+  sessionStorage.setItem("sp_scope", t.scope||SCOPES.join(" "));
+  if(t.refresh_token){
+    sessionStorage.setItem("sp_refresh_token", t.refresh_token);
+    localStorage.setItem("sp_refresh_token", t.refresh_token);
+  }else{
+    // 返って来ないケース → 既存のを維持
+    sessionStorage.setItem("sp_refresh_token", refresh);
+  }
+  log("refresh OK → redirect to callback.html");
+  location.replace(REDIRECT_URI);
+  return true;
+}
+
+/*** UI ボタン ***/
+document.querySelector("#btnSignin").onclick = ()=>startAuth({forceDialog:false});
+document.querySelector("#btnForce").onclick  = ()=>startAuth({forceDialog:true});
+document.querySelector("#btnClear").onclick  = ()=>{
+  delAll(); setStatus("Tokens cleared.");
+};
+
+/*** 起動ロジック ***/
+(async function boot(){
   try{
-    // 旧トークン掃除（リダイレクトループ対策）
-    ["sp_access_token","sp_refresh_token","sp_exp_at","sp_scope"].forEach(k=>sessionStorage.removeItem(k));
+    setStatus("Booting…");
+    // ?force=1 なら必ず再同意
+    const force = new URLSearchParams(location.search).get("force")==="1";
+    if(force){ setStatus("Force re-consent requested."); await startAuth({forceDialog:true}); return; }
 
-    const state = randStr(32);
-    const verifier = randStr(64);
-    const challenge = base64url(await sha256(verifier));
+    // 1) refresh_token があれば最速で更新して callback へ
+    if(await tryAutoRefresh()) return;
 
-    sessionStorage.setItem("pkce_state", state);
-    sessionStorage.setItem("pkce_verifier", verifier);
-
-    const u = new URL("https://accounts.spotify.com/authorize");
-    u.searchParams.set("client_id", CLIENT_ID);
-    u.searchParams.set("response_type","code");
-    u.searchParams.set("redirect_uri", REDIRECT_URI);
-    u.searchParams.set("code_challenge_method","S256");
-    u.searchParams.set("code_challenge",challenge);
-    u.searchParams.set("state",state);
-    u.searchParams.set("scope", SCOPES.join(" "));
-
-    document.getElementById("msg").textContent = "Redirecting to Spotify…";
-    location.href = u.toString();
+    // 2) なければ自動で認可画面へ（show_dialog=true で refresh_token を確保）
+    setStatus("No token → opening Spotify authorize (show_dialog)…");
+    await startAuth({forceDialog:true});
   }catch(e){
-    document.getElementById("msg").textContent = "Auth init error: "+e.message;
+    setStatus("Auth boot error: " + (e.message||e));
   }
 })();
 </script>
+</body>
 </html>
