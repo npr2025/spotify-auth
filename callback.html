@@ -3,19 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TDCS 120→100 (WORLD × Breaks-Genre Only × Remix-only, Pins #1/#8/#45/#75)</title>
+<title>TDCS WORLD Breaks Remixes 130→120→100</title>
 <style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1100px;margin:36px auto;padding:0 12px}
-  h1{margin:0 0 8px}
+  :root{--fg:#0b1220;--mut:#667;--chip:#eef2ff}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
+       max-width:1100px;margin:36px auto;padding:0 12px;color:var(--fg)}
+  h1{margin:0 0 10px}
   button{padding:8px 12px;border:1px solid #bbb;border-radius:8px;background:#f6f6f6;cursor:pointer}
   button:disabled{opacity:.45;cursor:not-allowed}
   input,select{padding:6px 8px;border:1px solid #ccc;border-radius:6px}
-  #row{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
-  #pins{display:grid;grid-template-columns:180px 1fr 160px;gap:8px;align-items:center;margin:10px 0;padding:10px;border:1px dashed #ddd;border-radius:8px;background:#fafafa}
+  #row{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}
+  #pins{display:grid;grid-template-columns:180px 1fr 160px;gap:8px;align-items:center;
+        margin:10px 0;padding:10px;border:1px dashed #ddd;border-radius:8px;background:#fafafa}
   #log{background:#0b1220;color:#cfe3ff;padding:10px;border-radius:8px;max-height:360px;overflow:auto;white-space:pre-wrap;margin-top:12px}
   #debug{font-size:13px;color:#333;background:#f6f6f9;border:1px solid #e5e6ef;border-radius:8px;padding:8px;margin:12px 0}
   ol{line-height:1.5}
-  label.small{font-size:12px;color:#666}
+  label.small{font-size:12px;color:var(--mut)}
+  .chip{display:inline-block;background:var(--chip);border:1px solid #dfe6ff;border-radius:999px;padding:.1rem .5rem;margin-left:.3rem;font-size:12px}
 </style>
 </head>
 <body>
@@ -25,31 +29,33 @@
 <div id="row">
   <label>Market
     <select id="market">
-      <option selected>WORLD</option>
-      <option>US</option><option>JP</option><option>GB</option><option>DE</option>
-      <option>FR</option><option>ES</option><option>BR</option><option>AU</option>
-      <option>CA</option><option>NL</option><option>PL</option><option>SE</option>
+      <option>US</option><option selected>JP</option><option>GB</option><option>DE</option>
+      <option>FR</option><option>ES</option><option>BR</option><option>AU</option><option>CA</option><option>MX</option>
     </select>
   </label>
+  <label><input id="allMk" type="checkbox" checked> All markets（地域フィルタ無効）</label>
+
   <label>Depth
     <select id="depth">
-      <option value="200">200</option>
-      <option value="300" selected>300</option>
-      <option value="600">600</option>
-      <option value="1000">1000</option>
+      <option value="100">100 results</option>
+      <option value="200">200 results</option>
+      <option value="300" selected>300 results</option>
     </select>
   </label>
-  <button id="btn120">Build 120 (WORLD × Breaks-GenreOnly × Remix-only)</button>
-  <button id="btn100" disabled>Pick Balanced 100（Remix-only）</button>
-  <button id="btnHead5" disabled>Optimize Head-5</button>
-  <input id="plName" style="min-width:360px" value="PROGAPANDA • Balanced100 (TDCS Breaks Remixes)">
+
+  <button id="btn130">① Build 130（WORLD×Breaks×Remix-only）</button>
+  <button id="btn120" disabled>② Trim to 120</button>
+  <button id="btn100" disabled>③ Pick Balanced 100（Pins/非連続）</button>
+  <button id="btnHead5" disabled>④ Optimize Head-5</button>
+
+  <input id="plName" style="min-width:360px" value="PROGAPANDA • Balanced100 (TDCS Remixes)">
   <label><input id="plPublic" type="checkbox"> Make Public</label>
   <button id="btnCreate" disabled>Create Playlist</button>
 </div>
 
 <div id="pins">
   <div><b>Pin Track IDs（固定）</b>
-    <div class="small">Remixのみ採用／“Mix”は全面除外。空欄は無視、重複は排除。コラボ含む同一リミキサーが隣接しないよう自動整列。</div>
+    <div class="small">Remixのみ採用／“Mix”は全面除外。空欄可、重複は自動排除。<span class="chip">#1 / #8 / #45 / #75</span></div>
   </div>
   <input id="pinOpen"  value="0ueNjvhtXGDFkJQ5WBQ4mE" placeholder="先頭 (#1)">
   <span class="small">先頭 (#1)</span>
@@ -77,135 +83,54 @@
 <pre id="log"></pre>
 
 <script>
-/*** 固定 ***/
+/*** 固定（あなたの環境） ***/
 const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
 const ARTIST_ID    = "55fvQ5I2IZUfcFT2DV02T3";
 const ARTIST_NAME  = "The Darrow Chem Syndicate";
 const USER_ID      = "22fqn5mozguuegi2t3l2zeugy";
 const DESIRED_SCOPES = ["playlist-modify-private","playlist-modify-public"];
-const STAGE_LIMIT_120 = 120;
-const FINAL_LIMIT_100 = 100;
-const WORLD_MARKETS = ["US","JP","GB","DE","FR","ES","BR","AU","CA","NL","PL","SE"];
+const LIMIT_130 = 130, LIMIT_120 = 120, LIMIT_100 = 100;
 
-/*** 小道具 ***/
+/*** 便利関数/UI ***/
 const $=s=>document.querySelector(s);
 const log=m=>{const el=$("#log"); el.textContent+=m+"\n"; el.scrollTop=el.scrollHeight; console.log(m);}
 const setStatus=t=>{ $("#status").textContent=t; log(t); }
-const sleep = ms => new Promise(r=>setTimeout(r,ms));
+async function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+$("#allMk").onchange = ()=> $("#market").disabled = $("#allMk").checked;
+$("#market").disabled = $("#allMk").checked;
 
-/*** Remix-only / “Mix”除外 ***/
+/*** Remix-only / “Mix”除外 / Breaks判定 ***/
 function isRemixOnly(name){
   const s = name || "";
   const hasRemix   = /\bremix\b/i.test(s);
-  const hasMixWord = /\bmix\b/i.test(s); // “club mix/extended mix/continuous mix”等を除外
+  const hasMixWord = /\bmix\b/i.test(s); // “club mix/extended mix/continuous mix”等の「Mix」を全除外
   return hasRemix && !hasMixWord;
 }
-
-/*** Breaks/Breakbeat：ジャンルのみで判定（タイトル/アルバム名は見ない） ***/
-const BREAK_GENRE_RE = /\b(breaks?|breakbeat|big\s*beat|nu\s*skool\s*breaks|breakcore|broken\s*beat|funky\s*breaks|electro\s*breaks)\b/i;
-function anyGenreBreaks(genres=[]){
-  return (genres||[]).some(g=>BREAK_GENRE_RE.test(String(g)));
+function isBreaksByMeta(title, album){
+  const t = (title||"") + " " + (album||"");
+  return /\bbreaks?\b|\bbreakbeat(s)?\b/i.test(t);
 }
 
-/*** リミキサー抽出＆連続禁止（コラボ含む交差を禁止） ***/
-function parseRemixers(title){
-  if(!title) return [];
-  const names=[];
-  const re = /(?:-|\(|\[)\s*([^()\[\]-]+?)\s+Remix/ig; // 「(AAA & BBB Remix)」「- AAA Remix」など
-  let m;
-  while((m=re.exec(title))){
-    const chunk = m[1];
-    // & , x vs and feat/ft で分割
-    chunk.split(/(?:\s*&\s*|\s*,\s*|\s+x\s+|\s+vs\.?\s+|\s+and\s+|\s+feat\.?\s+|\s+ft\.?\s+)/i)
-         .forEach(p=>{
-           const n=p.trim().toLowerCase().replace(/\.$/, "");
-           if(n && !names.includes(n)) names.push(n);
-         });
-  }
-  return names;
+/*** リミキサー名の抽出（AAA & BBB Remix、AAA Remix、AAA x BBB Remix など） ***/
+function remixerTokens(title){
+  const s = title||"";
+  const m = s.match(/(.+?)\s*remix\b/i); // “○○ Remix” の “○○” 部分
+  if(!m) return [];
+  const raw = m[1]
+    .replace(/\(.*?\)/g,"") // 括弧内は捨てる
+    .replace(/\b(feat|ft|featuring)\b.*$/i,"")
+    .trim();
+  return raw
+    .split(/[,/&x＋×]\s*/i)
+    .map(v=>v.trim().toLowerCase())
+    .filter(v=>v.length>0);
 }
-function avoidConsecutiveRemixers(list, pinSet){
-  const isPinnedId = id => pinSet && pinSet.has(id);
-  const remixersOf = i => list[i]._remixers || (list[i]._remixers = parseRemixers(list[i].name));
-  const MAX_PASSES = 2*list.length + 20;
-  let pass = 0, changed = true;
-  while(changed && pass < MAX_PASSES){
-    changed = false; pass++;
-    for(let i=0;i<list.length-1;i++){
-      const A = remixersOf(i);
-      const B = remixersOf(i+1);
-      const conflict = A.length && B.length && A.some(x=>B.includes(x)); // 交差あり（コラボも拾う）
-      if(!conflict) continue;
-
-      // i+1（非ピン）を後方安全曲とスワップ
-      if(!isPinnedId(list[i+1].id)){
-        let k = i+2;
-        while(k < list.length){
-          if(!isPinnedId(list[k].id)){
-            const K = remixersOf(k);
-            if(!(K.length && A.some(x=>K.includes(x)))){ // A と交差しない
-              const tmp = list[i+1]; list[i+1] = list[k]; list[k] = tmp;
-              changed = true; break;
-            }
-          }
-          k++;
-        }
-      }
-      // まだ衝突なら、i（非ピン）を後方安全曲とスワップ
-      const A2 = remixersOf(i), B2 = remixersOf(i+1);
-      if(A2.length && B2.length && A2.some(x=>B2.includes(x)) && !isPinnedId(list[i].id)){
-        let m = i+2;
-        while(m < list.length){
-          if(!isPinnedId(list[m].id)){
-            const M = remixersOf(m);
-            if(!(M.length && B2.some(x=>M.includes(x)))){ // B と交差しない
-              const tmp = list[i]; list[i] = list[m]; list[m] = tmp;
-              changed = true; break;
-            }
-          }
-          m++;
-        }
-      }
-      // それでもダメなら、i+1 を前方の安全スロットへ（非ピンのみ）
-      const A3 = remixersOf(i), B3 = remixersOf(i+1);
-      if(A3.length && B3.length && A3.some(x=>B3.includes(x)) && !isPinnedId(list[i+1].id)){
-        let j = i-1, placed = false;
-        while(j>=0){
-          if(!isPinnedId(list[j].id)){
-            const J = remixersOf(j);
-            const JJ = remixersOf(Math.max(0,j-1));
-            const safePrev = !(J.length && B3.some(x=>J.includes(x)));
-            const safePrev2 = j-1<0 || !(JJ.length && B3.some(x=>JJ.includes(x)));
-            if(safePrev && safePrev2){
-              const [item] = list.splice(i+1,1);
-              list.splice(j,0,item);
-              changed = true; placed = true; break;
-            }
-          }
-          j--;
-        }
-        // 前に置けなければ、i を後方に（非ピンのみ）
-        if(!placed && !isPinnedId(list[i].id)){
-          let r = i+2;
-          while(r<list.length){
-            if(!isPinnedId(list[r].id)){
-              const R = remixersOf(r);
-              const safeWithPrev = !(R.length && A3.some(x=>R.includes(x)));
-              const safeWithNext = (r+1>=list.length) || !(remixersOf(r+1).length && remixersOf(r+1).some(x=>A3.includes(x)));
-              if(safeWithPrev && safeWithNext){
-                const [item] = list.splice(i,1);
-                list.splice(r,0,item);
-                changed = true; break;
-              }
-            }
-            r++;
-          }
-        }
-      }
-    }
-  }
-  return list;
+function shareAnyRemixer(aTitle,bTitle){
+  const A = new Set(remixerTokens(aTitle));
+  const B = new Set(remixerTokens(bTitle));
+  for(const x of A){ if(B.has(x)) return true; }
+  return false;
 }
 
 /*** トークン管理（PKCE） ***/
@@ -247,7 +172,7 @@ async function refreshTokenNow(){
   const rt=sessionStorage.getItem("sp_refresh_token");
   if(!rt) throw new Error("No refresh_token");
   const r=await fetch("https://accounts.spotify.com/api/token",{
-    method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded"},
+    method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"},
     body:new URLSearchParams({client_id:CLIENT_ID,grant_type:"refresh_token",refresh_token:rt})
   });
   if(!r.ok){ clearToken(); throw new Error(`Refresh ${r.status}`); }
@@ -258,7 +183,7 @@ async function ensureToken(requiredScopes=DESIRED_SCOPES){
   if(!scopeOk(requiredScopes)) { log("Scope insufficient → re-auth"); reauth(); await new Promise(()=>{}); }
   const tok=sessionStorage.getItem("sp_access_token");
   const exp=+sessionStorage.getItem("sp_exp_at")||0;
-  if(tok && Date.now()<exp-120000) return tok;
+  if(tok && Date.now()<exp-120000) return tok; // 2分マージン
   const rt=sessionStorage.getItem("sp_refresh_token");
   if(rt){ await refreshTokenNow(); return sessionStorage.getItem("sp_access_token"); }
   reauth(); await new Promise(()=>{});
@@ -266,7 +191,7 @@ async function ensureToken(requiredScopes=DESIRED_SCOPES){
 function reauth(){ location.href="auth.html"; }
 
 /*** API（レートセーフ＋自動クールダウン） ***/
-let GAP_MS = 1000;
+let GAP_MS = 1200;
 async function spGet(path,params={}){
   const u=new URL("https://api.spotify.com/v1/"+path);
   Object.entries(params).forEach(([k,v])=>{ if(v!=null&&v!=="") u.searchParams.set(k,v);});
@@ -275,8 +200,8 @@ async function spGet(path,params={}){
   if(r.status===401){ log("401 → refresh and retry"); await refreshTokenNow(); return spGet(path,params); }
   if(r.status===429){
     const ra=+r.headers.get("retry-after")||2;
-    GAP_MS = Math.min(Math.floor(GAP_MS*1.7)+300, 6000);
-    log(`429 → wait ${ra}s, cooldown≒${GAP_MS}ms`);
+    GAP_MS = Math.min(Math.floor(GAP_MS*1.6)+300, 6000);
+    log(`429 ⇒ wait ${ra}s, cooldown→${GAP_MS}ms`);
     await sleep(ra*1000);
     return spGet(path,params);
   }
@@ -294,8 +219,8 @@ async function spPost(path,body,scopeNeed=["playlist-modify-private"]){
   if(r.status===401){ log("POST 401 → refresh and retry"); await refreshTokenNow(); return spPost(path,body,scopeNeed); }
   if(r.status===429){
     const ra=+r.headers.get("retry-after")||2;
-    GAP_MS = Math.min(Math.floor(GAP_MS*1.7)+300, 6000);
-    log(`POST 429 → wait ${ra}s, cooldown≒${GAP_MS}ms`);
+    GAP_MS = Math.min(Math.floor(GAP_MS*1.6)+300, 6000);
+    log(`POST 429 ⇒ wait ${ra}s, cooldown→${GAP_MS}ms`);
     await sleep(ra*1000);
     return spPost(path,body,scopeNeed);
   }
@@ -303,18 +228,21 @@ async function spPost(path,body,scopeNeed=["playlist-modify-private"]){
   return r.json();
 }
 
-/*** 検索（WORLD × Remix-only）→ Breaksは“アーティスト・ジャンルのみ”でフィルタ ***/
-async function searchRemixesByArtistInMarket(market="US", maxResults=200){
+/*** WORLD検索（Remix-only / “Mix”除外 / Breaks必須） ***/
+const WORLD_MARKETS = ["US","JP","GB","DE","FR","ES","BR","AU","CA","MX"];
+
+async function searchRemixesInMarket(market, maxResults){
   const keep=[], seen=new Set();
   const pages = Math.ceil(maxResults/50);
   const q = `artist:"${ARTIST_NAME}" remix`;
   for(let i=0;i<pages;i++){
-    const d=await spGet("search",{ q, type:"track", market, limit:50, offset: i*50 });
+    const d=await spGet("search",{ q, type:"track", market, limit:50, offset:i*50 });
     const items=d?.tracks?.items||[];
     for(const t of items){
       if(!t?.name) continue;
-      if(!t.artists?.some(a=>a.id===ARTIST_ID)) continue; // TDCS を含む出演のみ
-      if(!isRemixOnly(t.name)) continue;                   // Remix-only / Mix除外
+      if(!t.artists?.some(a=>a.id===ARTIST_ID)) continue;
+      if(!isRemixOnly(t.name)) continue;
+      if(!isBreaksByMeta(t.name, t.album?.name)) continue;
       if(!seen.has(t.id)){ seen.add(t.id); keep.push(t); }
     }
     log(`[${market}] page ${i+1}: fetched ${items.length}, kept ${keep.length}`);
@@ -322,59 +250,23 @@ async function searchRemixesByArtistInMarket(market="US", maxResults=200){
   }
   return keep;
 }
-async function fetchArtistsGenres(artistIds){
-  const uniq=[...new Set(artistIds.filter(Boolean))];
-  const map=new Map();
-  for(let i=0;i<uniq.length;i+=50){
-    const chunk=uniq.slice(i,i+50);
-    const d=await spGet("artists",{ids:chunk.join(",")});
-    for(const a of (d?.artists||[])){
-      map.set(a.id, (a.genres||[]).map(g=>String(g).toLowerCase()));
+
+async function searchWorldRemixes(maxResults, useAllMarkets){
+  const mk = $("#market").value;
+  const targets = useAllMarkets ? WORLD_MARKETS : [mk];
+  const perMarket = Math.max(50, Math.ceil(maxResults/targets.length)); // 配分目安
+  const out=[]; const have=new Set();
+  for(const m of targets){
+    const part = await searchRemixesInMarket(m, perMarket);
+    for(const t of part){
+      if(!have.has(t.id)){ have.add(t.id); out.push(t); }
     }
   }
-  return map;
-}
-async function searchWorldRemixesBreaksGenreOnly(depthTotal){
-  const marketSel=$("#market").value||"WORLD";
-  const markets = (marketSel==="WORLD") ? WORLD_MARKETS : [marketSel];
-  const perMarket = Math.max(50, Math.ceil(depthTotal/markets.length));
-  let all=[];
-  for(const mk of markets){
-    const arr = await searchRemixesByArtistInMarket(mk, perMarket);
-    all.push(...arr);
-  }
-  // 出演アーティストのジャンルを一括取得
-  const artistIds=[]; all.forEach(t=>(t.artists||[]).forEach(a=>artistIds.push(a.id)));
-  const genreMap = await fetchArtistsGenres(artistIds);
-
-  // Breaks/Breakbeat は「アーティストのジャンルに含まれるか」でのみ判定
-  const filtered = all.filter(t=>{
-    const arts = (t.artists||[]).map(a=>a.id);
-    return arts.some(id => anyGenreBreaks(genreMap.get(id)||[]));
-  });
-
-  // 整形
-  const rows = filtered.map(t=>{
-    const artists=t.artists.map(a=>a.name).join(", ");
-    return {
-      id:t.id, name:t.name, artists,
-      popularity:t.popularity||0,
-      track_url:t.external_urls?.spotify || `https://open.spotify.com/track/${t.id}`,
-      album_id:t.album?.id||"",
-      album:t.album?.name||"",
-      album_url:t.album?.external_urls?.spotify||""
-    };
-  });
-
-  // 重複除去 & 人気順
-  const seen=new Set(); const uniq=[];
-  for(const r of rows){ if(seen.has(r.id)) continue; seen.add(r.id); uniq.push(r); }
-  uniq.sort((a,b)=>(b.popularity||0)-(a.popularity||0));
-  return uniq;
+  return out;
 }
 
-/*** バッチ情報取得（Pin/Backfill用） ***/
-async function fetchTracksBatch(ids, market="US"){
+/*** バッチでメタ取得（Pins補強） ***/
+async function fetchTracksBatch(ids, market){
   if(!ids.length) return [];
   const chunk = ids.slice(0,50);
   const d = await spGet("tracks", { ids: chunk.join(","), market });
@@ -383,15 +275,12 @@ async function fetchTracksBatch(ids, market="US"){
     if(!t || !t.id) continue;
     if(!t.artists?.some(a=>a.id===ARTIST_ID)) continue;
     if(!isRemixOnly(t.name)) continue;
+    if(!isBreaksByMeta(t.name, t.album?.name)) continue;
     out.push({
-      id: t.id,
-      name: t.name,
-      artists: (t.artists||[]).map(a=>a.name).join(", "),
-      popularity: t.popularity||0,
-      track_url: t.external_urls?.spotify || `https://open.spotify.com/track/${t.id}`,
-      album_id: t.album?.id || "",
-      album: t.album?.name || "",
-      album_url: t.album?.external_urls?.spotify || ""
+      id:t.id, name:t.name, artists:(t.artists||[]).map(a=>a.name).join(", "),
+      popularity:t.popularity||0,
+      track_url:t.external_urls?.spotify || `https://open.spotify.com/track/${t.id}`,
+      album:t.album?.name||"", album_url:t.album?.external_urls?.spotify||""
     });
   }
   if(ids.length>50) out.push(...await fetchTracksBatch(ids.slice(50), market));
@@ -399,7 +288,7 @@ async function fetchTracksBatch(ids, market="US"){
 }
 
 /*** 整形・選曲 ***/
-let stage120=[], remixPool=[], lastData=[];
+let pool=[], base120=[], final100=[];
 function render(list){
   const ol=$("#tracks"); ol.innerHTML="";
   list.forEach((r,i)=>{
@@ -408,26 +297,23 @@ function render(list){
     li.append(`${i+1}. `, a, ` — ${r.artists} (pop:${r.popularity})`);
     ol.appendChild(li);
   });
-  const on=list.length>0; $("#btn100").disabled=!on; $("#btnHead5").disabled=!on; $("#btnCreate").disabled=!on;
-}
-function pickBalanced(rows, limit, firstCap=2){
-  const pool=[...rows].sort((a,b)=>(b.popularity||0)-(a.popularity||0));
-  const picked=[], seen=new Set(), albumCnt=new Map();
-  const key = r => (r.album_id||"")+ "::" + r.artists;
-  const pass = cap=>{
-    for(const r of pool){
-      if(picked.length>=limit) break;
-      if(seen.has(r.id)) continue;
-      const k=key(r); const cnt=albumCnt.get(k)||0;
-      if(cnt>=cap) continue;
-      picked.push(r); seen.add(r.id); albumCnt.set(k,cnt+1);
-    }
-  };
-  [firstCap,3,4,6,999].some(cap=>{ pass(cap); return picked.length>=limit; });
-  return picked.slice(0,limit);
+  const on=list.length>0;
+  $("#btn120").disabled = !pool.length;
+  $("#btn100").disabled = !base120.length;
+  $("#btnHead5").disabled = !final100.length;
+  $("#btnCreate").disabled = !final100.length;
 }
 
-/*** Pins ***/
+function capByAlbum(rows, cap=2){
+  const res=[], cnt={};
+  for(const r of rows){
+    const key=r.album+"::"+r.artists;
+    cnt[key]=(cnt[key]||0);
+    if(cnt[key] < cap){ res.push(r); cnt[key]++; }
+  }
+  return res;
+}
+
 function getPinIds(){
   return {
     open: ($("#pinOpen").value||"").trim(),
@@ -436,47 +322,59 @@ function getPinIds(){
     late: ($("#pinLate").value||"").trim()
   };
 }
-function dropDupAndKeepLen(list, keepSet, targetLen){
-  const out=[]; const seen=new Set();
-  for(const r of list){ if(seen.has(r.id)) continue; seen.add(r.id); out.push(r); }
-  while(out.length>targetLen){
-    const last = out[out.length-1];
-    if(keepSet.has(last.id)){
-      let idx = -1;
-      for(let i=out.length-1;i>=0;i--){ if(!keepSet.has(out[i].id)){ idx=i; break; } }
-      if(idx<0) break;
-      out.splice(idx,1);
-    }else out.pop();
+
+/* 連続リミキサー回避。隣同士で remixerTokens の交差がある場合を修復 */
+function avoidAdjacency(list, pinSet){
+  // pinは動かさず、非pinで修復
+  function isPinned(x){ return pinSet.has(x.id); }
+  function okAdj(a,b){ return !(a && b && shareAnyRemixer(a.name,b.name)); }
+
+  // まず軽いスワップ修復
+  for(let i=1;i<list.length;i++){
+    if(!okAdj(list[i-1], list[i])){
+      // 先のどこかと入替える（非ピン優先）
+      let sw = -1;
+      for(let k=i+1;k<list.length;k++){
+        if(isPinned(list[k])) continue;
+        if(okAdj(list[i-1], list[k]) && okAdj(list[k], list[i+1]||null)){ sw=k; break; }
+      }
+      if(sw>0){ const tmp=list[i]; list[i]=list[sw]; list[sw]=tmp; }
+    }
   }
-  return out;
-}
-async function ensurePinsInStage(list, stageLimit, market){
-  const pins=getPinIds();
-  const pinList=[pins.open,pins.early,pins.mid,pins.late].filter(Boolean);
-  const have=new Set(list.map(x=>x.id));
-  const need = pinList.filter(id=>!have.has(id));
-  if(need.length){
-    log(`pins: batch fetch ${need.length}`);
-    const rows = await fetchTracksBatch(need, market || "US");
-    for(const r of rows.reverse()){ list.unshift(r); have.add(r.id); }
+
+  // まだダメなら、後方プールから差替え
+  for(let i=1;i<list.length;i++){
+    if(!okAdj(list[i-1], list[i])){
+      for(let k=list.length-1;k>i;k--){
+        if(isPinned(list[k])) continue;
+        if(okAdj(list[i-1], list[k]) && okAdj(list[k], list[i+1]||null)){
+          const x=list.splice(k,1)[0];
+          list.splice(i,0,x);
+          list.splice(i+1,1); // 長さ維持（衝突項を外す）
+          break;
+        }
+      }
+    }
   }
-  return dropDupAndKeepLen(list, new Set(pinList), Math.min(stageLimit, list.length));
+  return list;
 }
-async function forcePinsInto100(list, market){
-  const pins=getPinIds();
-  const plan=[
-    {id:pins.open,  pos:0},   // #1
-    {id:pins.early, pos:7},   // #8
-    {id:pins.mid,   pos:44},  // #45
-    {id:pins.late,  pos:74}   // #75
+
+async function ensurePins(list, market){
+  const pins = getPinIds();
+  const plan = [
+    {id:pins.open, pos:0},   // #1
+    {id:pins.early,pos:7},   // #8
+    {id:pins.mid,  pos:44},  // #45
+    {id:pins.late, pos:74}   // #75
   ].filter(p=>p.id);
   const byId=new Map(list.map(x=>[x.id,x]));
-  const missing = plan.map(p=>p.id).filter(id=>!byId.has(id));
+  const missing = plan.map(p=>p.id).filter(id=>id && !byId.has(id));
   if(missing.length){
-    log(`pins->100: batch fetch ${missing.length}`);
-    const rows = await fetchTracksBatch(missing, market || "US");
-    for(const r of rows){ byId.set(r.id, r); list.push(r); }
+    log(`pins: fetch ${missing.length}`);
+    const rows = await fetchTracksBatch(missing, market);
+    for(const r of rows){ byId.set(r.id,r); list.push(r); }
   }
+  // 配置
   const pinSet=new Set(plan.map(p=>p.id));
   list = list.filter(x=>!pinSet.has(x.id));
   for(const p of plan){
@@ -484,101 +382,134 @@ async function forcePinsInto100(list, market){
     const pos=Math.min(Math.max(p.pos,0), list.length);
     list.splice(pos,0,row);
   }
-  return {list: dropDupAndKeepLen(list, pinSet, FINAL_LIMIT_100), pinSet};
+  // 長さ整形
+  return {list, pinSet};
 }
 
-/*** 100に満たない場合のバックフィル ***/
-async function backfillTo100(current, pinSet, market, depthUsed){
-  const have=new Set(current.map(x=>x.id));
-  const addFromPool = (pool)=>{
-    for(const r of pool){
-      if(current.length>=FINAL_LIMIT_100) break;
-      if(!have.has(r.id) && !pinSet.has(r.id)){ current.push(r); have.add(r.id); }
-    }
-  };
-  addFromPool(remixPool.filter(t=>!pinSet.has(t.id)));
-  // まだ不足なら深掘り
-  let depth = Math.max(depthUsed||300, 300);
-  while(current.length<FINAL_LIMIT_100 && depth<1000){
-    depth = Math.min(depth*2, 1000);
-    log(`backfill: WORLD depth→${depth}`);
-    const extra = await searchWorldRemixesBreaksGenreOnly(depth);
-    remixPool = extra;
-    addFromPool(remixPool.filter(t=>!pinSet.has(t.id)));
-  }
-  return current.slice(0,FINAL_LIMIT_100);
-}
-
-/*** グローバル状態 ***/
-let stage120=[]; let lastData=[]; let remixPool=[];
-
-/*** 120作成（WORLD × Breaks-GenreOnly × Remix-only） ***/
-$("#btn120").onclick=async ()=>{
-  $("#btn120").disabled=true;
+/*** ① Build 130 ***/
+$("#btn130").onclick=async ()=>{
+  $("#btn130").disabled = true;
   try{
-    const depth=+($("#depth").value||300);
-    setStatus(`WORLD search: Breaks-GenreOnly × Remix-only for "${ARTIST_NAME}" depth=${depth}`);
-    remixPool = await searchWorldRemixesBreaksGenreOnly(depth);
-    if(!remixPool.length) throw new Error("No breaks/breakbeat (genre) remixes found.");
-    // まず120に絞る
-    stage120 = pickBalanced(remixPool, STAGE_LIMIT_120, 2);
-    // Pinを必ず含ませて120
-    stage120 = await ensurePinsInStage(stage120, STAGE_LIMIT_120, "US");
-    lastData = stage120.slice();
-    render(lastData);
-    setStatus(`Stage 120 ready (WORLD × Breaks-GenreOnly × Remix-only): ${lastData.length}`);
-    $("#btn100").disabled=false; $("#btnHead5").disabled=false; $("#btnCreate").disabled=false;
-  }catch(e){ setStatus("Build 120 error: "+(e.message||e)); }
-  $("#btn120").disabled=false;
+    const useAll = $("#allMk").checked;
+    const depth  = +$("#depth").value || 300;
+    setStatus(`WORLD search: Breakbeat × Remix-only for "${ARTIST_NAME}" depth=${depth}`);
+    const tracks = await searchWorldRemixes(depth, useAll);
+    if(!tracks.length) throw new Error("No results.");
+
+    // TDCSのみ + 人気順
+    pool = tracks
+      .filter(t=>t && t.artists?.some(a=>a?.id===ARTIST_ID))
+      .sort((a,b)=>(b.popularity||0)-(a.popularity||0))
+      .map(t=>({
+        id:t.id, name:t.name,
+        artists:t.artists.map(a=>a.name).join(", "),
+        popularity:t.popularity||0,
+        track_url:t.external_urls?.spotify || `https://open.spotify.com/track/${t.id}`,
+        album:t.album?.name||"", album_url:t.album?.external_urls?.spotify||""
+      }));
+
+    // 最大130へ
+    pool = pool.slice(0, Math.min(LIMIT_130, pool.length));
+    render(pool);
+    setStatus(`Loaded pool: ${pool.length} (Remix-only / Breaks / WORLD)`);
+    $("#btn120").disabled = pool.length===0;
+  }catch(e){ setStatus("Build error: "+(e.message||e)); }
+  $("#btn130").disabled = false;
 };
 
-/*** 120→100（Pins固定 & コラボ含む同一リミキサー隣接禁止） ***/
-$("#btn100").onclick=async ()=>{
-  if(!stage120.length) return;
-  const mk = ($("#market").value==="WORLD") ? "US" : ($("#market").value||"US");
-  let list = pickBalanced(stage120, FINAL_LIMIT_100, 2);
-  const {list:withPins, pinSet} = await forcePinsInto100(list, mk);
-  lastData = await backfillTo100(withPins, pinSet, mk, +($("#depth").value||300));
-  lastData = avoidConsecutiveRemixers(lastData, pinSet);
-  render(lastData);
-  setStatus(`Balanced 100 (Remix-only, Breaks-GenreOnly) + Pins + No-Shared-Remixer-Adjacency — ${lastData.length}`);
+/*** ② 130→120（アルバム上限2） ***/
+$("#btn120").onclick = async ()=>{
+  try{
+    const mk=$("#market").value||"US";
+    // ピンをベースに確保
+    base120 = capByAlbum(pool, 2).slice(0, LIMIT_120);
+    // ピンが抜けてたら入れて120にリシェイプ
+    const ensured = await ensurePins(base120, mk);
+    base120 = ensured.list;
+    // 120にちょうど合わせる（末尾の非Pinから間引く）
+    const keepSet = ensured.pinSet;
+    const out=[]; const seen=new Set();
+    for(const r of base120){ if(!seen.has(r.id)){ out.push(r); seen.add(r.id);} }
+    while(out.length>LIMIT_120){
+      const victim = out.findLast(x=>!keepSet.has(x.id));
+      if(!victim) break;
+      out.splice(out.lastIndexOf(victim),1);
+    }
+    base120 = out;
+    render(base120);
+    setStatus(`Trimmed to 120 (cap album≤2, pins ensured) — ${base120.length}`);
+    $("#btn100").disabled = base120.length===0;
+  }catch(e){ setStatus("Trim error: "+(e.message||e)); }
 };
 
-/*** Head-5（先頭強化後も隣接禁止を再適用） ***/
-$("#btnHead5").onclick=()=>{
-  if(!lastData.length) return;
+/*** ③ 120→Balanced 100（Pins配置＆連続リミキサー回避） ***/
+$("#btn100").onclick = async ()=>{
+  try{
+    const mk=$("#market").value||"US";
+    // 人気順→アルバム上限2→100へ
+    let work = capByAlbum(base120, 2)
+      .sort((a,b)=>(b.popularity||0)-(a.popularity||0))
+      .slice(0, LIMIT_100+10); // 余白
+
+    // Pins を必ず入れて所定位置
+    const ensured = await ensurePins(work, mk);
+    work = ensured.list;
+    const pinSet = ensured.pinSet;
+
+    // 100ちょうどに調整（非Pin優先で間引き）
+    const dedup=[]; const seen=new Set();
+    for(const r of work){ if(!seen.has(r.id)){ dedup.push(r); seen.add(r.id);} }
+    while(dedup.length>LIMIT_100){
+      const victim = dedup.findLast(x=>!pinSet.has(x.id));
+      if(!victim) break;
+      dedup.splice(dedup.lastIndexOf(victim),1);
+    }
+    // 連続リミキサー回避
+    final100 = avoidAdjacency(dedup, pinSet);
+
+    // 最終100
+    final100 = final100.slice(0, LIMIT_100);
+    render(final100);
+    setStatus(`Balanced 100 ready (Pins #1/#8/#45/#75, no shared-remixer adjacency) — ${final100.length}`);
+    $("#btnHead5").disabled = final100.length===0;
+    $("#btnCreate").disabled = final100.length===0;
+  }catch(e){ setStatus("Pick100 error: "+(e.message||e)); }
+};
+
+/*** ④ Head-5（ピン維持） ***/
+$("#btnHead5").onclick = ()=>{
+  if(!final100.length) return;
   const pins=getPinIds(); const pinSet=new Set(Object.values(pins).filter(Boolean));
   const isPinned = x=>pinSet.has(x.id);
-  const pool=lastData.filter(t=>!isPinned(t)).map(t=>({t, pop:t.popularity||0})).sort((a,b)=>b.pop-a.pop);
-  const take=()=>pool.shift()?.t;
+  const pool = final100.filter(x=>!isPinned(x)).sort((a,b)=>b.popularity-a.popularity);
+  const take=()=>pool.shift();
   const head=[take(),take(),take(),take(),take()].filter(Boolean);
-  const nonPinIdxs = lastData.map((x,i)=>({x,i})).filter(v=>!isPinned(v.x)).map(v=>v.i).slice(0,head.length);
-  head.forEach((h,k)=>{ lastData[nonPinIdxs[k]] = h; });
-  lastData = avoidConsecutiveRemixers(lastData, pinSet);
-  render(lastData);
-  setStatus("Head-5 optimized (Pins preserved) + No-Shared-Remixer-Adjacency");
+  const idxs = final100.map((x,i)=>({x,i})).filter(v=>!isPinned(v.x)).map(v=>v.i).slice(0,head.length);
+  head.forEach((h,k)=>{ final100[idxs[k]] = h; });
+  render(final100);
+  setStatus("Head-5 optimized (pins preserved)");
 };
 
-/*** プレイリスト作成 ***/
-$("#btnCreate").onclick=async ()=>{
+/*** Create Playlist（非公開デフォルト） ***/
+$("#btnCreate").onclick = async ()=>{
   try{
-    if(!lastData.length) return;
+    if(!final100.length) return;
     const isPublic=$("#plPublic").checked;
     const scopeNeed=[isPublic?"playlist-modify-public":"playlist-modify-private"];
     const me=await spGet("me");
     if(me?.id && me.id!==USER_ID) throw new Error(`Signed in as ${me.id}. Please sign in as ${USER_ID}.`);
     const pl=await spPost(`users/${USER_ID}/playlists`,{
-      name:$("#plName").value||"PROGAPANDA • Balanced100 (TDCS Breaks Remixes)",
-      description:"WORLD × Breaks-GenreOnly × Remix-only (no 'Mix'). Pins fixed #1/#8/#45/#75. No consecutive same remixer (collab-aware). Stage 120 → Final 100.",
+      name:$("#plName").value||"PROGAPANDA • Balanced100 (TDCS Remixes)",
+      description:"WORLD Breaks • Remix-only (no Mix). Pins at #1/#8/#45/#75. 130→120→100 auto-curated for flow.",
       public:!!isPublic
     }, scopeNeed);
-    const uris=[...new Set(lastData.map(x=>"spotify:track:"+x.id))];
+    const uris=[...new Set(final100.map(x=>"spotify:track:"+x.id))];
     for(let i=0;i<uris.length;i+=100){
       await spPost(`playlists/${pl.id}/tracks`,{uris:uris.slice(i,i+100)}, scopeNeed);
       await sleep(300);
     }
     const url=pl.external_urls?.spotify || `https://open.spotify.com/playlist/${pl.id}`;
-    setStatus(`Done — ${lastData.length} tracks added (${isPublic?"public":"private"}). ${url}`);
+    setStatus(`Done — ${final100.length} tracks added (${isPublic?"public":"private"}). ${url}`);
   }catch(e){ setStatus("Playlist error: "+(e.message||e)); }
 };
 
@@ -586,7 +517,7 @@ $("#btnCreate").onclick=async ()=>{
 $("#btnRefresh").onclick=()=>refreshTokenNow().catch(e=>setStatus("Refresh error: "+e.message));
 $("#btnReauth").onclick=()=>{ clearToken(); location.href="auth.html"; };
 
-/*** 起動（PKCEコールバック対応） ***/
+/*** 起動（PKCEコールバック） ***/
 (async function boot(){
   try{
     const qp=new URLSearchParams(location.search);
@@ -603,7 +534,7 @@ $("#btnReauth").onclick=()=>{ clearToken(); location.href="auth.html"; };
       }
     }
     await ensureToken();
-    setStatus("Signed in. ①Build 120（WORLD×Breaks-GenreOnly×Remix-only）→ ②Pick Balanced 100（Pins #1/#8/#45/#75 & no shared-remixer adjacency）→ ③Head-5 → ④Create Playlist（非公開デフォルト）");
+    setStatus("Signed in. ①Build 130 → ②Trim 120 → ③Balanced 100（Pins #1/#8/#45/#75 & no shared-remixer adjacency）→ ④Head-5 → ⑤Create Playlist（非公開デフォルト）");
   }catch(e){
     setStatus("Boot error: "+(e.message||e));
   }
