@@ -12,24 +12,18 @@
 <script>
 const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
-
-// 必要スコープ（非公開プレイリスト作成が主目的）
-const SCOPES = [
-  "playlist-modify-private",
-  "playlist-modify-public"
-].join(" ");
+const SCOPES = ["playlist-modify-private","playlist-modify-public"].join(" ");
 
 const log = m => { const el=document.getElementById("log"); el.textContent+=m+"\n"; el.scrollTop=el.scrollHeight; console.log(m); };
 
-// PKCE
 function toB64Url(buf){ return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); }
 async function sha256(s){ const te=new TextEncoder(); const data=te.encode(s); const dig=await crypto.subtle.digest("SHA-256",data); return toB64Url(dig); }
 function randStr(n=64){ const a="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"; let s=""; for(let i=0;i<n;i++) s+=a[Math.floor(Math.random()*a.length)]; return s; }
 
 async function go(){
-  const codeVerifier = randStr(64);
+  const codeVerifier  = randStr(64);
   const codeChallenge = await sha256(codeVerifier);
-  const state = randStr(32);
+  const state         = randStr(32);
 
   sessionStorage.setItem("pkce_verifier", codeVerifier);
   sessionStorage.setItem("pkce_state", state);
@@ -48,7 +42,6 @@ async function go(){
   log("→ redirect: "+url);
   location.href = url;
 }
-
 document.getElementById("btn").onclick = go;
 </script>
 </body>
