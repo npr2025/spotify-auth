@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TDCS 130→120→100 (FAST / PKCE)</title>
+<title>TDCS 130→120→100 (FAST / PKCE / Robust 429)</title>
 <style>
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1100px;margin:36px auto;padding:0 12px}
   h1{margin:0 0 8px}
@@ -48,12 +48,15 @@
   <div><b>Pin Track IDs（固定）</b><div class="small">Remixのみ採用／“Mix”は全面除外。空欄は無視、重複は排除。</div></div>
   <input id="pinOpen"  value="0ueNjvhtXGDFkJQ5WBQ4mE" placeholder="先頭 (#1)">
   <span class="small">先頭 (#1)</span>
+
   <div></div>
   <input id="pinEarly" value="63dYSEftdSYwMAFBNfQYsA" placeholder="上旬（#8目安）">
   <span class="small">上旬 (目安 #8)</span>
+
   <div></div>
   <input id="pinMid"   value="3NQuIFfQPhTICaXGYe5dAt" placeholder="中盤（#45目安）">
   <span class="small">中盤 (目安 #45)</span>
+
   <div></div>
   <input id="pinLate"  value="7ltcrdlVsXyU5HU9VCAj6P" placeholder="後半（#75目安）">
   <span class="small">後半 (目安 #75)</span>
@@ -69,7 +72,7 @@
 <pre id="log"></pre>
 
 <script>
-/*** 固定 ***/
+/*** 固定（あなたの環境に合わせる） ***/
 const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
 const ARTIST_ID    = "55fvQ5I2IZUfcFT2DV02T3";
@@ -77,25 +80,35 @@ const ARTIST_NAME  = "The Darrow Chem Syndicate";
 const USER_ID      = "22fqn5mozguuegi2t3l2zeugy";
 const DESIRED_SCOPES = ["playlist-modify-private","playlist-modify-public"];
 
-/* リスト制御（速さ重視プリセット） */
+/*** Storage フェイルセーフ ***/
+const SafeStore = (()=> {
+  let mem = {};
+  const pick = (...stores)=> stores.find(s=>{ try{ const k=`__t${Math.random()}`; s.setItem(k,"1"); s.removeItem(k); return true;}catch{ return false; }});
+  const primary = pick(window.localStorage, window.sessionStorage);
+  return {
+    get(k){ try{ return (primary?primary.getItem(k):mem[k])||null; }catch{ return mem[k]||null; } },
+    set(k,v){ try{ if(primary) primary.setItem(k,v); else mem[k]=v; }catch{ mem[k]=v; } },
+    del(k){ try{ if(primary) primary.removeItem(k); else delete mem[k]; }catch{ delete mem[k]; } }
+  };
+})();
+
+/*** リスト制御（速さ重視プリセット） ***/
 const LIMIT_130=130, LIMIT_PREFETCH=90, LIMIT_120=120, LIMIT_100=100;
-/* アルバム収集を浅く、足りなければ singles を少量だけ（セーフ上限） */
 const FAST = { CAP_ALBUMS_PRIMARY: 30, CAP_ALBUMS_FALLBACK: 10 };
-/* “条件に合う曲” がこの件数に到達したら tracks 取得を早期終了 */
 const TARGET_GOOD = 150;
 
-/*** Util/UI ***/
+/*** Util ***/
 const $=s=>document.querySelector(s);
 const log=m=>{const el=$("#log"); el.textContent+=m+"\n"; el.scrollTop=el.scrollHeight; console.log(m);}
 const setStatus=t=>{ $("#status").textContent=t; log(t); }
 async function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 function stableHash(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);} return h>>>0; }
 
-/*** Remix-only / “Mix”除外 ***/
+/*** Remix-only / “Mix”除外（語境の mix を除外、remix はOK） ***/
 function isRemixOnly(name){
   const s = name||"";
   const hasRemix   = /\bremix\b/i.test(s);
-  const hasMixWord = /\bmix\b/i.test(s);
+  const hasMixWord = /\bmix\b/i.test(s); // 「Radio Mix」などは落とす
   return hasRemix && !hasMixWord;
 }
 
@@ -111,38 +124,24 @@ function parseRemixerTokens(title){
 }
 function shareRemixer(a,b){ const A=a._remixers||new Set(), B=b._remixers||new Set(); for(const x of A) if(B.has(x)) return true; return false; }
 
-/*** Token 管理（localStorage に refresh_token を複製、復帰容易化） ***/
+/*** Token 管理（401自己回復 + スコープ検証） ***/
+function updateTokenDebug(){
+  const exp=+SafeStore.get("sp_exp_at")||0;
+  const left=exp?Math.max(0,Math.floor((exp-Date.now())/1000)):0;
+  const rt=!!SafeStore.get("sp_refresh_token");
+  const sc=SafeStore.get("sp_scope")||"";
+  $("#tokstate").textContent=(SafeStore.get("sp_access_token")?"OK":"NONE")+` / exp in ${left}s / refresh:${rt?"yes":"no"} / scope:[${sc}]`;
+}
 function saveToken(t){
   const expAt=Date.now()+(t.expires_in||3600)*1000;
-  sessionStorage.setItem("sp_access_token",t.access_token);
-  if(t.refresh_token){
-    sessionStorage.setItem("sp_refresh_token",t.refresh_token);
-    localStorage.setItem("sp_refresh_token",t.refresh_token);
-  }
-  sessionStorage.setItem("sp_exp_at",String(expAt));
-  sessionStorage.setItem("sp_scope",t.scope||"");
+  SafeStore.set("sp_access_token",t.access_token);
+  if(t.refresh_token) SafeStore.set("sp_refresh_token",t.refresh_token);
+  SafeStore.set("sp_exp_at",String(expAt));
+  SafeStore.set("sp_scope",t.scope||"");
   updateTokenDebug();
 }
-function loadRT(){
-  return sessionStorage.getItem("sp_refresh_token") || localStorage.getItem("sp_refresh_token") || "";
-}
-function clearToken(){
-  ["sp_access_token","sp_refresh_token","sp_exp_at","sp_scope","pkce_state","pkce_verifier"].forEach(k=>sessionStorage.removeItem(k));
-  // refresh_token は手動リセットのみ（Re-authボタンで消す）
-  updateTokenDebug();
-}
-function nukeAllTokens(){
-  clearToken();
-  localStorage.removeItem("sp_refresh_token");
-}
-function scopeOk(req){ const s=(sessionStorage.getItem("sp_scope")||"").split(" "); return req.every(x=>s.includes(x)); }
-function updateTokenDebug(){
-  const exp=+sessionStorage.getItem("sp_exp_at")||0;
-  const left=exp?Math.max(0,Math.floor((exp-Date.now())/1000)):0;
-  const rt=!!loadRT();
-  const sc=sessionStorage.getItem("sp_scope")||"";
-  $("#tokstate").textContent=(sessionStorage.getItem("sp_access_token")?"OK":"NONE")+` / exp in ${left}s / refresh:${rt?"yes":"no"} / scope:[${sc}]`;
-}
+function clearToken(){ ["sp_access_token","sp_refresh_token","sp_exp_at","sp_scope"].forEach(k=>SafeStore.del(k)); updateTokenDebug(); }
+function scopeOk(req){ const s=(SafeStore.get("sp_scope")||"").split(" ").filter(Boolean); return req.every(x=>s.includes(x)); }
 async function tokenByCode(code,verifier){
   const r=await fetch("https://accounts.spotify.com/api/token",{
     method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},
@@ -152,27 +151,27 @@ async function tokenByCode(code,verifier){
   return r.json();
 }
 async function refreshTokenNow(){
-  const rt=loadRT(); if(!rt) throw new Error("No refresh_token");
+  const rt=SafeStore.get("sp_refresh_token"); if(!rt) throw new Error("No refresh_token");
   const r=await fetch("https://accounts.spotify.com/api/token",{
     method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},
     body:new URLSearchParams({client_id:CLIENT_ID,grant_type:"refresh_token",refresh_token:rt})
   });
-  if(!r.ok){ const msg=await r.text(); nukeAllTokens(); throw new Error(`Refresh ${r.status}: ${msg}`); }
+  if(!r.ok){ const msg=await r.text(); clearToken(); throw new Error(`Refresh ${r.status}: ${msg}`); }
   saveToken(await r.json()); log("Token refreshed.");
 }
 async function ensureToken(req=DESIRED_SCOPES){
   updateTokenDebug();
-  const tok=sessionStorage.getItem("sp_access_token");
-  const exp=+sessionStorage.getItem("sp_exp_at")||0;
+  const tok=SafeStore.get("sp_access_token");
+  const exp=+SafeStore.get("sp_exp_at")||0;
   if(tok && Date.now()<exp-120000){
     if(!scopeOk(req)) throw reauthError("Scope insufficient → re-auth");
     return tok;
   }
-  const rt=loadRT();
+  const rt=SafeStore.get("sp_refresh_token");
   if(rt){
     await refreshTokenNow();
     if(!scopeOk(req)) throw reauthError("Scope insufficient after refresh → re-auth");
-    return sessionStorage.getItem("sp_access_token");
+    return SafeStore.get("sp_access_token");
   }
   throw reauthError("No token → re-auth");
 }
@@ -182,15 +181,14 @@ function reauthError(reason){
   const err=new Error("REAUTH"); err._reauth=true; return err;
 }
 
-/*** 適応型レートリミッタ（429完全版・直列・ジッタ・指数後退） ***/
+/*** 429完全対策：直列キュー + 保守的レート + Retry-After厳守 + バックオフ ***/
 const RATE = {
-  gapMs: 3000,          // 初期ギャップ（保守的）
-  minGapMs: 1500,       // 下限（安定してOK連発時にここまで）
-  maxGapMs: 60000,      // 上限
-  okStreak: 0,          // 連続OK回数
-  okToStepDown: 20,     // 短縮に必要なOK連続回数
-  last: 0,
-  consecutive429: 0,    // 連続429
+  gapMs: 9500,      // 初期
+  minGapMs: 9000,   // 下限
+  maxGapMs: 60000,  // 上限（やや広げる）
+  okStreak: 0,
+  okToStepDown: 12,
+  last: 0
 };
 function jitter(ms){ return ms + Math.floor(Math.random()*600) - 300; }
 let _q = Promise.resolve();
@@ -205,84 +203,69 @@ async function rateWait(){
 }
 function on429(retryAfterSec){
   RATE.okStreak = 0;
-  RATE.consecutive429++;
-  const after = (Number(retryAfterSec)||2)*1000 + 1000; // Retry-After + 1s
-  // 直近のギャップとRetry-Afterの大きい方へ、さらに1.7倍の後退
-  RATE.gapMs = Math.min(RATE.maxGapMs, Math.max(after, Math.floor(RATE.gapMs*1.7)));
-  log(`429 → wait ${retryAfterSec||2}s, next gap≈${RATE.gapMs}ms (x${RATE.consecutive429})`);
+  const afterMs = Math.max(0, Math.floor((Number(retryAfterSec)||2)*1000));
+  const addSlack = 2000;
+  const next = Math.max(afterMs + addSlack, Math.floor(RATE.gapMs*1.6), RATE.minGapMs);
+  RATE.gapMs = Math.min(next, RATE.maxGapMs);
+  log(`429 → wait ${retryAfterSec}s, next gap≈${RATE.gapMs}ms`);
 }
 function onOk(){
-  RATE.consecutive429 = 0;
   RATE.okStreak++;
   if(RATE.okStreak >= RATE.okToStepDown){
     RATE.okStreak = 0;
-    RATE.gapMs = Math.max(RATE.minGapMs, Math.floor(RATE.gapMs*0.9)); // 緩やかに短縮
+    RATE.gapMs = Math.max(RATE.minGapMs, Math.floor(RATE.gapMs*0.9));
   }
 }
 
-/*** 共通fetch（401/429/5xx/ネットワーク再試行 + タイムアウト） ***/
-async function doFetch(url, options={}, needScopes){
+/*** ネットワーク：GET/POST共通の堅牢フェッチ ***/
+async function robustFetch(url, options={}, needScopes=null, attempt=0){
+  const maxAttempts = 6; // 429/5xxへの指数バックオフ上限
+  if(needScopes) await ensureToken(needScopes);
   await rateWait();
-  if(needScopes){ await ensureToken(needScopes); }
-  const token = sessionStorage.getItem("sp_access_token");
-  const headers = Object.assign({Authorization:"Bearer "+token}, options.headers||{});
-  const maxRetry = 6;
-  for(let attempt=0; attempt<maxRetry; attempt++){
-    const ctrl = new AbortController();
-    const t = setTimeout(()=>ctrl.abort(), 35000); // 35sタイムアウト
-    try{
-      const r = await fetch(url, Object.assign({}, options, {headers, signal: ctrl.signal}));
-      clearTimeout(t);
-      if(r.status===401){
-        log("401 → refresh and retry");
-        await refreshTokenNow();
-        continue;
-      }
-      if(r.status===429){
-        const ra=+r.headers.get("retry-after")||2;
-        on429(ra);
-        await sleep(ra*1000 + 1000);
-        continue;
-      }
-      if(r.status>=500 && r.status<600){
-        // サーバ側一時障害：指数バックオフ
-        const back = Math.min(6000, 1000 * Math.pow(1.7, attempt));
-        log(`5xx ${r.status} → retry in ${back}ms`);
-        await sleep(back);
-        continue;
-      }
-      if(!r.ok){
-        const msg=await r.text().catch(()=>String(r.status));
-        throw new Error(`${r.status} ${msg}`);
-      }
-      onOk();
-      return r;
-    }catch(err){
-      clearTimeout(t);
-      if(err.name==="AbortError"){
-        const back = Math.min(8000, 1500 * Math.pow(1.7, attempt));
-        log(`Timeout → retry in ${back}ms`);
-        await sleep(back);
-        continue;
-      }
-      // ネットワーク系：指数バックオフ継続
-      const back = Math.min(8000, 1200 * Math.pow(1.7, attempt));
-      log(`Network error "${err.message}" → retry in ${back}ms`);
-      await sleep(back);
-    }
+
+  const headers = Object.assign(
+    {},
+    options.headers||{},
+    SafeStore.get("sp_access_token") ? {Authorization:"Bearer "+SafeStore.get("sp_access_token")} : {}
+  );
+  const r = await fetch(url, Object.assign({}, options, {headers}));
+
+  if(r.status===401 && attempt<2){
+    log("401 → refresh and retry");
+    await refreshTokenNow();
+    return robustFetch(url, options, needScopes, attempt+1);
   }
-  throw new Error("Max retry exceeded");
+  if(r.status===429){
+    const raStr=r.headers.get("retry-after");
+    const ra = raStr? parseFloat(raStr): 2;
+    on429(ra);
+    await sleep(Math.max(0, Math.floor(ra*1000))+2000);
+    return robustFetch(url, options, needScopes, attempt+1);
+  }
+  if(r.status>=500 && attempt<maxAttempts){
+    // 5xxにも指数バックオフ（429以外）
+    const backoff = Math.min(60000, (1000 * Math.pow(2, attempt))) + Math.floor(Math.random()*500);
+    log(`5xx ${r.status} → backoff ${backoff}ms, retry`);
+    await sleep(backoff);
+    return robustFetch(url, options, needScopes, attempt+1);
+  }
+  if(!r.ok){
+    const msg=await r.text().catch(()=>String(r.status));
+    throw new Error(`${url} ${r.status}: ${msg}`);
+  }
+  onOk();
+  return r;
 }
 
-/*** Spotify APIラッパ ***/
-async function spGet(path, params={}){
+async function spGet(path,params={}){
   const u=new URL("https://api.spotify.com/v1/"+path);
-  Object.entries(params).forEach(([k,v])=>{ if(v!=null&&v!=="") u.searchParams.set(k,v);});
-  const r=await doFetch(u, {method:"GET"});
+  Object.entries(params).forEach(([k,v])=>{ if(v!=null&&v!=="") u.searchParams.set(k,v); });
+  const r = await robustFetch(u.toString(), {method:"GET"});
   return r.json();
 }
-async function spPost(path, body, need=["playlist-modify-private"]){
-  const r=await doFetch("https://api.spotify.com/v1/"+path,{
+
+async function spPost(path,body,need=["playlist-modify-private"]){
+  const r = await robustFetch("https://api.spotify.com/v1/"+path, {
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify(body)
@@ -310,7 +293,9 @@ async function fetchAlbumsWithTracks(albumIds, market="US"){
     const ids=albumIds.slice(i,i+chunk);
     const d=await spGet("albums",{ids:ids.join(","),market});
     for(const al of (d?.albums||[])){
-      for(const t of (al?.tracks?.items||[])){ all.push({album:al.name, id:t.id, name:t.name}); }
+      const items = (al?.tracks?.items||[]);
+      for(const t of items){ all.push({album:al.name, id:t.id, name:t.name}); }
+      // ※アルバム内トラックが50超の場合はここを増やす実装も可能（必要なら拡張）
     }
   }
   log(`album chunks: ${Math.ceil(albumIds.length/20)} → raw tracks: ${all.length}`);
@@ -332,7 +317,7 @@ async function fetchTracksFullProgressive(ids, market="US", predicate=()=>true, 
   return out;
 }
 
-/*** 整形/UI描画 ***/
+/*** 整形 ***/
 let pool=[], list120=[], list100=[], lastData=[];
 function render(list){
   const ol=$("#tracks"); ol.innerHTML="";
@@ -380,11 +365,8 @@ $("#btnBuild").onclick = async ()=>{
   $("#btnBuild").disabled=true; $("#btnTrim").disabled=true; $("#btnPick").disabled=true; $("#btnHead5").disabled=true; $("#btnCreate").disabled=true;
   try{
     const market=$("#market").value||"US";
-    const groupsSel = $("#groups").value||"album,single";
-    const [groupsPrimary, groupsFallback] =
-      groupsSel==="album" ? ["album","single"] :
-      groupsSel==="album,single,compilation" ? ["album,single,compilation","single"] :
-      ["album","single"];
+    const groupsPrimary = "album";
+    const groupsFallback = "single";
 
     setStatus("① FAST build via Albums-batch (albums first).");
     const alids1 = await fetchAllAlbumIds(groupsPrimary, market, FAST.CAP_ALBUMS_PRIMARY);
@@ -454,7 +436,7 @@ $("#btnBuild").onclick = async ()=>{
     // 130 にキャップ
     pool = dropDupAndKeepLen(pool, pinSet, Math.min(LIMIT_130, pool.length));
     render(pool);
-    setStatus(`Loaded pool: ${pool.length} (FAST mode: albums-first + singles small-topup, adaptive rate-limit)`);
+    setStatus(`Loaded pool: ${pool.length} (FAST mode: albums-first + singles small-topup, robust 429 limiter)`);
     $("#btnTrim").disabled=false;
   }catch(e){
     setStatus("Build error: "+(e.message||e));
@@ -473,6 +455,7 @@ $("#btnTrim").onclick = ()=>{
   setStatus(`Trimmed to ${lastData.length} (albums≤2, pins ensured, no adjacent shared remixer)`);
   $("#btnPick").disabled=false;
 };
+
 $("#btnPick").onclick = async ()=>{
   if(!list120.length) return;
   const mk=$("#market").value||"US";
@@ -504,6 +487,7 @@ $("#btnPick").onclick = async ()=>{
   list100=picked.slice(); lastData=list100.slice(); render(lastData);
   setStatus("Balanced 100 ready (Pins fixed #1/#8/#45/#75, no adjacent shared remixer)");
 };
+
 $("#btnHead5").onclick=()=>{
   if(!lastData.length) return;
   const pins=getPins(); const pinSet=new Set(Object.values(pins).filter(Boolean));
@@ -515,6 +499,7 @@ $("#btnHead5").onclick=()=>{
   head.forEach((h,k)=>{ lastData[idxs[k]]=h; }); render(lastData);
   setStatus("Head-5 optimized (Pins preserved)");
 };
+
 $("#btnCreate").onclick=async ()=>{
   try{
     if(!lastData.length) return;
@@ -528,10 +513,7 @@ $("#btnCreate").onclick=async ()=>{
       public:!!isPublic
     }, need);
     const uris=[...new Set(lastData.map(x=>"spotify:track:"+x.id))];
-    for(let i=0;i<uris.length;i+=100){
-      await spPost(`playlists/${pl.id}/tracks`,{uris:uris.slice(i,i+100)}, need);
-      await sleep(300);
-    }
+    for(let i=0;i<uris.length;i+=100){ await spPost(`playlists/${pl.id}/tracks`,{uris:uris.slice(i,i+100)}, need); await sleep(300); }
     const url=pl.external_urls?.spotify||`https://open.spotify.com/playlist/${pl.id}`;
     setStatus(`Done — ${lastData.length} tracks added (${isPublic?"public":"private"}). ${url}`);
   }catch(e){ setStatus("Playlist error: "+(e.message||e)); }
@@ -539,29 +521,27 @@ $("#btnCreate").onclick=async ()=>{
 
 /*** Token ops ***/
 $("#btnRefresh").onclick=()=>refreshTokenNow().catch(e=>setStatus("Refresh error: "+(e.message||e)));
-$("#btnReauth").onclick=()=>{ nukeAllTokens(); location.replace("auth.html"); };
+$("#btnReauth").onclick=()=>{ clearToken(); SafeStore.del("pkce_state"); SafeStore.del("pkce_verifier"); location.replace("auth.html"); };
 
-/*** 起動（PKCE code→token交換→UI解放） ***/
+/*** 起動（コード受領→交換→自己整合→確実にSigned inへ） ***/
 (async function boot(){
   try{
-    // 1) codeパラメータがあれば交換
     const qp=new URLSearchParams(location.search);
     const code=qp.get("code"), state=qp.get("state");
     if(code){
-      const saved=sessionStorage.getItem("pkce_state"), verifier=sessionStorage.getItem("pkce_verifier");
+      const saved=SafeStore.get("pkce_state"), verifier=SafeStore.get("pkce_verifier");
       if(saved && verifier && state===saved){
         const tok=await tokenByCode(code,verifier); saveToken(tok);
-        sessionStorage.removeItem("pkce_state"); sessionStorage.removeItem("pkce_verifier");
-        history.replaceState({},document.title,location.pathname); // URLの?codeを除去
+        SafeStore.del("pkce_state"); SafeStore.del("pkce_verifier");
+        history.replaceState({},document.title,location.pathname); // URL掃除
       }else{
         throw new Error("State or verifier missing / mismatch");
       }
     }
-    // 2) 有効トークン確認（無ければauthへ）
     await ensureToken();
     setStatus("Signed in. ①FAST Build 130（albums-first / early-stop）→ ②Trim 120 → ③Balanced 100（Pins & no-adjacent-remixer）→ ④Head-5 → ⑤Create Playlist");
   }catch(e){
-    if(e && e._reauth) return; // auth.html へ遷移済
+    if(e && e._reauth) return; // auth.htmlへ遷移済み
     setStatus("Boot error: "+(e.message||e));
   }
 })();
