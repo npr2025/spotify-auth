@@ -3,75 +3,60 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spotify Auth Callback</title>
+<title>Spotify Auth (PKCE)</title>
 <style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:900px;margin:36px auto;padding:0 12px}
-  #log{background:#0b1220;color:#cfe3ff;padding:12px;border-radius:8px;white-space:pre-wrap;max-height:420px;overflow:auto;margin-top:12px}
-  a.btn,button{display:inline-block;margin:6px 8px 0 0;padding:9px 12px;border:1px solid #bbb;border-radius:8px;background:#fff;text-decoration:none;cursor:pointer}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:760px;margin:40px auto;padding:0 12px}
+  button{padding:10px 14px;border:1px solid #bbb;border-radius:8px;background:#f6f6f6;cursor:pointer}
+  #log{white-space:pre-wrap;background:#0b1220;color:#cfe3ff;padding:10px;border-radius:8px;margin-top:14px}
 </style>
 </head>
 <body>
-<h1>Spotify Auth Callback</h1>
-<p id="status">Waiting for code…</p>
-<p>
-  <button id="btnBack">アプリへ戻る</button>
-</p>
+<h1>Spotify 認可</h1>
+<p>Spotify にサインインして権限（playlist-modify-private / playlist-modify-public）を付与します。</p>
+<button id="go">Sign in with Spotify</button>
 <pre id="log"></pre>
 
 <script>
 const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
-const TOKEN_URL    = "https://accounts.spotify.com/api/token";
-const REDIRECT_TO  = () => sessionStorage.getItem("return_to") || "./";
+const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
+const SCOPES       = "playlist-modify-private playlist-modify-public";
 
-const log  = m => { const el=document.querySelector("#log"); el.textContent += m+"\n"; el.scrollTop=el.scrollHeight; console.log(m); };
-const setStatus = t => { document.querySelector("#status").textContent = t; log(t); };
-
-document.querySelector("#btnBack").onclick = ()=> location.replace(REDIRECT_TO());
-
-async function exchange(){
-  const qp = new URLSearchParams(location.search);
-  const code  = qp.get("code");
-  const state = qp.get("state");
-  const err   = qp.get("error");
-  if(err){ setStatus("auth error: "+err); return; }
-  if(!code){ setStatus("code not found."); return; }
-
-  const savedState   = sessionStorage.getItem("pkce_state");
-  const codeVerifier = sessionStorage.getItem("pkce_verifier");
-  if(!savedState || !codeVerifier){ setStatus("missing PKCE params in sessionStorage."); return; }
-  if(state !== savedState){ setStatus("state mismatch."); return; }
-
-  setStatus("Exchanging code → token…");
-  const body = new URLSearchParams({
-    client_id: CLIENT_ID,
-    grant_type: "authorization_code",
-    code,
-    redirect_uri: location.origin + location.pathname, // このcallback.html自身
-    code_verifier: codeVerifier
-  });
-  const r = await fetch(TOKEN_URL,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
-  if(!r.ok){ setStatus("token exchange failed: "+r.status+" "+(await r.text())); return; }
-  const t = await r.json();
-
-  const expAt = Date.now() + (t.expires_in||3600)*1000;
-  sessionStorage.setItem("sp_access_token", t.access_token);
-  sessionStorage.setItem("sp_exp_at", String(expAt));
-  sessionStorage.setItem("sp_scope", t.scope||"");
-  if(t.refresh_token){
-    sessionStorage.setItem("sp_refresh_token", t.refresh_token);
-    localStorage.setItem("sp_refresh_token", t.refresh_token); // 長期保持
-  }
-  // PKCEワーク変数を掃除
-  sessionStorage.removeItem("pkce_state");
-  sessionStorage.removeItem("pkce_verifier");
-
-  setStatus("Authorized. returning to app…");
-  // クエリを消してから戻る
-  history.replaceState({}, document.title, location.pathname);
-  setTimeout(()=>location.replace(REDIRECT_TO()), 400);
+const log = m => { const el=document.getElementById("log"); el.textContent += m+"\n"; el.scrollTop=el.scrollHeight; console.log(m); };
+const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+async function sha256(s){ const data=new TextEncoder().encode(s); const hash=await crypto.subtle.digest("SHA-256", data); return b64url(hash); }
+function randVerifier(len=64){
+  const chars="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+  const a=new Uint8Array(len); crypto.getRandomValues(a);
+  return Array.from(a).map(x=>chars[x%chars.length]).join("");
 }
 
-exchange().catch(e=>setStatus("callback error: "+(e.message||e)));
+async function startAuth(){
+  try{
+    const verifier = randVerifier(64);
+    const challenge = await sha256(verifier);
+    const state = randVerifier(32);
+
+    sessionStorage.setItem("pkce_verifier", verifier);
+    sessionStorage.setItem("pkce_state", state);
+    sessionStorage.setItem("return_to", location.href); // 戻り先
+
+    const u = new URL("https://accounts.spotify.com/authorize");
+    u.searchParams.set("client_id", CLIENT_ID);
+    u.searchParams.set("response_type", "code");
+    u.searchParams.set("redirect_uri", REDIRECT_URI);
+    u.searchParams.set("scope", SCOPES);
+    u.searchParams.set("state", state);
+    u.searchParams.set("code_challenge_method", "S256");
+    u.searchParams.set("code_challenge", challenge);
+    u.searchParams.set("show_dialog", "true");
+
+    log("Redirecting to Spotify…");
+    location.href = u.toString();
+  }catch(e){ log("Auth init error: "+(e.message||e)); }
+}
+
+document.getElementById("go").onclick = startAuth;
+setTimeout(startAuth, 400);
 </script>
 </body>
 </html>
