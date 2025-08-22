@@ -41,16 +41,16 @@
   <span class="small">先頭 (#1)</span>
 
   <div></div>
-  <input id="pinEarly" value="63dYSEftdSYwMAFBNfQYsA" placeholder="上旬（#4目安）">
-  <span class="small">上旬 (目安 #4)</span>
+  <input id="pinEarly" value="63dYSEftdSYwMAFBNfQYsA" placeholder="上旬（#8目安）">
+  <span class="small">上旬 (目安 #8)</span>
 
   <div></div>
-  <input id="pinMid"   value="3NQuIFfQPhTICaXGYe5dAt" placeholder="中盤（#55目安）">
-  <span class="small">中盤 (目安 #55)</span>
+  <input id="pinMid"   value="3NQuIFfQPhTICaXGYe5dAt" placeholder="中盤（#45目安）">
+  <span class="small">中盤 (目安 #45)</span>
 
   <div></div>
-  <input id="pinLate"  value="7ltcrdlVsXyU5HU9VCAj6P" placeholder="後半（#95目安）">
-  <span class="small">後半 (目安 #95)</span>
+  <input id="pinLate"  value="7ltcrdlVsXyU5HU9VCAj6P" placeholder="後半（#75目安）">
+  <span class="small">後半 (目安 #75)</span>
 </div>
 
 <div id="debug">
@@ -84,7 +84,7 @@ async function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 function isRemixOnly(name){
   const s = name || "";
   const hasRemix = /\bremix\b/i.test(s);
-  const hasMixWord = /\bmix\b/i.test(s); // “club mix”, “extended mix”, “continuous mix”, などを除外
+  const hasMixWord = /\bmix\b/i.test(s); // club mix / extended mix / continuous mix などを除外
   return hasRemix && !hasMixWord;
 }
 
@@ -281,10 +281,10 @@ async function forcePinsInto100(list, market){
   // 100曲リストに必ずピンを含め、配置も反映（Remix-only ルール）
   const pins=getPinIds();
   const plan=[
-    {id:pins.open,  pos:0},      // #1
-    {id:pins.early, pos:7},      // #8
-    {id:pins.mid,   pos:44},     // #45
-    {id:pins.late,  pos:74}      // #75
+    {id:pins.open,  pos:0},  // #1
+    {id:pins.early, pos:7},  // #8
+    {id:pins.mid,   pos:44}, // #45
+    {id:pins.late,  pos:74}  // #75
   ].filter(p=>p.id);
   // 無いピンはAPIで取得
   const byId=new Map(list.map(x=>[x.id,x]));
@@ -351,7 +351,7 @@ $("#btn100").onclick=async ()=>{
   // 再フィルタ（安全側）
   const remixOnly = base130.filter(t => isRemixOnly(t.name));
   let list = pickBalanced100(remixOnly);
-  list = await forcePinsInto100(list, mk);   // ★ ピンを必ず含め、所定位置へ
+  list = await forcePinsInto100(list, mk);   // ★ ピンを必ず含め、所定位置へ（#1/#8/#45/#75）
   lastData = list;
   render(lastData);
   setStatus(`Balanced 100 (Remix-only) + Pins — ${lastData.length}`);
@@ -381,7 +381,7 @@ async function createPlaylist(){
     if(me?.id && me.id!==USER_ID) throw new Error(`Signed in as ${me.id}. Please sign in as ${USER_ID}.`);
     const pl=await spPost(`users/${USER_ID}/playlists`,{
       name:$("#plName").value||"PROGAPANDA • Balanced100 (TDCS Remixes)",
-      description:"Auto-curated REMIX-only (no Mix). Pins enforced. TDCS 130→100.",
+      description:"Auto-curated REMIX-only (no Mix). Pins enforced (#1/#8/#45/#75). TDCS 130→100.",
       public:!!isPublic
     }, scopeNeed);
     const uris=[...new Set(lastData.map(x=>"spotify:track:"+x.id))];
@@ -416,7 +416,7 @@ $("#btnReauth").onclick=()=>{ clearToken(); location.href="auth.html"; };
       }
     }
     await ensureToken();
-    setStatus("Signed in. ①Build 130（Remix-only）→ ②Pick Balanced 100（Pins反映）→ ③Head-5 → ④Create Playlist（非公開デフォルト）");
+    setStatus("Signed in. ①Build 130（Remix-only）→ ②Pick Balanced 100（Pins #1/#8/#45/#75）→ ③Head-5 → ④Create Playlist（非公開デフォルト）");
   }catch(e){
     setStatus("Boot error: "+(e.message||e));
   }
