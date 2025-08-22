@@ -14,7 +14,7 @@
         <option value="album,single,compilation">+ Compilations（件数増）</option>
       </select>
     </label>
-    <label><input type="checkbox" id="allMarkets" checked> All markets（地域フィルタなし）</label>
+    <label><input type="checkbox" id="allMarkets" checked> All markets</label>
     <label>Market（All markets OFF時のみ）
       <select id="market"><option>US</option><option selected>JP</option><option>GB</option><option>DE</option></select>
     </label>
@@ -49,6 +49,7 @@
   </div>
 
   <ol id="tracks"></ol>
+  <pre id="log" style="background:#0b1220; color:#cfe3ff; padding:10px; border-radius:8px; max-height:320px; overflow:auto"></pre>
 
 <script>
 /* ===== 固定設定 ===== */
@@ -57,10 +58,13 @@ const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
 const ARTIST_ID    = "55fvQ5I2IZUfcFT2DV02T3";       // The Darrow Chem Syndicate
 const USER_ID      = "22fqn5mozguuegi2t3l2zeugy";    // あなたのSpotifyユーザーID
 const EXACT_LIMIT  = 130;
+const PAGE_DELAY_MS    = 900;   // albumsページ間スロットル
+const TRACK_BATCH_SIZE = 4;     // アルバム同時並列（小さいほど429に強い）
 /* =================== */
 
 const $ = s => document.querySelector(s);
-const setStatus = t => { $("#status").textContent = t; console.log(t); };
+const log = msg => { const el=$("#log"); el.textContent += msg+"\n"; el.scrollTop = el.scrollHeight; console.log(msg); };
+const setStatus = t => { $("#status").textContent = t; log(t); };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const chunk = (a,n)=>{ const o=[]; for(let i=0;i<a.length;i+=n) o.push(a.slice(i,i+n)); return o; };
 
@@ -142,23 +146,25 @@ async function spPost(path, body, minScope="playlist-modify-private"){
 
 /* ===== 取得処理（TDCSのみ） ===== */
 async function fetchAllAlbums(include_groups, allMarkets, market){
-  let items=[], offset=0;
+  let items=[], offset=0, pages=0;
   while(true){
-    if(offset>0) await sleep(650); // ページ間スロットル
+    if(offset>0) await sleep(PAGE_DELAY_MS);       // ページ間スロットル
     try{
       const params={ include_groups, limit:50, offset };
       if(!allMarkets) params.market=market;
       const page=await spGet(`artists/${ARTIST_ID}/albums`, params);
+      log(`✅ albums page ${++pages} ok (offset=${offset}) items=${(page.items||[]).length}`);
       items.push(...(page.items||[]));
       if(!page.next) break;
       offset+=50;
     }catch(e){
+      log("albums page error; soft backoff…");
       await sleep(1500);
     }
   }
   const seen=new Set(), albums=[];
   for(const a of items){ if(!seen.has(a.id)){ seen.add(a.id); albums.push(a); } }
-  return albums.filter(a => (a.artists||[]).some(x=>x?.id===ARTIST_ID)); // 念のため本人参加のみ
+  return albums.filter(a => (a.artists||[]).some(x=>x?.id===ARTIST_ID));
 }
 async function fetchAlbumTracks_TDCS(album, allMarkets, market){
   let keep=[], offset=0;
@@ -170,7 +176,7 @@ async function fetchAlbumTracks_TDCS(album, allMarkets, market){
     keep.push(...ok.map(t=>t.id));
     if(!page.next) break;
     offset+=50;
-    await sleep(200); // 軽スロットル
+    await sleep(200);
   }
   return keep;
 }
@@ -215,14 +221,16 @@ async function build130(){
     const groups=$("#groups").value, allMk=$("#allMarkets").checked, mk=$("#market").value||"US";
     setStatus("Scanning albums…");
     const albums=await fetchAllAlbums(groups,allMk,mk);
+
     setStatus(`Collecting tracks from ${albums.length} albums…`);
     let ids=[];
-    for(const pack of chunk(albums,8)){
+    for (const pack of chunk(albums, TRACK_BATCH_SIZE)){
       const res=await Promise.all(pack.map(a=>fetchAlbumTracks_TDCS(a,allMk,mk).catch(()=>[])));
       res.forEach(list=>ids.push(...list));
-      await sleep(120);
+      await sleep(180);
     }
     ids=[...new Set(ids)];
+
     setStatus(`Fetching ${ids.length} tracks meta…`);
     let tracks=[];
     for(const batch of chunk(ids,50)){
@@ -231,6 +239,7 @@ async function build130(){
       await sleep(60);
     }
     tracks=tracks.filter(t=> t && t.artists?.some(a=>a?.id===ARTIST_ID));
+
     if($("#wantFeatures").checked){
       setStatus("Fetching audio-features…");
       featuresById=await fetchAudioFeaturesSafe(tracks.map(t=>t.id));
