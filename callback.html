@@ -35,8 +35,8 @@
       <option value="300" selected>300 results</option>
     </select>
   </label>
-  <button id="btn130">Build 130 (Remix-only)</button>
-  <button id="btn100" disabled>Pick Balanced 100 (Remix-only)</button>
+  <button id="btn130">Build 130→100 (Remix-only)</button>
+  <button id="btn100" disabled>Pick Balanced 100（再実行）</button>
   <button id="btnHead5" disabled>Optimize Head-5</button>
   <input id="plName" style="min-width:360px" value="PROGAPANDA • Balanced100 (TDCS Remixes)">
   <label><input id="plPublic" type="checkbox"> Make Public</label>
@@ -318,7 +318,16 @@ async function forcePinsInto100(list, market){
   return dropDupAndKeepLen(list, pinSet, EXACT_LIMIT_100);
 }
 
-/*** 130作成 → 100（Remix-only）→ Pins反映 → Head-5 → Playlist ***/
+/*** 130→100（自動）→ Head-5 → Playlist ***/
+async function pickTo100(mk){
+  const remixOnly = base130.filter(t => isRemixOnly(t.name));
+  let list = pickBalanced100(remixOnly);
+  list = await forcePinsInto100(list, mk);
+  lastData = list;
+  render(lastData);
+  setStatus(`Balanced 100 (Remix-only) + Pins — ${lastData.length}`);
+}
+
 $("#btn130").onclick=async ()=>{
   $("#btn130").disabled=true;
   try{
@@ -341,22 +350,15 @@ $("#btn130").onclick=async ()=>{
     });
     await ensurePinsInBase(mk);
     base130.sort((a,b)=>(b.popularity||0)-(a.popularity||0));
-    lastData=base130.slice();
-    render(lastData);
-    setStatus(`Loaded ${lastData.length} REMIX tracks — TDCS ONLY (EXACT 130 if available)`);
+    setStatus(`Loaded ${base130.length} REMIX tracks — TDCS ONLY. Now picking 100…`);
+    await pickTo100(mk);            // ★ ここで自動的に100へ落とす
   }catch(e){ setStatus("Build error: "+(e.message||e)); }
   $("#btn130").disabled=false;
 };
 
 $("#btn100").onclick=async ()=>{
   if(!base130.length) return;
-  const mk=$("#market").value||"US";
-  const remixOnly = base130.filter(t => isRemixOnly(t.name));
-  let list = pickBalanced100(remixOnly);
-  list = await forcePinsInto100(list, mk);
-  lastData = list;
-  render(lastData);
-  setStatus(`Balanced 100 (Remix-only) + Pins — ${lastData.length}`);
+  await pickTo100($("#market").value||"US");
 };
 
 $("#btnHead5").onclick=()=>{
@@ -415,7 +417,7 @@ $("#btnReauth").onclick=()=>{ clearToken(); location.href="auth.html"; };
       }
     }
     await ensureToken();
-    setStatus("Signed in. ①Build 130（Remix-only）→ ②Pick Balanced 100（Pins #1/#8/#45/#75）→ ③Head-5 → ④Create Playlist（非公開デフォルト）");
+    setStatus("Signed in. ①Build 130→100（Remix-only & Pins #1/#8/#45/#75）→ ②Head-5 → ③Create Playlist（非公開がデフォルト）");
   }catch(e){
     setStatus("Boot error: "+(e.message||e));
   }
