@@ -2,7 +2,7 @@
 <html lang="ja">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spotify – TDCS 130 → Balanced 100 → Head-5 → Playlist (Ultra-Safe)</title>
+<title>Spotify – TDCS 130 → Balanced 100 → Head-5 → Playlist</title>
 <body style="font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; max-width:980px; margin:40px auto">
   <h1>Spotify Authentication</h1>
   <p id="status">Ready.</p>
@@ -19,8 +19,8 @@
       <select id="market"><option selected>US</option><option>JP</option><option>GB</option><option>DE</option></select>
     </label>
     <label><input type="checkbox" id="wantFeatures"> Fetch audio-features（任意）</label>
-    <label><input type="checkbox" id="fastMode" checked> Fast mode（429回避）</label>
-    <label><input type="checkbox" id="ultraSafe"> Ultra-safe（さらに遅く）</label>
+    <label><input type="checkbox" id="fastMode" checked> Fast mode（429回避優先）</label>
+    <label><input type="checkbox" id="ultraSafe" checked> Ultra-safe（さらに遅延／並列1）</label>
   </div>
 
   <div style="display:flex; gap:10px; flex-wrap:wrap; margin:6px 0">
@@ -62,16 +62,16 @@ const ARTIST_ID    = "55fvQ5I2IZUfcFT2DV02T3";       // The Darrow Chem Syndicat
 const USER_ID      = "22fqn5mozguuegi2t3l2zeugy";    // あなたのSpotifyユーザーID
 const EXACT_LIMIT  = 130;
 
-/* ===== 429 対策パラメータ ===== */
-let PAGE_DELAY_MS    = 1000; // albumsページ間ディレイ
-let TRACK_BATCH_SIZE = 3;    // アルバム並列数
-let RETRY_CEIL_MS    = 30000;
-let MAX_RETRY        = 12;
+/* ===== 429 対策パラメータ（Ultra-safe 既定ON） ===== */
+let PAGE_DELAY_MS    = 2000; // albumsページ間ディレイ
+let TRACK_BATCH_SIZE = 1;    // アルバム並列数
+let RETRY_CEIL_MS    = 45000;
+let MAX_RETRY        = 18;
 let g429Count        = 0;
 let ABORT            = false;
 
-const $ = s => document.querySelector(s);
-const log = m => { const el=$("#log"); el.textContent+=m+"\n"; el.scrollTop=el.scrollHeight; console.log(m); };
+const $  = s => document.querySelector(s);
+const log= m => { const el=$("#log"); el.textContent+=m+"\n"; el.scrollTop=el.scrollHeight; console.log(m); };
 const setStatus = t => { $("#status").textContent=t; log(t); };
 const sleep = ms => new Promise(r=>setTimeout(r,ms));
 const chunk = (a,n)=>{ const o=[]; for(let i=0;i<a.length;i+=n) o.push(a.slice(i,i+n)); return o; };
@@ -85,8 +85,8 @@ function saveToken(t){
   sessionStorage.setItem("sp_exp_at", String(Date.now() + (t.expires_in||3600)*1000));
   sessionStorage.setItem("sp_scope", t.scope || "");
 }
-const scopes   = ()=> new Set((sessionStorage.getItem("sp_scope")||"").split(" ").filter(Boolean));
-const needScope= s  => !scopes().has(s);
+const scopes    = ()=> new Set((sessionStorage.getItem("sp_scope")||"").split(" ").filter(Boolean));
+const needScope = s  => !scopes().has(s);
 function forceReauth(){ sessionStorage.clear(); location.href="auth.html"; }
 
 async function exchangeAuthCode(code, verifier){
@@ -125,7 +125,7 @@ async function spGet(path, params={}, retry=MAX_RETRY){
       g429Count += (res.status===429)?1:0;
       if(retry--<=0) throw new Error(`API ${path} ${res.status} (retries exhausted)`);
       const ra=+res.headers.get("retry-after")||0;
-      const base=900*Math.pow(2,attempt++), jitter=Math.floor(Math.random()*800);
+      const base=1200*Math.pow(2,attempt++), jitter=Math.floor(Math.random()*1000);
       const wait= ra? ra*1000 : Math.min(RETRY_CEIL_MS, base)+jitter;
       setStatus(`API ${path} ${res.status} → wait ${Math.ceil(wait/1000)}s (try ${attempt})`);
       await sleep(wait); continue;
@@ -146,7 +146,7 @@ async function spPost(path, body, minScope="playlist-modify-private"){
     if(res.status===429 || res.status>=500){
       if(retry--<=0) throw new Error(`POST ${path} ${res.status} (retries exhausted)`);
       const ra=+res.headers.get("retry-after")||0;
-      const base=900*Math.pow(2,attempt++), jitter=Math.floor(Math.random()*800);
+      const base=1200*Math.pow(2,attempt++), jitter=Math.floor(Math.random()*1000);
       const wait= ra? ra*1000 : Math.min(RETRY_CEIL_MS, base)+jitter;
       setStatus(`POST ${path} ${res.status} → wait ${Math.ceil(wait/1000)}s (try ${attempt})`);
       await sleep(wait); continue;
@@ -155,7 +155,7 @@ async function spPost(path, body, minScope="playlist-modify-private"){
   }
 }
 
-/* ===== アルバム収集：album → single の2フェーズ（本人のみ） ===== */
+/* ===== アルバム収集：本人のみ（album→single） ===== */
 async function fetchAllAlbumsPhased(includeGroups, allMarkets, market){
   const order = includeGroups.includes("compilation")
     ? ["album","single","compilation"] : ["album","single"];
