@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TDCS 130→120→100 (Album-batch / Remix-only / Pins #1,#8,#45,#75)</title>
+<title>TDCS 130→120→100 (Album-batch FAST, Remix-only, Pins #1/#8/#45/#75)</title>
 <style>
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1100px;margin:36px auto;padding:0 12px}
   h1{margin:0 0 8px}
@@ -35,9 +35,9 @@
       <option value="album,single,compilation">Albums + Singles + Compilations</option>
     </select>
   </label>
-  <button id="btnBuild">Build 130 (World/Albums → Remix-only)</button>
+  <button id="btnBuild">FAST Build 130 (Remix-only)</button>
   <button id="btnTrim"  disabled>Trim to 120</button>
-  <button id="btnPick"  disabled>Balanced 100 (Remix-only)</button>
+  <button id="btnPick"  disabled>Balanced 100</button>
   <button id="btnHead5" disabled>Optimize Head-5</button>
   <input id="plName" style="min-width:360px" value="PROGAPANDA • Balanced100 (TDCS Remixes)">
   <label><input id="plPublic" type="checkbox"> Make Public</label>
@@ -72,119 +72,84 @@
 <pre id="log"></pre>
 
 <script>
-/*** 固定（あなたの環境） ***/
+/*** 固定 ***/
 const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
 const ARTIST_ID    = "55fvQ5I2IZUfcFT2DV02T3";
 const ARTIST_NAME  = "The Darrow Chem Syndicate";
 const USER_ID      = "22fqn5mozguuegi2t3l2zeugy";
 const DESIRED_SCOPES = ["playlist-modify-private","playlist-modify-public"];
-const LIMIT_130 = 130, LIMIT_120 = 120, LIMIT_100 = 100;
+const LIMIT_130=130, LIMIT_PREFETCH=160, LIMIT_120=120, LIMIT_100=100;
 
 /*** ユーティリティ ***/
 const $=s=>document.querySelector(s);
 const log=m=>{const el=$("#log"); el.textContent+=m+"\n"; el.scrollTop=el.scrollHeight; console.log(m);}
 const setStatus=t=>{ $("#status").textContent=t; log(t); }
 async function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+function stableHash(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);} return h>>>0; }
 
 /*** Remix-only / “Mix”除外 ***/
 function isRemixOnly(name){
   const s = name||"";
   const hasRemix   = /\bremix\b/i.test(s);
-  const hasMixWord = /\bmix\b/i.test(s); // club mix / extended mix / continuous mix など除外
+  const hasMixWord = /\bmix\b/i.test(s);
   return hasRemix && !hasMixWord;
 }
 
-/*** リミキサー抽出（AAA & BBB Remix / AAA x BBB Remix / AAA, BBB Remix などを正規化） ***/
+/*** リミキサー抽出（AAA & BBB / AAA x BBB / AAA, BBB） ***/
 function parseRemixerTokens(title){
-  const s = (title||"").toLowerCase();
+  const s=(title||"").toLowerCase();
   if(!/remix/.test(s)) return new Set();
-  let core = "";
-  const paren = s.match(/\(([^)]*?)\s*remix\)/i);
-  if(paren) core = paren[1];
-  else {
-    const dash = s.match(/-\s*([^-\(\)]*?)\s*remix\b/i);
-    if(dash) core = dash[1];
-    else core = "unknown";
-  }
-  return new Set(core
-    .split(/(?:\s*(?:&|x|×|,|\/|\+)\s*|\s+vs\.?\s+|\s+feat\.?\s+)/i)
-    .map(t=>t.trim()).filter(Boolean));
+  let core="";
+  const paren=s.match(/\(([^)]*?)\s*remix\)/i);
+  if(paren) core=paren[1];
+  else { const dash=s.match(/-\s*([^-\(\)]*?)\s*remix\b/i); core=dash?dash[1]:"unknown"; }
+  return new Set(core.split(/(?:\s*(?:&|x|×|,|\/|\+)\s*|\s+vs\.?\s+|\s+feat\.?\s+)/i).map(t=>t.trim()).filter(Boolean));
 }
-function shareRemixer(a,b){
-  const A = a._remixers||new Set(), B=b._remixers||new Set();
-  for(const x of A) if(B.has(x)) return true;
-  return false;
-}
+function shareRemixer(a,b){ const A=a._remixers||new Set(), B=b._remixers||new Set(); for(const x of A) if(B.has(x)) return true; return false; }
 
 /*** トークン管理 ***/
-function saveToken(t){
-  const expAt = Date.now() + (t.expires_in||3600)*1000;
-  sessionStorage.setItem("sp_access_token", t.access_token);
-  if(t.refresh_token) sessionStorage.setItem("sp_refresh_token", t.refresh_token);
-  sessionStorage.setItem("sp_exp_at", String(expAt));
-  sessionStorage.setItem("sp_scope", t.scope||"");
-  updateTokenDebug();
-}
-function clearToken(){
-  ["sp_access_token","sp_refresh_token","sp_exp_at","sp_scope","pkce_state","pkce_verifier"].forEach(k=>sessionStorage.removeItem(k));
-  updateTokenDebug();
-}
-function scopeOk(required){
-  const s=(sessionStorage.getItem("sp_scope")||"").split(" ");
-  return required.every(x=>s.includes(x));
-}
-function updateTokenDebug(){
-  const exp=+sessionStorage.getItem("sp_exp_at")||0;
-  const left = exp? Math.max(0, Math.floor((exp-Date.now())/1000)) : 0;
-  const rt = !!sessionStorage.getItem("sp_refresh_token");
-  const sc = sessionStorage.getItem("sp_scope")||"";
-  $("#tokstate").textContent = (sessionStorage.getItem("sp_access_token")?"OK":"NONE")+
-    ` / exp in ${left}s / refresh:${rt?"yes":"no"} / scope:[${sc}]`;
-}
+function saveToken(t){ const expAt=Date.now()+(t.expires_in||3600)*1000;
+  sessionStorage.setItem("sp_access_token",t.access_token);
+  if(t.refresh_token) sessionStorage.setItem("sp_refresh_token",t.refresh_token);
+  sessionStorage.setItem("sp_exp_at",String(expAt)); sessionStorage.setItem("sp_scope",t.scope||""); updateTokenDebug(); }
+function clearToken(){ ["sp_access_token","sp_refresh_token","sp_exp_at","sp_scope","pkce_state","pkce_verifier"].forEach(k=>sessionStorage.removeItem(k)); updateTokenDebug(); }
+function scopeOk(req){ const s=(sessionStorage.getItem("sp_scope")||"").split(" "); return req.every(x=>s.includes(x)); }
+function updateTokenDebug(){ const exp=+sessionStorage.getItem("sp_exp_at")||0, left=exp?Math.max(0,Math.floor((exp-Date.now())/1000)):0, rt=!!sessionStorage.getItem("sp_refresh_token"), sc=sessionStorage.getItem("sp_scope")||""; $("#tokstate").textContent=(sessionStorage.getItem("sp_access_token")?"OK":"NONE")+` / exp in ${left}s / refresh:${rt?"yes":"no"} / scope:[${sc}]`; }
 async function tokenByCode(code,verifier){
-  const body=new URLSearchParams({
-    client_id:CLIENT_ID, grant_type:"authorization_code", code, redirect_uri:REDIRECT_URI, code_verifier:verifier
-  });
-  const r=await fetch("https://accounts.spotify.com/api/token",{
-    method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"}, body
-  });
-  if(!r.ok) throw new Error(`Token exchange ${r.status}`);
-  return r.json();
+  const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},
+    body:new URLSearchParams({client_id:CLIENT_ID,grant_type:"authorization_code",code,redirect_uri:REDIRECT_URI,code_verifier:verifier})});
+  if(!r.ok) throw new Error(`Token exchange ${r.status}`); return r.json();
 }
 async function refreshTokenNow(){
-  const rt=sessionStorage.getItem("sp_refresh_token");
-  if(!rt) throw new Error("No refresh_token");
-  const r=await fetch("https://accounts.spotify.com/api/token",{
-    method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"},
-    body:new URLSearchParams({client_id:CLIENT_ID,grant_type:"refresh_token",refresh_token:rt})
-  });
+  const rt=sessionStorage.getItem("sp_refresh_token"); if(!rt) throw new Error("No refresh_token");
+  const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},
+    body:new URLSearchParams({client_id:CLIENT_ID,grant_type:"refresh_token",refresh_token:rt})});
   if(!r.ok){ clearToken(); throw new Error(`Refresh ${r.status}`); }
-  const t=await r.json(); saveToken(t); log("Token refreshed.");
+  saveToken(await r.json()); log("Token refreshed.");
 }
-async function ensureToken(requiredScopes=DESIRED_SCOPES){
+async function ensureToken(req=DESIRED_SCOPES){
   updateTokenDebug();
-  if(!scopeOk(requiredScopes)) { log("Scope insufficient → re-auth"); reauth(); await new Promise(()=>{}); }
-  const tok=sessionStorage.getItem("sp_access_token");
-  const exp=+sessionStorage.getItem("sp_exp_at")||0;
-  if(tok && Date.now()<exp-120000) return tok; // 2分マージン
-  const rt=sessionStorage.getItem("sp_refresh_token");
-  if(rt){ await refreshTokenNow(); return sessionStorage.getItem("sp_access_token"); }
+  if(!scopeOk(req)){ log("Scope insufficient → re-auth"); reauth(); await new Promise(()=>{}); }
+  const tok=sessionStorage.getItem("sp_access_token"), exp=+sessionStorage.getItem("sp_exp_at")||0;
+  if(tok && Date.now()<exp-120000) return tok;
+  const rt=sessionStorage.getItem("sp_refresh_token"); if(rt){ await refreshTokenNow(); return sessionStorage.getItem("sp_access_token"); }
   reauth(); await new Promise(()=>{});
 }
 function reauth(){ location.href="auth.html"; }
 
-/*** API（レートセーフ＋指数バックオフ） ***/
+/*** API（指数バックオフ＋ジッター） ***/
 let GAP_MS = 1500;
+function jitter(ms){ return ms + Math.floor(Math.random()*400); }
 async function spGet(path,params={}){
   const u=new URL("https://api.spotify.com/v1/"+path);
   Object.entries(params).forEach(([k,v])=>{ if(v!=null&&v!=="") u.searchParams.set(k,v);});
-  await sleep(GAP_MS);
+  await sleep(jitter(GAP_MS));
   const r=await fetch(u,{headers:{Authorization:"Bearer "+await ensureToken()}});
   if(r.status===401){ log("401 → refresh and retry"); await refreshTokenNow(); return spGet(path,params); }
   if(r.status===429){
     const ra=+r.headers.get("retry-after")||2;
-    GAP_MS = Math.min(Math.floor(GAP_MS*1.6)+300, 6000);
+    GAP_MS = Math.min(Math.floor(GAP_MS*1.7)+700, 6500);
     log(`429 → wait ${ra}s, cooldown=${GAP_MS}ms`);
     await sleep(ra*1000);
     return spGet(path,params);
@@ -192,249 +157,165 @@ async function spGet(path,params={}){
   if(!r.ok) throw new Error(`${path} ${r.status}`);
   return r.json();
 }
-async function spPost(path,body,scopeNeed=["playlist-modify-private"]){
-  await ensureToken(scopeNeed);
-  await sleep(GAP_MS);
-  const r=await fetch("https://api.spotify.com/v1/"+path,{
-    method:"POST",
-    headers:{Authorization:"Bearer "+sessionStorage.getItem("sp_access_token"),"Content-Type":"application/json"},
-    body:JSON.stringify(body)
-  });
-  if(r.status===401){ log("POST 401 → refresh and retry"); await refreshTokenNow(); return spPost(path,body,scopeNeed); }
-  if(r.status===429){
-    const ra=+r.headers.get("retry-after")||2;
-    GAP_MS = Math.min(Math.floor(GAP_MS*1.6)+300, 6000);
-    log(`POST 429 → wait ${ra}s, cooldown=${GAP_MS}ms`);
-    await sleep(ra*1000);
-    return spPost(path,body,scopeNeed);
-  }
-  if(!r.ok) throw new Error(`POST ${path} ${r.status} ${await r.text()}`);
-  return r.json();
+async function spPost(path,body,need=["playlist-modify-private"]){
+  await ensureToken(need); await sleep(jitter(GAP_MS));
+  const r=await fetch("https://api.spotify.com/v1/"+path,{method:"POST",headers:{Authorization:"Bearer "+sessionStorage.getItem("sp_access_token"),"Content-Type":"application/json"},body:JSON.stringify(body)});
+  if(r.status===401){ log("POST 401 → refresh and retry"); await refreshTokenNow(); return spPost(path,body,need); }
+  if(r.status===429){ const ra=+r.headers.get("retry-after")||2; GAP_MS=Math.min(Math.floor(GAP_MS*1.7)+700,6500); log(`POST 429 → wait ${ra}s, cooldown=${GAP_MS}ms`); await sleep(ra*1000); return spPost(path,body,need); }
+  if(!r.ok) throw new Error(`POST ${path} ${r.status} ${await r.text()}`); return r.json();
 }
 
-/*** ここが肝：検索は使わず「アルバム一括 → トラック抽出」だけで候補収集 ***/
-async function fetchAllAlbumIds(includeGroups="album,single", market="US", capPerGroup=60){
-  const out=new Set();
-  let fetched=0, offset=0;
-  const limit=50;
+/*** アルバム一括 → トラック抽出（検索は使わない） ***/
+async function fetchAllAlbumIds(include="album,single", market="US", cap=80){
+  const out=new Set(); let fetched=0, offset=0, limit=50;
   while(true){
-    const d = await spGet(`artists/${ARTIST_ID}/albums`, { include_groups: includeGroups, market, limit, offset });
-    const items=d?.items||[];
-    for(const a of items){ out.add(a.id); }
-    fetched += items.length;
-    if(!d?.next || items.length===0 || fetched >= capPerGroup) break;
-    offset += limit;
+    const d=await spGet(`artists/${ARTIST_ID}/albums`,{include_groups:include,market,limit,offset});
+    const items=d?.items||[]; for(const a of items) out.add(a.id);
+    fetched+=items.length; if(!d?.next || items.length===0 || fetched>=cap) break; offset+=limit;
   }
-  log(`albums collected: ${out.size} (groups=${includeGroups}, cap=${capPerGroup})`);
-  return [...out];
+  log(`albums collected: ${out.size} (groups=${include})`); return [...out];
 }
 async function fetchAlbumsWithTracks(albumIds, market="US"){
-  const chunk=20; const all=[];
+  const chunk=20, all=[];
   for(let i=0;i<albumIds.length;i+=chunk){
-    const ids = albumIds.slice(i,i+chunk);
-    const d = await spGet("albums", { ids: ids.join(","), market });
-    const albums = d?.albums||[];
-    for(const al of albums){
-      const tr = al?.tracks?.items||[];
-      tr.forEach(t=>{
-        all.push({ album_id: al.id, album: al.name, t });
-      });
-    }
+    const ids=albumIds.slice(i,i+chunk);
+    const d=await spGet("albums",{ids:ids.join(","),market});
+    for(const al of (d?.albums||[])){ for(const t of (al?.tracks?.items||[])){ all.push({album:al.name, id:t.id, name:t.name}); } }
   }
-  log(`album chunks: ${Math.ceil(albumIds.length/20)} → raw tracks: ${all.length}`);
-  return all;
+  log(`album chunks: ${Math.ceil(albumIds.length/20)} → raw tracks: ${all.length}`); return all;
 }
 async function fetchTracksFull(ids, market="US"){
-  const out=[]; const chunk=50;
+  const out=[], chunk=50;
   for(let i=0;i<ids.length;i+=chunk){
-    const part = ids.slice(i,i+chunk);
-    const d = await spGet("tracks", { ids: part.join(","), market });
-    for(const t of (d?.tracks||[])){
-      if(!t) continue;
-      out.push(t);
-    }
+    const part=ids.slice(i,i+chunk);
+    const d=await spGet("tracks",{ids:part.join(","),market});
+    for(const t of (d?.tracks||[])){ if(t) out.push(t); }
   }
   return out;
 }
 
-/*** 描画 / 整形 ***/
+/*** 整形 ***/
 let pool=[], list120=[], list100=[], lastData=[];
 function render(list){
   const ol=$("#tracks"); ol.innerHTML="";
   list.forEach((r,i)=>{
     const li=document.createElement("li");
     const a=document.createElement("a"); a.href=r.track_url; a.textContent=r.name; a.target="_blank"; a.rel="noopener";
-    li.append(`${i+1}. `, a, ` — ${r.artists} (pop:${r.popularity})`);
-    ol.appendChild(li);
+    li.append(`${i+1}. `, a, ` — ${r.artists} (pop:${r.popularity})`); ol.appendChild(li);
   });
   const on=list.length>0;
-  $("#btnTrim").disabled=!pool.length;
-  $("#btnPick").disabled=!list120.length;
-  $("#btnHead5").disabled=!on;
-  $("#btnCreate").disabled=!on;
+  $("#btnTrim").disabled=!pool.length; $("#btnPick").disabled=!list120.length; $("#btnHead5").disabled=!on; $("#btnCreate").disabled=!on;
 }
-function getPins(){ return {
-  open: ($("#pinOpen").value||"").trim(),
-  early:($("#pinEarly").value||"").trim(),
-  mid:  ($("#pinMid").value||"").trim(),
-  late: ($("#pinLate").value||"").trim()
-};}
-function dropDupAndKeepLen(list, keepSet, targetLen){
-  const out=[], seen=new Set();
-  for(const r of list){ if(seen.has(r.id)) continue; seen.add(r.id); out.push(r); }
-  while(out.length>targetLen){
-    const last=out[out.length-1];
-    if(keepSet.has(last.id)){
-      let idx=-1; for(let i=out.length-1;i>=0;i--){ if(!keepSet.has(out[i].id)){ idx=i; break; } }
-      if(idx<0) break; out.splice(idx,1);
-    } else out.pop();
-  }
+function getPins(){ return { open:($("#pinOpen").value||"").trim(), early:($("#pinEarly").value||"").trim(), mid:($("#pinMid").value||"").trim(), late:($("#pinLate").value||"").trim() }; }
+function dropDupAndKeepLen(list, keepSet, target){
+  const out=[], seen=new Set(); for(const r of list){ if(seen.has(r.id)) continue; seen.add(r.id); out.push(r); }
+  while(out.length>target){ const last=out[out.length-1]; if(keepSet.has(last.id)){ let idx=-1; for(let i=out.length-1;i>=0;i--){ if(!keepSet.has(out[i].id)){ idx=i; break; } } if(idx<0) break; out.splice(idx,1);} else out.pop(); }
   return out;
 }
-function capByAlbum(list, cap=2){
-  const cnt={}; const out=[];
-  for(const r of list){
-    const key=r.album+"::"+r.artists;
-    cnt[key]=(cnt[key]||0);
-    if(cnt[key] < cap){ out.push(r); cnt[key]++; }
-  }
-  return out;
-}
+function capByAlbum(list, cap=2){ const cnt={}, out=[]; for(const r of list){ const k=r.album+"::"+r.artists; cnt[k]=(cnt[k]||0); if(cnt[k]<cap){ out.push(r); cnt[k]++; } } return out; }
 function avoidAdjacentSharedRemixer(list){
   for(let i=1;i<list.length;i++){
-    if(shareRemixer(list[i-1], list[i])){
-      // 探してスワップ
-      let j=i+1;
-      while(j<list.length && shareRemixer(list[i-1], list[j])) j++;
-      if(j<list.length){ const tmp=list[i]; list[i]=list[j]; list[j]=tmp; }
-    }
-  }
-  return list;
+    if(shareRemixer(list[i-1],list[i])){ let j=i+1; while(j<list.length && shareRemixer(list[i-1],list[j])) j++; if(j<list.length){ const tmp=list[i]; list[i]=list[j]; list[j]=tmp; } }
+  } return list;
 }
 
-/*** BUILD 130（アルバム一括） ***/
+/*** BUILD 130（超軽量：詳細取得は最大160件のみ） ***/
 $("#btnBuild").onclick = async ()=>{
   $("#btnBuild").disabled=true; $("#btnTrim").disabled=true; $("#btnPick").disabled=true; $("#btnHead5").disabled=true; $("#btnCreate").disabled=true;
   try{
     const market=$("#market").value||"US";
     const groups=$("#groups").value||"album,single";
-    setStatus(`① Collecting candidates… (album-batch only / groups=${groups})`);
-    // 1) アルバムID収集
-    const alids = await fetchAllAlbumIds(groups, market, 60);
-    // 2) まとめてトラック（簡易）を取得
-    const raw = await fetchAlbumsWithTracks(alids, market);
-    // 3) TDCS参加 & Remix-only & “Mix”除外
-    const simp = raw
-      .map(x=>x.t)
-      .filter(t => t?.artists?.some(a=>a.id===ARTIST_ID))
-      .filter(t => isRemixOnly(t.name));
-    if(simp.length===0) throw new Error("No remix tracks found.");
-    // 4) popularity を付ける
-    const full = await fetchTracksFull(simp.map(t=>t.id), market);
-    pool = full.map(t=>{
-      const artists=t.artists.map(a=>a.name).join(", ");
-      const row = {
-        id:t.id, name:t.name, artists,
-        popularity:t.popularity||0,
-        track_url:t.external_urls?.spotify || `https://open.spotify.com/track/${t.id}`,
-        album:t.album?.name||"", album_url:t.album?.external_urls?.spotify||""
-      };
-      row._remixers = parseRemixerTokens(row.name);
-      return row;
-    }).sort((a,b)=>(b.popularity||0)-(a.popularity||0));
-    // Pin を pool 先頭に確保（不足なら追加）
+    setStatus("① FAST build via Albums-batch.");
+    // 1) アルバムID → 簡易トラック
+    const alids = await fetchAllAlbumIds(groups, market, 80);
+    const raw   = await fetchAlbumsWithTracks(alids, market);
+    // 2) TDCS参加（album/tracks のitemsには artists配列が無いので後工程で補完／ここは名前でフィルタ）
+    const remixIds = raw.filter(x=>isRemixOnly(x.name)).map(x=>x.id);
+    if(remixIds.length===0) throw new Error("No remix tracks found.");
+    // 3) 事前トリム（最大160件へ）— 安定シャッフルでバラす
+    const preIds = remixIds
+      .map(id=>({id, h:stableHash(id)}))
+      .sort((a,b)=>a.h-b.h)
+      .slice(0, Math.min(LIMIT_PREFETCH, remixIds.length))
+      .map(x=>x.id);
+    log(`prefetch ids: ${preIds.length} (<=${LIMIT_PREFETCH})`);
+    // 4) ここで初めて詳細取得（最大4コール）
+    const full = await fetchTracksFull(preIds, market);
+    // 5) TDCS参加 & Remix-only 最終確認
+    pool = full
+      .filter(t=>t?.artists?.some(a=>a.id===ARTIST_ID))
+      .filter(t=>isRemixOnly(t.name))
+      .map(t=>{
+        const row={ id:t.id, name:t.name, artists:t.artists.map(a=>a.name).join(", "),
+          popularity:t.popularity||0, track_url:t.external_urls?.spotify||`https://open.spotify.com/track/${t.id}`,
+          album:t.album?.name||"", album_url:t.album?.external_urls?.spotify||"" };
+        row._remixers = parseRemixerTokens(row.name); return row;
+      })
+      .sort((a,b)=>(b.popularity||0)-(a.popularity||0));
+    // 6) Pins を含めて 130 ちょうど
     const pins=getPins(); const pinSet=new Set([pins.open,pins.early,pins.mid,pins.late].filter(Boolean));
     const have=new Set(pool.map(x=>x.id));
     const missing=[...pinSet].filter(id=>!have.has(id));
     if(missing.length){
-      log(`fetch pins (missing ${missing.length})`);
       const pinsFull = await fetchTracksFull(missing, market);
       for(const t of pinsFull.reverse()){
+        if(!t?.artists?.some(a=>a.id===ARTIST_ID)) continue;
         if(!isRemixOnly(t.name)) continue;
-        pool.unshift({
-          id:t.id, name:t.name, artists:t.artists.map(a=>a.name).join(", "),
-          popularity:t.popularity||0,
-          track_url:t.external_urls?.spotify || `https://open.spotify.com/track/${t.id}`,
-          album:t.album?.name||"", album_url:t.album?.external_urls?.spotify||"",
-          _remixers: parseRemixerTokens(t.name)
-        });
+        pool.unshift({ id:t.id, name:t.name, artists:t.artists.map(a=>a.name).join(", "),
+          popularity:t.popularity||0, track_url:t.external_urls?.spotify||`https://open.spotify.com/track/${t.id}`,
+          album:t.album?.name||"", album_url:t.album?.external_urls?.spotify||"", _remixers:parseRemixerTokens(t.name) });
       }
     }
-    // 130 ぴったり（Pin優先・重複排除）
     pool = dropDupAndKeepLen(pool, pinSet, Math.min(LIMIT_130, pool.length));
     render(pool);
     setStatus(`Loaded pool: ${pool.length} (Remix-only)`);
-  }catch(e){
-    setStatus("Build error: "+(e.message||e));
-  }
-  $("#btnBuild").disabled=false; $("#btnTrim").disabled=!pool.length;
+    $("#btnTrim").disabled=false;
+  }catch(e){ setStatus("Build error: "+(e.message||e)); }
+  $("#btnBuild").disabled=false;
 };
 
-/*** TRIM 120（album<=2、Pin維持、adjacency 修正） ***/
+/*** TRIM 120 ***/
 $("#btnTrim").onclick = ()=>{
   if(!pool.length) return;
   const pins=getPins(); const pinSet=new Set([pins.open,pins.early,pins.mid,pins.late].filter(Boolean));
-  // まず人気順で 120 に落とす（アルバム最多2曲）
   let working = capByAlbum(pool, 2);
   working = dropDupAndKeepLen(working, pinSet, Math.min(LIMIT_120, working.length));
-  // リミキサー連続回避（スワップ）
   working = avoidAdjacentSharedRemixer(working);
-  list120 = working.slice();
-  lastData = list120.slice();
-  render(lastData);
-  setStatus(`Trimmed to ${lastData.length} (cap albums≤2, pins ensured, no adjacent shared remixer)`);
+  list120 = working.slice(); lastData=list120.slice(); render(lastData);
+  setStatus(`Trimmed to ${lastData.length} (albums≤2, pins ensured, no adjacent shared remixer)`);
   $("#btnPick").disabled=false;
 };
 
-/*** PICK 100（Pins を #1/#8/#45/#75 に固定、重複/連続回避） ***/
+/*** PICK 100（Pins #1/#8/#45/#75） ***/
 $("#btnPick").onclick = async ()=>{
   if(!list120.length) return;
   const mk=$("#market").value||"US";
   const pins=getPins();
-  // ベース：人気順で 100 へ
-  let picked = list120
-    .slice()
-    .sort((a,b)=>(b.popularity||0)-(a.popularity||0));
+  let picked=list120.slice().sort((a,b)=>(b.popularity||0)-(a.popularity||0));
   picked = capByAlbum(picked, 2);
   picked = dropDupAndKeepLen(picked, new Set(), LIMIT_100);
-  // ピンを計画位置へ
-  const plan=[
-    {id:pins.open,  pos:0},   // #1
-    {id:pins.early, pos:7},   // #8
-    {id:pins.mid,   pos:44},  // #45
-    {id:pins.late,  pos:74}   // #75
-  ].filter(p=>p.id);
+  const plan=[ {id:pins.open,pos:0}, {id:pins.early,pos:7}, {id:pins.mid,pos:44}, {id:pins.late,pos:74} ].filter(p=>p.id);
   const byId=new Map(picked.map(x=>[x.id,x]));
-  const missing = plan.map(p=>p.id).filter(id=>!byId.has(id));
+  const missing=plan.map(p=>p.id).filter(id=>!byId.has(id));
   if(missing.length){
-    const pinsFull = await fetchTracksFull(missing, mk);
+    const pinsFull=await fetchTracksFull(missing, mk);
     for(const t of pinsFull){
-      const row = {
-        id:t.id, name:t.name, artists:t.artists.map(a=>a.name).join(", "),
-        popularity:t.popularity||0,
-        track_url:t.external_urls?.spotify || `https://open.spotify.com/track/${t.id}`,
-        album:t.album?.name||"", album_url:t.album?.external_urls?.spotify||"",
-        _remixers: parseRemixerTokens(t.name)
-      };
+      const row={ id:t.id, name:t.name, artists:t.artists.map(a=>a.name).join(", "),
+        popularity:t.popularity||0, track_url:t.external_urls?.spotify||`https://open.spotify.com/track/${t.id}`,
+        album:t.album?.name||"", album_url:t.album?.external_urls?.spotify||"", _remixers:parseRemixerTokens(t.name) };
       byId.set(row.id,row); picked.push(row);
     }
   }
   const pinSet=new Set(plan.map(p=>p.id));
   picked = picked.filter(x=>!pinSet.has(x.id));
-  for(const p of plan){
-    const row=byId.get(p.id); if(!row) continue;
-    const pos=Math.min(Math.max(p.pos,0), picked.length);
-    picked.splice(pos,0,row);
-  }
+  for(const p of plan){ const row=byId.get(p.id); if(!row) continue; const pos=Math.min(Math.max(p.pos,0),picked.length); picked.splice(pos,0,row); }
   picked = dropDupAndKeepLen(picked, pinSet, LIMIT_100);
   picked = avoidAdjacentSharedRemixer(picked);
-  list100 = picked.slice();
-  lastData = list100.slice();
-  render(lastData);
-  setStatus(`Balanced 100 ready (Pins fixed #1/#8/#45/#75, no adjacent shared remixer)`);
+  list100=picked.slice(); lastData=list100.slice(); render(lastData);
+  setStatus("Balanced 100 ready (Pins fixed #1/#8/#45/#75, no adjacent shared remixer)");
 };
 
-/*** Head-5（ピン位置は触らない） ***/
+/*** Head-5 ***/
 $("#btnHead5").onclick=()=>{
   if(!lastData.length) return;
   const pins=getPins(); const pinSet=new Set(Object.values(pins).filter(Boolean));
@@ -442,31 +323,23 @@ $("#btnHead5").onclick=()=>{
   const pool=lastData.filter(t=>!isPinned(t)).map(t=>({t,score:t.popularity||0})).sort((a,b)=>b.score-a.score);
   const take=()=>pool.shift()?.t;
   const head=[take(),take(),take(),take(),take()].filter(Boolean);
-  const nonPinIdxs=lastData.map((x,i)=>({x,i})).filter(v=>!isPinned(v.x)).map(v=>v.i).slice(0,head.length);
-  head.forEach((h,k)=>{ lastData[nonPinIdxs[k]] = h; });
-  render(lastData);
+  const idxs=lastData.map((x,i)=>({x,i})).filter(v=>!isPinned(v.x)).map(v=>v.i).slice(0,head.length);
+  head.forEach((h,k)=>{ lastData[idxs[k]]=h; }); render(lastData);
   setStatus("Head-5 optimized (Pins preserved)");
 };
 
-/*** プレイリスト作成（デフォ非公開） ***/
+/*** プレイリスト作成（非公開デフォルト） ***/
 $("#btnCreate").onclick=async ()=>{
   try{
     if(!lastData.length) return;
     const isPublic=$("#plPublic").checked;
-    const scopeNeed=[isPublic?"playlist-modify-public":"playlist-modify-private"];
-    const me=await spGet("me");
-    if(me?.id && me.id!==USER_ID) throw new Error(`Signed in as ${me.id}. Please sign in as ${USER_ID}.`);
-    const pl=await spPost(`users/${USER_ID}/playlists`,{
-      name:$("#plName").value||"PROGAPANDA • Balanced100 (TDCS Remixes)",
-      description:"Album-batch fast build. Remix-only (no 'Mix'). Pins fixed at #1/#8/#45/#75. TDCS 130→120→100.",
-      public:!!isPublic
-    }, scopeNeed);
+    const need=[isPublic?"playlist-modify-public":"playlist-modify-private"];
+    const me=await spGet("me"); if(me?.id && me.id!==USER_ID) throw new Error(`Signed in as ${me.id}. Please sign in as ${USER_ID}.`);
+    const pl=await spPost(`users/${USER_ID}/playlists`,{ name:$("#plName").value||"PROGAPANDA • Balanced100 (TDCS Remixes)",
+      description:"Album-batch FAST. Remix-only (no 'Mix'). Pins at #1/#8/#45/#75. TDCS 130→120→100.", public:!!isPublic }, need);
     const uris=[...new Set(lastData.map(x=>"spotify:track:"+x.id))];
-    for(let i=0;i<uris.length;i+=100){
-      await spPost(`playlists/${pl.id}/tracks`,{uris:uris.slice(i,i+100)}, scopeNeed);
-      await sleep(300);
-    }
-    const url=pl.external_urls?.spotify || `https://open.spotify.com/playlist/${pl.id}`;
+    for(let i=0;i<uris.length;i+=100){ await spPost(`playlists/${pl.id}/tracks`,{uris:uris.slice(i,i+100)}, need); await sleep(300); }
+    const url=pl.external_urls?.spotify||`https://open.spotify.com/playlist/${pl.id}`;
     setStatus(`Done — ${lastData.length} tracks added (${isPublic?"public":"private"}). ${url}`);
   }catch(e){ setStatus("Playlist error: "+(e.message||e)); }
 };
@@ -475,27 +348,22 @@ $("#btnCreate").onclick=async ()=>{
 $("#btnRefresh").onclick=()=>refreshTokenNow().catch(e=>setStatus("Refresh error: "+e.message));
 $("#btnReauth").onclick=()=>{ clearToken(); location.href="auth.html"; };
 
-/*** 起動（PKCEコールバック） ***/
+/*** 起動 ***/
 (async function boot(){
   try{
     const qp=new URLSearchParams(location.search);
     const code=qp.get("code"), state=qp.get("state");
     if(code){
-      const saved=sessionStorage.getItem("pkce_state");
-      const verifier=sessionStorage.getItem("pkce_verifier");
+      const saved=sessionStorage.getItem("pkce_state"), verifier=sessionStorage.getItem("pkce_verifier");
       if(saved && verifier && state===saved){
-        const tok=await tokenByCode(code,verifier);
-        saveToken(tok);
-        sessionStorage.removeItem("pkce_state");
-        sessionStorage.removeItem("pkce_verifier");
+        const tok=await tokenByCode(code,verifier); saveToken(tok);
+        sessionStorage.removeItem("pkce_state"); sessionStorage.removeItem("pkce_verifier");
         history.replaceState({},document.title,location.pathname);
       }
     }
     await ensureToken();
-    setStatus("Signed in. ①Build 130（Album-batch / Remix-only）→ ②Trim 120 → ③Balanced 100（Pins #1/#8/#45/#75 & no adjacent shared remixer）→ ④Head-5 → ⑤Create Playlist（非公開）");
-  }catch(e){
-    setStatus("Boot error: "+(e.message||e));
-  }
+    setStatus("Signed in. ①FAST Build 130（Album-batch / Remix-only）→ ②Trim 120 → ③Balanced 100（Pins #1/#8/#45/#75 & no adjacent shared remixer）→ ④Head-5 → ⑤Create Playlist（非公開）");
+  }catch(e){ setStatus("Boot error: "+(e.message||e)); }
 })();
 </script>
 </body>
