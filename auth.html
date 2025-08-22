@@ -3,86 +3,64 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spotify Auth (PKCE) — TDCS 130→100</title>
+<title>Spotify Auth (PKCE minimal)</title>
 <style>
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:900px;margin:36px auto;padding:0 12px}
   h1{margin:0 0 8px}
-  button{padding:8px 12px;border:1px solid #bbb;border-radius:8px;background:#f6f6f6;cursor:pointer}
-  button:disabled{opacity:.45;cursor:not-allowed}
   #log{background:#0b1220;color:#cfe3ff;padding:12px;border-radius:8px;white-space:pre-wrap;max-height:380px;overflow:auto;margin-top:12px}
-  .row{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
-  .hint{color:#666;font-size:13px}
-  code{background:#f4f5f8;padding:2px 4px;border-radius:4px}
-  a.btn{display:inline-block;padding:8px 12px;border:1px solid #bbb;border-radius:8px;background:#fff;text-decoration:none}
+  a.btn,button{display:inline-block;margin-right:8px;padding:9px 12px;border:1px solid #bbb;border-radius:8px;background:#fff;text-decoration:none;cursor:pointer}
+  button:disabled{opacity:.45}
+  .muted{color:#666;font-size:13px}
 </style>
 </head>
 <body>
-<h1>Spotify Authentication (PKCE)</h1>
+<h1>Spotify Authentication</h1>
 <p id="status">Booting…</p>
-
-<div class="row">
-  <button id="btnSignin">Sign in</button>
-  <button id="btnForce">Force re-consent</button>
-  <button id="btnClear">Clear tokens</button>
-  <a id="aDirect" class="btn" href="#" target="_self" rel="noopener">Open authorize (manual)</a>
-</div>
-<p class="hint">
-通常はこのページを開くだけで「自動リフレッシュ→callback.html」に移動します。止まる場合は「Force」か手動リンクを使ってください。
+<p class="muted">自動で開かない場合は <a id="manual" class="btn" href="#" rel="noopener">Authorize を手動で開く</a> を押してください。</p>
+<p>
+  <button id="btnForce">再同意を強制（show_dialog=true）</button>
+  <button id="btnClear">トークン消去</button>
 </p>
-
 <pre id="log"></pre>
 
 <script>
-/*** 固定（あなたの環境） ***/
+/* ==== 固定値 ==== */
 const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
 const SCOPES       = ["playlist-modify-private","playlist-modify-public"];
 const AUTH_URL     = "https://accounts.spotify.com/authorize";
 const TOKEN_URL    = "https://accounts.spotify.com/api/token";
 
-/*** ロガー ***/
-const log = (m)=>{ const el=document.querySelector("#log"); el.textContent += m + "\n"; el.scrollTop = el.scrollHeight; console.log(m); };
-const setStatus = (t)=>{ document.querySelector("#status").textContent = t; log(t); };
-window.addEventListener("error", e=>log("JS error: "+e.message+" @ "+e.filename+":"+e.lineno));
-window.addEventListener("unhandledrejection", e=>log("Promise rejection: "+(e.reason?.stack||e.reason||e)));
+/* ==== ログ ==== */
+const log  = m => { const el=document.querySelector("#log"); el.textContent += m+"\n"; el.scrollTop=el.scrollHeight; console.log(m); };
+const setStatus = t => { document.querySelector("#status").textContent = t; log(t); };
+window.addEventListener("error", e => log("JS error: "+e.message));
+window.addEventListener("unhandledrejection", e => log("Promise rejection: "+(e.reason?.message||e.reason)));
 
-/*** 小物 ***/
-const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
-const b64url = (buf)=> btoa(String.fromCharCode.apply(null,new Uint8Array(buf))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+/* ==== util ==== */
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+const b64url = s => btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+function rand(n){ let s=""; const chars="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  for(let i=0;i<n;i++) s += chars[Math.floor(Math.random()*chars.length)]; return s; }
 
-/*** Storage helpers（refresh_token は localStorage にも保存） ***/
-function put(k,v,perm=false){ (perm?localStorage:sessionStorage).setItem(k,v); }
-function get(k){ return sessionStorage.getItem(k) ?? localStorage.getItem(k) ?? null; }
-function delAll(){
-  ["sp_access_token","sp_refresh_token","sp_exp_at","sp_scope","pkce_state","pkce_verifier"].forEach(k=>{
-    sessionStorage.removeItem(k); localStorage.removeItem(k);
-  });
+/* ==== Storage ==== */
+function put(k,v){ sessionStorage.setItem(k,v); }
+function get(k){ return sessionStorage.getItem(k) || localStorage.getItem(k) || null; }
+function clearAll(){ ["sp_access_token","sp_refresh_token","sp_exp_at","sp_scope","pkce_state","pkce_verifier"].forEach(k=>{sessionStorage.removeItem(k);localStorage.removeItem(k);}); }
+
+/* ==== PKCE (常に plain。Safari 問題を完全回避) ==== */
+function makePkcePlain(){
+  const state = rand(32);
+  const verifier = b64url(rand(64));
+  const challenge = verifier;            // method=plain
+  put("pkce_state", state);
+  put("pkce_verifier", verifier);
+  return {state, method:"plain", challenge};
 }
 
-/*** PKCE (S256 or plain フォールバック) ***/
-async function makePkce(){
-  const state    = crypto.getRandomValues(new Uint8Array(16)).join("");
-  const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
-  let method = "S256", challenge = "";
-  try{
-    if(!crypto.subtle) throw new Error("subtle missing");
-    const enc = new TextEncoder().encode(verifier);
-    const digest = await crypto.subtle.digest("SHA-256", enc);
-    challenge = b64url(digest);
-  }catch(_){
-    // 旧Safariなど → plain にフォールバック
-    method = "plain";
-    challenge = verifier;
-    log("PKCE fallback: using code_challenge_method=plain");
-  }
-  sessionStorage.setItem("pkce_state", state);
-  sessionStorage.setItem("pkce_verifier", verifier);
-  return {state, verifier, method, challenge};
-}
-
-/*** 認可リンク生成（UIにも表示） ***/
-async function makeAuthorizeURL({forceDialog=false}={}){
-  const {state, method, challenge} = await makePkce();
+/* ==== 認可URL生成（手動リンクにも必ず反映） ==== */
+function buildAuthorizeURL(opts={}){
+  const {state, method, challenge} = makePkcePlain();
   const u = new URL(AUTH_URL);
   u.searchParams.set("client_id", CLIENT_ID);
   u.searchParams.set("response_type", "code");
@@ -91,72 +69,56 @@ async function makeAuthorizeURL({forceDialog=false}={}){
   u.searchParams.set("code_challenge_method", method);
   u.searchParams.set("code_challenge", challenge);
   u.searchParams.set("state", state);
-  if(forceDialog) u.searchParams.set("show_dialog","true");
-  document.querySelector("#aDirect").href = u.toString();
-  return u.toString();
+  if(opts.force) u.searchParams.set("show_dialog","true");
+  const href = u.toString();
+  document.querySelector("#manual").href = href;
+  return href;
 }
 
-/*** 認可開始 ***/
-async function startAuth(opts){ const url = await makeAuthorizeURL(opts); log("→ authorize: "+url); location.href = url; }
-
-/*** リフレッシュ（最速経路） ***/
-async function tryAutoRefresh(){
-  const refresh = get("sp_refresh_token");
-  if(!refresh){ log("no stored refresh_token"); return false; }
-  setStatus("Found refresh_token → refreshing access_token…");
-  const body = new URLSearchParams({ client_id: CLIENT_ID, grant_type:"refresh_token", refresh_token: refresh });
-  const r = await fetch(TOKEN_URL, { method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"}, body });
-  if(!r.ok){
-    log("refresh failed: HTTP "+r.status+" / "+(await r.text()).slice(0,180));
-    return false;
-  }
+/* ==== 既存 refresh_token があれば即リフレッシュ → callback.html ==== */
+async function tryRefresh(){
+  const rt = get("sp_refresh_token");
+  if(!rt) return false;
+  setStatus("refresh_token を検出 → リフレッシュ中…");
+  const body = new URLSearchParams({client_id:CLIENT_ID,grant_type:"refresh_token",refresh_token:rt});
+  const r = await fetch(TOKEN_URL,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
+  if(!r.ok){ log("refresh failed: "+r.status); return false; }
   const t = await r.json();
   const expAt = Date.now() + (t.expires_in||3600)*1000;
   sessionStorage.setItem("sp_access_token", t.access_token);
   sessionStorage.setItem("sp_exp_at", String(expAt));
   sessionStorage.setItem("sp_scope", t.scope||SCOPES.join(" "));
-  if(t.refresh_token){
-    sessionStorage.setItem("sp_refresh_token", t.refresh_token);
-    localStorage.setItem("sp_refresh_token", t.refresh_token);
-  }else{
-    sessionStorage.setItem("sp_refresh_token", refresh);
-  }
-  log("refresh OK → redirect to callback.html");
+  if(t.refresh_token){ sessionStorage.setItem("sp_refresh_token", t.refresh_token); localStorage.setItem("sp_refresh_token", t.refresh_token); }
+  else { sessionStorage.setItem("sp_refresh_token", rt); }
+  setStatus("リフレッシュ成功 → callback.html へ移動");
   location.replace(REDIRECT_URI);
   return true;
 }
 
-/*** UI ボタン ***/
-document.querySelector("#btnSignin").onclick = ()=>startAuth({forceDialog:false});
-document.querySelector("#btnForce").onclick  = ()=>startAuth({forceDialog:true});
-document.querySelector("#btnClear").onclick  = ()=>{ delAll(); setStatus("Tokens cleared."); };
+/* ==== 自動開始 ==== */
+async function auto(){
+  setStatus("Booting… ("+location.href+")");
+  // 手動リンクは即セット
+  const url = buildAuthorizeURL();
+  log("manual authorize url prepared.");
 
-/*** 起動 ***/
-(async function boot(){
-  try{
-    setStatus("Booting… env="+location.protocol+" // redirect="+REDIRECT_URI);
-    await makeAuthorizeURL({forceDialog:false}); // 手動リンク常に作る
+  // 1) 最速経路：refresh
+  if(await tryRefresh()) return;
 
-    // 10秒 watchdog：ページが動かない時は強制で authorize へ
-    let cancelled = false;
-    const watchdog = (async ()=>{
-      for(let s=10; s>0; s--){ if(cancelled) return; setStatus("Watchdog: authorize in "+s+"s…"); await sleep(1000); }
-      if(cancelled) return;
-      setStatus("Watchdog: force opening authorize.");
-      startAuth({forceDialog:true});
-    })();
+  // 2) 2秒待って自動で authorize へ。自動遷移がブロックされても手動リンクは使える。
+  setStatus("自動で認可画面を開きます（2秒後）…");
+  await sleep(2000);
+  const force = /force=1/.test(location.search);
+  const to = buildAuthorizeURL({force});
+  log("→ location.href = authorize");
+  location.href = to;
+}
 
-    // 1) refresh_token があれば最速で復帰
-    if(await tryAutoRefresh()){ cancelled = true; return; }
+/* ==== Buttons ==== */
+document.querySelector("#btnForce").onclick = ()=>{ const to = buildAuthorizeURL({force:true}); location.href = to; };
+document.querySelector("#btnClear").onclick = ()=>{ clearAll(); setStatus("トークンを消去しました。"); };
 
-    // 2) 自動で認可画面へ
-    cancelled = true;  // watchdog停止
-    setStatus("No token → opening Spotify authorize (show_dialog)…");
-    await startAuth({forceDialog:true});
-  }catch(e){
-    setStatus("Auth boot error: "+(e.message||e));
-  }
-})();
+auto().catch(e=>setStatus("boot error: "+(e.message||e)));
 </script>
 </body>
 </html>
