@@ -1,131 +1,48 @@
 <!doctype html>
-<html lang="ja">
-<head>
 <meta charset="utf-8">
+<title>Spotify Auth (PKCE)</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spotify Auth (PKCE S256)</title>
-<style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:900px;margin:36px auto;padding:0 12px}
-  #log{background:#0b1220;color:#cfe3ff;padding:12px;border-radius:8px;white-space:pre-wrap;max-height:380px;overflow:auto;margin-top:12px}
-  a.btn,button{display:inline-block;margin:6px 8px 0 0;padding:9px 12px;border:1px solid #bbb;border-radius:8px;background:#fff;text-decoration:none;cursor:pointer}
-  button:disabled{opacity:.45}
-  .muted{color:#666;font-size:13px}
-</style>
-</head>
-<body>
-<h1>Spotify Authentication</h1>
-<p id="status">Booting…</p>
-<p class="muted">
-  自動で遷移しない時は <a id="manual" class="btn" href="#" rel="noopener">Authorize を手動で開く</a> を押してください。
-</p>
-<p>
-  <button id="btnForce">強制再同意（show_dialog=true）</button>
-  <button id="btnClear">トークン消去</button>
-</p>
-<pre id="log"></pre>
+<body style="font-family:system-ui,-apple-system;max-width:900px;margin:40px auto">
+  <h1>Login with Spotify</h1>
+  <p id="log">Ready.</p>
+  <button id="login">Sign in</button>
 
 <script>
-/* ===== 固定値 ===== */
-const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
-const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
-const SCOPES       = ["playlist-modify-private","playlist-modify-public"];
-const AUTH_URL     = "https://accounts.spotify.com/authorize";
-const TOKEN_URL    = "https://accounts.spotify.com/api/token";
+const CLIENT_ID   = "1fd6350fcf4945a0b3ddffa2d5730d4e";
+const REDIRECT_URI= "https://npr2025.github.io/spotify-auth/callback.html";
+/* プレイリスト作成に必要な権限（非公開＆公開の両方を請求） */
+const SCOPE = "playlist-modify-private playlist-modify-public";
 
-/* ===== log ===== */
-const log  = m => { const el=document.querySelector("#log"); el.textContent += m+"\n"; el.scrollTop=el.scrollHeight; console.log(m); };
-const setStatus = t => { document.querySelector("#status").textContent = t; log(t); };
+const $=(s)=>document.querySelector(s);
+const log=(m)=>$("#log").textContent=m;
 
-/* ===== util ===== */
-const sleep = ms => new Promise(r=>setTimeout(r,ms));
-const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf)))
-  .replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
-function randBytes(n){ const a=new Uint8Array(n); crypto.getRandomValues(a); return a; }
-function strToUint8(s){ return new TextEncoder().encode(s); }
+function b64url(a){return btoa(String.fromCharCode(...new Uint8Array(a))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");}
+function rand(n=64){const a=new Uint8Array(n);crypto.getRandomValues(a);return b64url(a);}
+async function sha256(t){return crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));}
 
-/* ===== Storage ===== */
-function put(k,v){ sessionStorage.setItem(k,v); }
-function get(k){ return sessionStorage.getItem(k) || localStorage.getItem(k) || null; }
-function clearAll(){ ["sp_access_token","sp_refresh_token","sp_exp_at","sp_scope","pkce_state","pkce_verifier","return_to"].forEach(k=>{sessionStorage.removeItem(k);localStorage.removeItem(k);}); }
-
-/* ===== PKCE S256 ===== */
-async function makePkce(){
-  const verifier = b64url(randBytes(32));
-  const digest   = await crypto.subtle.digest("SHA-256", strToUint8(verifier));
-  const challenge = b64url(digest);
-  const state = b64url(randBytes(16));
-  put("pkce_verifier", verifier);
-  put("pkce_state", state);
-  return {verifier, challenge, state, method:"S256"};
+async function buildAuthorizeUrl(){
+  const verifier = rand(64);
+  const challenge = b64url(await sha256(verifier));
+  const state = rand(32);
+  sessionStorage.setItem("pkce_verifier",verifier);
+  sessionStorage.setItem("pkce_state",state);
+  const p = new URLSearchParams({
+    response_type:"code",
+    client_id:CLIENT_ID,
+    redirect_uri:REDIRECT_URI,
+    code_challenge_method:"S256",
+    code_challenge:challenge,
+    state,
+    scope:SCOPE,
+    show_dialog:"true"   // ★同意を確実に出す
+  });
+  return "https://accounts.spotify.com/authorize?"+p.toString();
 }
 
-/* ===== 認可URL作成 ===== */
-async function buildAuthorizeURL(opts={}){
-  const {challenge, state, method} = await makePkce();
-  const u = new URL(AUTH_URL);
-  u.searchParams.set("client_id", CLIENT_ID);
-  u.searchParams.set("response_type", "code");
-  u.searchParams.set("redirect_uri", REDIRECT_URI);
-  u.searchParams.set("scope", SCOPES.join(" "));
-  u.searchParams.set("code_challenge_method", method);
-  u.searchParams.set("code_challenge", challenge);
-  u.searchParams.set("state", state);
-  if(opts.force) u.searchParams.set("show_dialog","true");
-  const href = u.toString();
-  document.querySelector("#manual").href = href;
-  return href;
-}
-
-/* ===== refresh_token があれば即更新→callbackへ ===== */
-async function tryRefresh(){
-  const rt = get("sp_refresh_token");
-  if(!rt) return false;
-  setStatus("refresh_token を検出 → リフレッシュ中…");
-  const body = new URLSearchParams({client_id:CLIENT_ID,grant_type:"refresh_token",refresh_token:rt});
-  const r = await fetch(TOKEN_URL,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
-  if(!r.ok){ log("refresh failed: "+r.status); return false; }
-  const t = await r.json();
-  const expAt = Date.now() + (t.expires_in||3600)*1000;
-  sessionStorage.setItem("sp_access_token", t.access_token);
-  sessionStorage.setItem("sp_exp_at", String(expAt));
-  sessionStorage.setItem("sp_scope", t.scope||SCOPES.join(" "));
-  if(t.refresh_token){ sessionStorage.setItem("sp_refresh_token", t.refresh_token); localStorage.setItem("sp_refresh_token", t.refresh_token); }
-  else { sessionStorage.setItem("sp_refresh_token", rt); }
-  setStatus("リフレッシュ成功 → callback.html へ移動");
-  location.replace(REDIRECT_URI);
-  return true;
-}
-
-/* ===== 自動開始 ===== */
-async function boot(){
-  try{
-    // 元画面へ戻すためのパス
-    if(!sessionStorage.getItem("return_to")){
-      const fallback = "./"; // リポジトリ内ルート（index.htmlがあれば戻る）
-      sessionStorage.setItem("return_to", document.referrer || fallback);
-    }
-    setStatus("Booting…");
-    // 手動リンクは先に用意
-    buildAuthorizeURL().then(href=>log("manual authorize ready."));
-
-    // 1) refreshトライ
-    if(await tryRefresh()) return;
-
-    // 2) 2秒後に自動で認可へ遷移（ブロックされても手動リンクで進める）
-    setStatus("自動で認可画面へ遷移します…");
-    await sleep(2000);
-    const to = await buildAuthorizeURL({force:/force=1/.test(location.search)});
-    location.href = to;
-  }catch(e){
-    setStatus("boot error: "+(e.message||e));
-  }
-}
-
-/* ===== Buttons ===== */
-document.querySelector("#btnForce").onclick = async()=>{ const to = await buildAuthorizeURL({force:true}); location.href = to; };
-document.querySelector("#btnClear").onclick = ()=>{ clearAll(); setStatus("トークンを消去しました。"); };
-
-boot();
+document.getElementById("login").onclick=async()=>{
+  log("Redirecting to Spotify…");
+  location.href=await buildAuthorizeUrl();
+};
 </script>
 </body>
 </html>
