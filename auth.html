@@ -15,35 +15,27 @@
 <p>Spotify にサインインして権限（playlist-modify-private / playlist-modify-public）を付与します。</p>
 <button id="go">Sign in with Spotify</button>
 <pre id="log"></pre>
-
 <script>
-/*** 設定 ***/
 const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
 const SCOPES       = "playlist-modify-private playlist-modify-public";
 
-/*** Util ***/
 const log = m => { const el=document.getElementById("log"); el.textContent += m + "\n"; console.log(m); };
 const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 async function sha256(s){ const data=new TextEncoder().encode(s); const hash=await crypto.subtle.digest("SHA-256", data); return b64url(hash); }
-/* RFC7636: code_verifier は [A-Z a-z 0-9 -._~] の 43–128 文字 */
 function randVerifier(len=64){
   const chars="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
   const a=new Uint8Array(len); crypto.getRandomValues(a);
   return Array.from(a).map(x=>chars[x%chars.length]).join("");
 }
-
-/*** 認可へリダイレクト ***/
 async function startAuth(){
   try{
     if(!window.sessionStorage) throw new Error("sessionStorage unavailable");
     const verifier = randVerifier(64);
     const challenge = await sha256(verifier);
     const state = randVerifier(32);
-
     sessionStorage.setItem("pkce_verifier", verifier);
     sessionStorage.setItem("pkce_state", state);
-
     const u = new URL("https://accounts.spotify.com/authorize");
     u.searchParams.set("client_id", CLIENT_ID);
     u.searchParams.set("response_type", "code");
@@ -53,14 +45,12 @@ async function startAuth(){
     u.searchParams.set("code_challenge_method", "S256");
     u.searchParams.set("code_challenge", challenge);
     u.searchParams.set("show_dialog", "true");
-
     log("Redirect to Spotify…");
     location.assign(u.toString());
   }catch(e){ log("Auth init error: "+(e.message||e)); }
 }
-
 document.getElementById("go").onclick = startAuth;
-/* 自動開始。ブラウザがブロックする場合はボタンで */
+/* 自動開始（ブロック時はボタン） */
 setTimeout(startAuth, 400);
 </script>
 </body>
