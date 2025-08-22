@@ -1,453 +1,334 @@
 <!doctype html>
-<html lang="ja">
 <meta charset="utf-8">
+<title>Spotify — TDCS ONLY / EXACT 130 (Private Playlist)</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spotify – TDCS 130 → Balanced 100 → Head-5 → Playlist</title>
-<body style="font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; max-width:980px; margin:40px auto">
+<body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:980px;margin:40px auto">
   <h1>Spotify Authentication</h1>
-  <p id="status">Ready.</p>
+  <p id="status">Signed in. Build TDCS-only (exact 130) → Create Private Playlist.</p>
 
-  <div style="display:flex; gap:10px; flex-wrap:wrap; margin:12px 0">
-    <label>Groups:
-      <select id="groups">
-        <option value="album,single" selected>Albums + Singles</option>
-        <option value="album,single,compilation">+ Compilations（件数増）</option>
-      </select>
-    </label>
-    <label><input type="checkbox" id="allMarkets"> All markets</label>
-    <label>Market（All markets OFFの時のみ）
-      <select id="market"><option selected>US</option><option>JP</option><option>GB</option><option>DE</option></select>
-    </label>
-    <label><input type="checkbox" id="wantFeatures"> Fetch audio-features（任意）</label>
-    <label><input type="checkbox" id="fastMode" checked> Fast mode（429回避優先）</label>
-    <label><input type="checkbox" id="ultraSafe" checked> Ultra-safe（さらに遅延／並列1）</label>
-  </div>
+  <section id="app" style="display:block">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0">
+      <label>Groups:
+        <select id="groups">
+          <!-- 他人混入を避けるため appears_on は既定で外す -->
+          <option value="album,single,compilation" selected>Albums + Singles + Compilations</option>
+          <option value="album,single">Albums + Singles</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="allMarkets" checked> All markets (no region filter)</label>
+      <label>Market (only when All markets is OFF):
+        <select id="market">
+          <option value="US" selected>US</option><option value="JP">JP</option>
+          <option value="GB">GB</option><option value="DE">DE</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="wantFeatures"> Fetch audio-features (optional)</label>
 
-  <div style="display:flex; gap:10px; flex-wrap:wrap; margin:6px 0">
-    <button id="btnFetch">Build TDCS-only (exact 130)</button>
-    <button id="btnPick100" disabled>Pick Balanced 100</button>
-    <button id="btnHead5" disabled>Optimize Head-5</button>
-    <button id="btnDLhtml" disabled>Download HTML</button>
-    <button id="btnDLjson" disabled>Download JSON</button>
-    <button id="btnDLcsv"  disabled>Download CSV</button>
-    <button id="btnAbort"  style="margin-left:auto">Abort</button>
-  </div>
-
-  <details style="margin:10px 0">
-    <summary>▼ Head-5 Pin（任意／固定したい曲ID）</summary>
-    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:8px">
-      <input id="pin1" placeholder="Track ID for #1 (Opener)"    style="min-width:260px">
-      <input id="pin2" placeholder="Track ID for #2 (Accelerator)"style="min-width:260px">
-      <input id="pin3" placeholder="Track ID for #3 (Anthem)"     style="min-width:260px">
-      <input id="pin4" placeholder="Track ID for #4 (Contrast)"   style="min-width:260px">
-      <input id="pin5" placeholder="Track ID for #5 (Payoff)"     style="min-width:260px">
+      <button id="btnFetch">Build TDCS-only (exact 130)</button>
+      <button id="btnDLhtml">Download HTML</button>
+      <button id="btnDLjson">Download JSON</button>
+      <button id="btnDLcsv">Download CSV</button>
     </div>
-  </details>
 
-  <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:10px; border:1px solid #ddd; border-radius:8px; margin:8px 0">
-    <input id="plName" style="min-width:320px" value="PROGAPANDA • Balanced100 (TDCS ONLY)">
-    <label><input id="plPublic" type="checkbox"> Make Public</label>
-    <button id="btnCreate" disabled>Create Playlist (Private by default)</button>
-    <span id="plLink" style="margin-left:8px"></span>
-  </div>
+    <!-- ★ プレイリスト作成（既定=非公開） -->
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0;padding:10px;border:1px solid #ddd;border-radius:8px">
+      <input id="plName"  style="min-width:320px" value="PROGAPANDA • TOP130 (TDCS ONLY)">
+      <label><input id="plPublic" type="checkbox"> Make Public</label>
+      <button id="btnCreate">Create Playlist (Private by default)</button>
+      <span id="plLink"></span>
+    </div>
 
-  <ol id="tracks"></ol>
-  <pre id="log" style="background:#0b1220; color:#cfe3ff; padding:10px; border-radius:8px; max-height:360px; overflow:auto; white-space:pre-wrap;"></pre>
+    <ol id="tracks"></ol>
+  </section>
 
 <script>
-/* ===== 固定設定 ===== */
+/* ====== Fixed config ====== */
 const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
-const ARTIST_ID    = "55fvQ5I2IZUfcFT2DV02T3";       // The Darrow Chem Syndicate
-const USER_ID      = "22fqn5mozguuegi2t3l2zeugy";    // あなたのSpotifyユーザーID
+const ARTIST_ID    = "55fvQ5I2IZUfcFT2DV02T3";   // The Darrow Chem Syndicate
+const USER_ID      = "22fqn5mozguuegi2t3l2zeugy"; // ← 固定（あなたのSpotifyユーザーID）
 const EXACT_LIMIT  = 130;
+/* ========================== */
 
-/* ===== 429 対策パラメータ（Ultra-safe 既定ON） ===== */
-let PAGE_DELAY_MS    = 2000; // albumsページ間ディレイ
-let TRACK_BATCH_SIZE = 1;    // アルバム並列数
-let RETRY_CEIL_MS    = 45000;
-let MAX_RETRY        = 18;
-let g429Count        = 0;
-let ABORT            = false;
+const $=(s)=>document.querySelector(s);
+const setStatus=(t)=>{$("#status").textContent=t; console.log(t);};
 
-const $  = s => document.querySelector(s);
-const log= m => { const el=$("#log"); el.textContent+=m+"\n"; el.scrollTop=el.scrollHeight; console.log(m); };
-const setStatus = t => { $("#status").textContent=t; log(t); };
-const sleep = ms => new Promise(r=>setTimeout(r,ms));
-const chunk = (a,n)=>{ const o=[]; for(let i=0;i<a.length;i+=n) o.push(a.slice(i,i+n)); return o; };
+/* ---- small utils ---- */
+const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
+function chunk(a,n){const o=[];for(let i=0;i<a.length;i+=n)o.push(a.slice(i,i+n));return o;}
+function escHtml(s){return (''+(s??'')).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function escCsv(s){return (''+(s??'')).replace(/"/g,'""');}
 
-let base130=[], lastData=[], featuresById={};
-
-/* ===== 認証（PKCE） ===== */
+/* ---- PKCE token handling + scope guard ---- */
+function clearPkce(){sessionStorage.removeItem("pkce_verifier");sessionStorage.removeItem("pkce_state");}
 function saveToken(t){
-  sessionStorage.setItem("sp_access_token", t.access_token);
-  if (t.refresh_token) sessionStorage.setItem("sp_refresh_token", t.refresh_token);
-  sessionStorage.setItem("sp_exp_at", String(Date.now() + (t.expires_in||3600)*1000));
-  sessionStorage.setItem("sp_scope", t.scope || "");
+  sessionStorage.setItem("sp_access_token",t.access_token);
+  if(t.refresh_token) sessionStorage.setItem("sp_refresh_token",t.refresh_token);
+  if(t.scope)         sessionStorage.setItem("sp_scope",t.scope);      // ★scopeを保存
+  sessionStorage.setItem("sp_exp_at",String(Date.now()+(t.expires_in||3600)*1000));
 }
-const scopes    = ()=> new Set((sessionStorage.getItem("sp_scope")||"").split(" ").filter(Boolean));
-const needScope = s  => !scopes().has(s);
-function forceReauth(){ sessionStorage.clear(); location.href="auth.html"; }
+function currentScopes(){return new Set((sessionStorage.getItem("sp_scope")||"").split(" ").filter(Boolean));}
+function hasScope(s){return currentScopes().has(s);}
+function forceReauth(){
+  sessionStorage.removeItem("sp_access_token");
+  sessionStorage.removeItem("sp_refresh_token");
+  sessionStorage.removeItem("sp_exp_at");
+  sessionStorage.removeItem("sp_scope");
+  location.href = "auth.html"; // ルートが同じ想定
+}
 
-async function exchangeAuthCode(code, verifier){
-  const body = new URLSearchParams({ client_id: CLIENT_ID, grant_type:"authorization_code", code, redirect_uri: REDIRECT_URI, code_verifier: verifier });
-  const r = await fetch("https://accounts.spotify.com/api/token",{ method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded" }, body });
+async function exchangeAuthCode(code,verifier){
+  const body=new URLSearchParams({client_id:CLIENT_ID,grant_type:"authorization_code",code,redirect_uri:REDIRECT_URI,code_verifier:verifier});
+  const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
   if(!r.ok) throw new Error("Token exchange failed: "+r.status);
   return r.json();
 }
-async function refreshAccessToken(refresh_token){
-  const body = new URLSearchParams({ client_id: CLIENT_ID, grant_type:"refresh_token", refresh_token });
-  const r = await fetch("https://accounts.spotify.com/api/token",{ method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded" }, body });
+async function refreshAccessToken(refresh){
+  const body=new URLSearchParams({client_id:CLIENT_ID,grant_type:"refresh_token",refresh_token:refresh});
+  const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
   if(!r.ok) throw new Error("Refresh failed: "+r.status);
   return r.json();
 }
+
 async function ensureToken(minScope="playlist-modify-private"){
-  let tok=sessionStorage.getItem("sp_access_token");
-  const exp=+sessionStorage.getItem("sp_exp_at")||0;
-  if(tok && Date.now()<exp-60000){ if(needScope(minScope)) forceReauth(); return tok; }
-  const ref=sessionStorage.getItem("sp_refresh_token");
-  if(ref){ const t=await refreshAccessToken(ref); saveToken(t); if(needScope(minScope)) forceReauth(); return t.access_token; }
+  let access = sessionStorage.getItem("sp_access_token");
+  let expAt  = Number(sessionStorage.getItem("sp_exp_at")||0);
+  if(access && Date.now()<expAt-60000){
+    if(!hasScope(minScope)) { forceReauth(); await new Promise(()=>{}); }
+    return access;
+  }
+  const refresh = sessionStorage.getItem("sp_refresh_token");
+  if(refresh){
+    const t=await refreshAccessToken(refresh); saveToken(t);
+    if(!hasScope(minScope)) { forceReauth(); await new Promise(()=>{}); }
+    return t.access_token;
+  }
   forceReauth(); await new Promise(()=>{});
 }
 
-/* ===== API ラッパ（強バックオフ） ===== */
-async function spGet(path, params={}, retry=MAX_RETRY){
+/* ---- Spotify helpers（指数バックオフ） ---- */
+async function spGet(path, params={}, retry=8, base=600){
   let attempt=0;
   while(true){
-    if(ABORT) throw new Error("Aborted");
-    const token=await ensureToken();
+    const token=await ensureToken(); // デフォは private scope で検証
     const url=new URL("https://api.spotify.com/v1/"+path);
     Object.entries(params).forEach(([k,v])=>{ if(v!==undefined&&v!==null&&v!=="") url.searchParams.set(k,v); });
-    const res=await fetch(url,{ headers:{ Authorization:"Bearer "+token } });
-    if(res.ok) return res.json();
-    if(res.status===401){ sessionStorage.removeItem("sp_access_token"); continue; }
-    if(res.status===429 || res.status>=500){
-      g429Count += (res.status===429)?1:0;
-      if(retry--<=0) throw new Error(`API ${path} ${res.status} (retries exhausted)`);
-      const ra=+res.headers.get("retry-after")||0;
-      const base=1200*Math.pow(2,attempt++), jitter=Math.floor(Math.random()*1000);
-      const wait= ra? ra*1000 : Math.min(RETRY_CEIL_MS, base)+jitter;
-      setStatus(`API ${path} ${res.status} → wait ${Math.ceil(wait/1000)}s (try ${attempt})`);
-      await sleep(wait); continue;
+    const r=await fetch(url,{headers:{Authorization:"Bearer "+token}});
+    if(r.ok) return r.json();
+    if(r.status===401 && retry>0){ sessionStorage.removeItem("sp_access_token"); retry--; continue; }
+    if((r.status===429||r.status>=500) && retry>0){
+      const ra=Number(r.headers.get("retry-after"))||0;
+      const backoff = ra? ra*1000 : base * Math.pow(2, attempt++);
+      setStatus(`API ${path} ${r.status} — retry in ${Math.ceil(backoff/1000)}s`);
+      await sleep(backoff); retry--; continue;
     }
-    throw new Error(`API ${path} ${res.status} ${await res.text()}`);
+    const txt=await r.text(); throw new Error(`API ${path} ${r.status} ${txt.slice(0,160)}`);
   }
 }
-async function spPost(path, body, minScope="playlist-modify-private"){
-  let attempt=0, retry=MAX_RETRY;
+async function spReq(method,path,body=null,params={},retry=8,base=600, minScope="playlist-modify-private"){
+  let attempt=0;
   while(true){
-    if(ABORT) throw new Error("Aborted");
     const token=await ensureToken(minScope);
-    const res=await fetch("https://api.spotify.com/v1/"+path,{
-      method:"POST", headers:{ Authorization:"Bearer "+token, "Content-Type":"application/json" }, body:JSON.stringify(body||{})
-    });
-    if(res.ok) return res.json();
-    if(res.status===401){ sessionStorage.removeItem("sp_access_token"); continue; }
-    if(res.status===429 || res.status>=500){
-      if(retry--<=0) throw new Error(`POST ${path} ${res.status} (retries exhausted)`);
-      const ra=+res.headers.get("retry-after")||0;
-      const base=1200*Math.pow(2,attempt++), jitter=Math.floor(Math.random()*1000);
-      const wait= ra? ra*1000 : Math.min(RETRY_CEIL_MS, base)+jitter;
-      setStatus(`POST ${path} ${res.status} → wait ${Math.ceil(wait/1000)}s (try ${attempt})`);
-      await sleep(wait); continue;
+    const url=new URL("https://api.spotify.com/v1/"+path);
+    Object.entries(params).forEach(([k,v])=>{ if(v!==undefined&&v!==null&&v!=="") url.searchParams.set(k,v); });
+    const r=await fetch(url,{method,headers:{Authorization:"Bearer "+token,"Content-Type":"application/json"},body:body?JSON.stringify(body):null});
+    if(r.ok) return r.json();
+    if((r.status===429||r.status>=500) && retry>0){
+      const ra=Number(r.headers.get("retry-after"))||0;
+      const backoff = ra? ra*1000 : base * Math.pow(2, attempt++);
+      setStatus(`API ${method} ${path} ${r.status} — retry in ${Math.ceil(backoff/1000)}s`);
+      await sleep(backoff); retry--; continue;
     }
-    throw new Error(`POST ${path} ${res.status} ${await res.text()}`);
+    const txt=await r.text(); throw new Error(`API ${method} ${path} ${r.status} ${txt.slice(0,160)}`);
   }
 }
+const spPost=(path,body,params,minScope)=>spReq("POST",path,body,params,8,600,minScope);
 
-/* ===== アルバム収集：本人のみ（album→single） ===== */
-async function fetchAllAlbumsPhased(includeGroups, allMarkets, market){
-  const order = includeGroups.includes("compilation")
-    ? ["album","single","compilation"] : ["album","single"];
-  let items=[];
-  for(const grp of order){
-    let offset=0, pages=0, local429=0;
-    while(true){
-      if(offset>0) await sleep(PAGE_DELAY_MS);
-      try{
-        const params={ include_groups: grp, limit:50, offset };
-        if(!allMarkets) params.market = market;
-        const before429 = g429Count;
-        const page=await spGet(`artists/${ARTIST_ID}/albums`, params);
-        local429 += Math.max(0, g429Count - before429);
-
-        log(`✅ ${grp} page ${++pages} ok (offset=${offset}) items=${(page.items||[]).length}`);
-        items.push(...(page.items||[]));
-        if(!page.next) break;
-        offset += 50;
-
-        if(local429>=2){ PAGE_DELAY_MS = Math.min(PAGE_DELAY_MS+300, 2500); local429=0; log(`↺ increase PAGE_DELAY_MS → ${PAGE_DELAY_MS}ms`); }
-      }catch(_){ log(`page error on ${grp}; soft backoff…`); await sleep(1500); }
-      if(ABORT) throw new Error("Aborted");
-    }
+/* ---- Collectors（TDCS限定） ---- */
+async function fetchAllAlbums(artistId, include_groups, allMarkets, market){
+  let items=[],offset=0;
+  while(true){
+    const params={include_groups,limit:50,offset}; if(!allMarkets) params.market=market;
+    const page=await spGet(`artists/${artistId}/albums`,params);
+    items.push(...(page.items||[])); if(!page.next) break; offset+=50;
   }
   const seen=new Set(), albums=[];
   for(const a of items){ if(!seen.has(a.id)){ seen.add(a.id); albums.push(a); } }
-  return albums.filter(a => (a.artists||[]).some(x=>x?.id===ARTIST_ID));
+  return albums;
 }
-
-async function fetchAlbumTracks_TDCS(album, allMarkets, market){
+async function fetchAlbumTracks_TDCS(album, allMarkets, market, artistId){
+  const albumHasTDCS = (album.artists||[]).some(a=>a?.id===artistId);
+  if(!albumHasTDCS) return [];
   let keep=[], offset=0;
   while(true){
-    const params={ limit:50, offset };
-    if(!allMarkets) params.market=market;
-    const page=await spGet(`albums/${album.id}/tracks`, params);
-    const ok=(page.items||[]).filter(t=> t.artists?.some(a=>a?.id===ARTIST_ID));
+    const params={limit:50,offset}; if(!allMarkets) params.market=market;
+    const page=await spGet(`albums/${album.id}/tracks`,params);
+    const ok=(page.items||[]).filter(t=> Array.isArray(t.artists) && t.artists.some(a=>a?.id===artistId) );
     keep.push(...ok.map(t=>t.id));
-    if(!page.next) break;
-    offset+=50;
-    await sleep(220);
-    if(ABORT) throw new Error("Aborted");
+    if(!page.next) break; offset+=50;
   }
   return keep;
 }
 
-/* ===== audio-features（安全版） ===== */
-async function fetchAudioFeaturesSafe(ids){
-  const out={};
-  for(const batch of chunk(ids,50)){
+/* ---- Audio features（任意） ---- */
+async function fetchAudioFeaturesSafe(trackIds){
+  if(!$("#wantFeatures").checked) return {};
+  const out={}; for(const batch of chunk(trackIds.filter(Boolean),50)){
     try{
-      const d=await spGet("audio-features",{ ids: batch.join(",") });
-      (d.audio_features||[]).forEach(f=>{ if(f&&f.id) out[f.id]=f; });
-    }catch(_){}
-    await sleep(320);
-    if(ABORT) throw new Error("Aborted");
-  }
-  return out;
+      const data=await spGet("audio-features",{ids:batch.join(",")});
+      (data.audio_features||[]).forEach(f=>{if(f&&f.id) out[f.id]=f;});
+    }catch(_){
+      for(const id of batch){ try{ const f=await spGet(`audio-features/${id}`,{}); if(f&&f.id) out[f.id]=f; } catch{ out[id]=null; } }
+    }
+    await sleep(900);
+  } return out;
 }
 
-/* ===== 表示＆DL ===== */
-function renderList(rows){
-  const ol=$("#tracks"); ol.innerHTML="";
-  rows.forEach((r,i)=>{
-    const li=document.createElement("li");
-    const a=document.createElement("a"); a.href=r.track_url; a.textContent=r.name; a.target="_blank"; a.rel="noopener";
-    li.append(`${i+1}. `, a, ` — ${r.artists} (pop:${r.popularity}${r.tempo?`, tempo:${Math.round(r.tempo)}`:""})`);
-    ol.appendChild(li);
-  });
-  const enable=rows.length>0;
-  ["btnDLhtml","btnDLjson","btnDLcsv","btnCreate","btnPick100","btnHead5"].forEach(id=>$("#"+id).disabled=!enable);
-}
-function download(name,text,type){ const b=new Blob([text],{type}); const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=name; a.click(); URL.revokeObjectURL(a.href); }
-function asCSV(rows){
+/* ---- Builder ---- */
+let running=false, lastData=[];
+function toCSV(rows){
   if(!rows.length) return "";
-  const head=Object.keys(rows[0]);
-  const esc=s=>(""+(s??"")).replace(/"/g,'""');
-  const lines=[head.join(",")];
-  for(const r of rows) lines.push(head.map(k=>`"${esc(r[k])}"`).join(","));
+  const head=Object.keys(rows[0]); const lines=[head.join(",")];
+  for(const r of rows) lines.push(head.map(k=>`"${escCsv(r[k])}"`).join(","));
   return lines.join("\n");
 }
+function download(name,text,mime){const b=new Blob([text],{type:mime}); const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=name; a.click(); URL.revokeObjectURL(a.href);}
+function htmlList(rows,title="TDCS ONLY — 130"){
+  const items=rows.map((r,i)=>{
+    const t=`<a href="${r.track_url}" target="_blank" rel="noopener">${escHtml(r.name)}</a>`;
+    const al=r.album_url?` • <a href="${r.album_url}" target="_blank" rel="noopener">${escHtml(r.album)}</a>`:"";
+    const as=r.artist_urls? r.artist_urls.split(" | ").map((u,j)=>`<a href="${u}" target="_blank" rel="noopener">${escHtml(r.artists.split(", ")[j]||"Artist")}</a>`).join(", ")
+                          : escHtml(r.artists);
+    return `<li>${i+1}. ${t} — ${as}${al} <small>(pop:${r.popularity}${r.tempo?`, tempo:${r.tempo}`:""})</small></li>`;
+  }).join("\n");
+  return `<!doctype html><meta charset="utf-8"><title>${escHtml(title)}</title><body style="font-family:system-ui,-apple-system;max-width:900px;margin:40px auto"><h1>${escHtml(title)}</h1><ol>${items}</ol></body>`;
+}
 
-/* ===== 130作成 ===== */
-async function build130(){
-  $("#btnFetch").disabled=true; $("#btnAbort").disabled=false; ABORT=false;
+async function runTDCSOnly(){
+  if(running) return; running=true;
   try{
-    let groups = $("#groups").value;
-    let allMk  = $("#allMarkets").checked;
-    let mk     = $("#market").value || "US";
-    g429Count = 0;
+    setStatus("Building TDCS-only (exact 130) …");
+    const groups=$("#groups").value||"album,single,compilation";
+    const allMarkets=$("#allMarkets").checked; const market=$("#market").value||"US";
 
-    if($("#fastMode").checked){ groups="album,single"; allMk=false; mk="US"; }
-    if($("#ultraSafe").checked){
-      PAGE_DELAY_MS=2000; TRACK_BATCH_SIZE=1; RETRY_CEIL_MS=45000; MAX_RETRY=18;
-    } else if($("#fastMode").checked){
-      PAGE_DELAY_MS=1000; TRACK_BATCH_SIZE=3; RETRY_CEIL_MS=30000; MAX_RETRY=12;
-    } else {
-      PAGE_DELAY_MS=900;  TRACK_BATCH_SIZE=4; RETRY_CEIL_MS=30000; MAX_RETRY=12;
+    // 1) TDCS名義アルバム群
+    const albums=await fetchAllAlbums(ARTIST_ID,groups,allMarkets,market);
+    setStatus(`Collecting from ${albums.length} TDCS albums…`);
+
+    // 2) 各アルバムから TDCS 含む曲のみ抽出
+    let trackIds=[];
+    for(const batch of chunk(albums,8)){
+      const packs = await Promise.all(batch.map(a=>fetchAlbumTracks_TDCS(a,allMarkets,market,ARTIST_ID).catch(()=>[])));
+      packs.forEach(ids=>trackIds.push(...ids));
+      await sleep(120);
     }
-    $("#groups").value=groups; $("#allMarkets").checked=allMk; $("#market").value=mk;
+    trackIds=[...new Set(trackIds)];
 
-    setStatus(`Scanning albums… (groups=${groups}, allMk=${allMk}, market=${mk}, delay=${PAGE_DELAY_MS}ms, batch=${TRACK_BATCH_SIZE})`);
-    const albums=await fetchAllAlbumsPhased(groups,allMk,mk);
+    // 3) 詳細取得 → 最終ガード（曲にもTDCSがいるものだけ）
+    setStatus(`Fetching track details (${trackIds.length})…`);
+    let tracks=[]; for(const ids of chunk(trackIds,50)){ const d=await spGet("tracks",{ids:ids.join(",")}); tracks.push(...(d.tracks||[])); await sleep(80); }
+    tracks = tracks.filter(t=> t && t.artists?.some(a=>a?.id===ARTIST_ID));
 
-    setStatus(`Collecting TDCS tracks from ${albums.length} albums…`);
-    let ids=[];
-    for (const pack of chunk(albums, TRACK_BATCH_SIZE)){
-      const res=await Promise.all(pack.map(a=>fetchAlbumTracks_TDCS(a,allMk,mk).catch(()=>[])));
-      res.forEach(list=>ids.push(...list));
-      await sleep(200);
-      if(ABORT) throw new Error("Aborted");
-    }
-    ids=[...new Set(ids)];
+    // 4) 人気降順 → ちょうど130に固定
+    tracks = tracks.sort((a,b)=>(b.popularity||0)-(a.popularity||0));
+    if (tracks.length >= EXACT_LIMIT) tracks = tracks.slice(0, EXACT_LIMIT);
+    else setStatus(`Only ${tracks.length} tracks found for TDCS-only. (不足: ${EXACT_LIMIT - tracks.length})`);
 
-    setStatus(`Fetching ${ids.length} tracks meta…`);
-    let tracks=[];
-    for(const batch of chunk(ids,50)){
-      const d=await spGet("tracks",{ ids: batch.join(",") });
-      tracks.push(...(d.tracks||[]));
-      await sleep(70);
-      if(ABORT) throw new Error("Aborted");
-    }
-    tracks=tracks.filter(t=> t && t.artists?.some(a=>a?.id===ARTIST_ID));
+    // 5) features（任意）
+    let featById={}; try{ featById=await fetchAudioFeaturesSafe(tracks.map(t=>t.id)); } catch(e){ setStatus("features skipped: "+(e.message||e)); }
 
-    if($("#wantFeatures").checked){
-      setStatus("Fetching audio-features…");
-      featuresById=await fetchAudioFeaturesSafe(tracks.map(t=>t.id));
-    }else featuresById={};
-
-    tracks = tracks.sort((a,b)=>(b.popularity||0)-(a.popularity||0))
-                   .slice(0, Math.min(EXACT_LIMIT, tracks.length));
-
-    base130 = tracks.map(t=>{
-      const f=featuresById[t.id]||{};
-      const artists=t.artists.map(a=>a.name).join(", ");
-      return {
-        id:t.id, name:t.name, artists,
-        popularity:t.popularity,
-        track_url: t.external_urls?.spotify || `https://open.spotify.com/track/${t.id}`,
-        album:t.album?.name||"", album_url:t.album?.external_urls?.spotify||"",
-        release_date:t.album?.release_date||"",
-        tempo:f.tempo??"", energy:f.energy??"", danceability:f.danceability??"", valence:f.valence??""
-      };
+    // 6) 整形（リンク付き）
+    lastData=tracks.map(t=>{
+      const f=featById[t.id]||{};
+      const artistNames=t.artists.map(a=>a.name).join(", ");
+      const artistUrls=t.artists.map(a=>a.external_urls?.spotify||"").filter(Boolean).join(" | ");
+      const trackUrl=t.external_urls?.spotify || `https://open.spotify.com/track/${t.id}`;
+      const albumUrl=t.album?.external_urls?.spotify || "";
+      const avail=Array.isArray(t.available_markets)?t.available_markets.length:
+        (t.album&&Array.isArray(t.album.available_markets)?t.album.available_markets.length:"");
+      return {id:t.id,name:t.name,artists:artistNames,artist_urls:artistUrls,popularity:t.popularity,isrc:t.external_ids?.isrc||"",
+        preview_url:t.preview_url||"",track_url:trackUrl,album:t.album?.name||"",album_url:albumUrl,release_date:t.album?.release_date||"",
+        available_markets_count:avail,duration_ms:t.duration_ms,tempo:f.tempo??"",energy:f.energy??"",danceability:f.danceability??"",
+        valence:f.valence??"",loudness:f.loudness??""};
     });
 
-    lastData=base130.slice(); renderList(lastData);
+    // 7) 表示
+    const ol=$("#tracks"); ol.innerHTML="";
+    lastData.forEach((r,i)=>{
+      const li=document.createElement("li");
+      const a=document.createElement("a"); a.href=r.track_url; a.textContent=r.name; a.target="_blank"; a.rel="noopener";
+      li.append(`${i+1}. `, a, ` — ${r.artists} (pop:${r.popularity}${r.tempo?`, tempo:${r.tempo}`:""})`);
+      ol.appendChild(li);
+    });
     setStatus(`Loaded ${lastData.length} tracks — TDCS ONLY (EXACT ${EXACT_LIMIT})`);
-  }catch(e){
-    setStatus("Build error: "+(e.message||e));
-  }finally{
-    $("#btnFetch").disabled=false; $("#btnAbort").disabled=true; ABORT=false;
-  }
+  }catch(e){ setStatus(e.message||String(e)); }
+  finally{ running=false; }
 }
 
-/* ===== Balanced 100 ===== */
-function norm01(v,min,max){ if(v==null||isNaN(v)) return .5; if(max===min) return .5; return (v-min)/(max-min); }
-function flagAlt(n){ return /\b(remix|radio|extended|vip|edit|rework|version)\b/i.test(n||""); }
-function pickBalanced100(rows){
-  const pop=rows.map(r=>r.popularity??0),
-        tempo=rows.map(r=>+r.tempo||null),
-        energy=rows.map(r=>+r.energy||null),
-        dance=rows.map(r=>+r.danceability||null),
-        val=rows.map(r=>+r.valence||null);
-  const pmin=Math.min(...pop), pmax=Math.max(...pop);
-  const tmin=Math.min(...tempo.filter(x=>x!=null)), tmax=Math.max(...tempo.filter(x=>x!=null));
-  const emin=Math.min(...energy.filter(x=>x!=null)), emax=Math.max(...energy.filter(x=>x!=null));
-  const dmin=Math.min(...dance.filter(x=>x!=null)),  dmax=Math.max(...dance.filter(x=>x!=null));
-  const vmin=Math.min(...val.filter(x=>x!=null)),    vmax=Math.max(...val.filter(x=>x!=null));
+/* ---- Downloads（=130曲） ---- */
+document.getElementById("btnDLhtml").onclick=()=>lastData.length&&download("tdcs_only_130.html",htmlList(lastData),"text/html");
+document.getElementById("btnDLjson").onclick=()=>lastData.length&&download("tdcs_only_130.json",JSON.stringify(lastData,null,2),"application/json");
+document.getElementById("btnDLcsv").onclick =()=>lastData.length&&download("tdcs_only_130.csv",toCSV(lastData),"text/csv");
 
-  rows.forEach(r=>{
-    r._score = 0.55*norm01(r.popularity,pmin,pmax) +
-               0.15*norm01(r.energy,emin,emax) +
-               0.10*norm01(r.danceability,dmin,dmax) +
-               0.10*(1-norm01(r.valence,vmin,vmax)) +
-               0.10*norm01(r.tempo,tmin,tmax) -
-               (flagAlt(r.name)?0.10:0);
-    const ebin=r.energy<.45?0:r.energy<.65?1:2;
-    const vbin=r.valence<.5?0:1;
-    r._cluster = ebin*2+vbin; // 0..5
-  });
-
-  const cnt=Array(6).fill(0); rows.forEach(r=>cnt[r._cluster]++);
-  const ratio=cnt.map(c=>c/rows.length);
-  let q=ratio.map(r=>Math.floor(r*100));
-  while(q.reduce((a,b)=>a+b,0)<100) q[q.indexOf(Math.min(...q))]++;
-  q=q.map(x=>Math.max(8,Math.min(25,x)));
-  while(q.reduce((a,b)=>a+b,0)>100) q[q.indexOf(Math.max(...q))]--;
-
-  const byC=new Map(); for(let i=0;i<6;i++) byC.set(i, rows.filter(r=>r._cluster===i).sort((a,b)=>b._score-a._score || (b.popularity||0)-(a.popularity||0)));
-  const picked=[], seen=new Set(), albumCnt={};
-  const okAlbum=r=>{ const k=r.album+"::"+r.artists; albumCnt[k]=(albumCnt[k]||0)+1; return albumCnt[k]<=2; };
-
-  for(let c=0;c<6;c++){
-    for(const r of byC.get(c)){
-      if(picked.length>=100) break;
-      if(picked.filter(x=>x._cluster===c).length >= q[c]) break;
-      if(!seen.has(r.id) && okAlbum(r)){ picked.push(r); seen.add(r.id); }
-    }
+/* ---- Playlist（ユーザーID固定／既定=非公開） ---- */
+async function createPlaylistForFixedUser(name,desc,isPublic){
+  const minScope = isPublic ? "playlist-modify-public" : "playlist-modify-private";
+  // 公開作成を選んだのに public スコープが無い場合は再認可
+  if (isPublic && !hasScope("playlist-modify-public")) {
+    setStatus("Need 'playlist-modify-public' scope. Re-authorizing…");
+    forceReauth(); await new Promise(()=>{});
   }
-  if(picked.length<100){
-    const rest=[...rows].sort((a,b)=>b._score-a._score);
-    for(const r of rest){
-      if(picked.length>=100) break;
-      if(!seen.has(r.id) && okAlbum(r)){ picked.push(r); seen.add(r.id); }
-    }
-  }
-  return picked.slice(0,100);
-}
-
-/* ===== Head-5 ===== */
-function head5Optimize(){
-  if(!lastData.length){ alert("先にリストを作ってね"); return; }
-  const safe=(v,d)=>(v==null||isNaN(v))?d:v, ALT=/\b(remix|radio|extended|vip|edit|rework|version)\b/i;
-  const rows=lastData.map(t=>({ id:t.id,t, energy:safe(+t.energy,.6), dance:safe(+t.danceability,.6), val:safe(+t.valence,.45), tempo:safe(+t.tempo,124), pop:t.popularity||0, isAlt:ALT.test(t.name||""), album:t.album||"" }));
-  const score=r=>0.5*(r.pop/100)+0.18*r.energy+0.12*r.dance+0.12*(1-r.val)+0.08*((r.tempo-110)/(140-110));
-  const pool=[...rows].sort((a,b)=>score(b)-score(a)||b.pop-a.pop);
-  const sameAlbum=(a,b)=>a&&b&&a.album===b.album;
-  const pinId=s=>(s||"").replace("spotify:track:","").trim();
-  const PIN={1:pinId($("#pin1").value),2:pinId($("#pin2").value),3:pinId($("#pin3").value),4:pinId($("#pin4").value),5:pinId($("#pin5").value)};
-  const get=id=>rows.find(r=>r.id===id); const used=new Set(), take=r=>{ if(!r) return null; used.add(r.id); return r; };
-  const pickOp=p=> (p.filter(r=>r.tempo>=118&&r.tempo<=126&&r.energy>=.55&&r.energy<=.70&&r.val>=.35&&r.val<=.60&&!r.isAlt).sort((a,b)=>b.pop-a.pop||score(b)-score(a))[0]||p[0]);
-  const pickAc=(p,op)=> (p.filter(r=>((r.tempo>=op.tempo+5&&r.tempo<=op.tempo+12)||(r.energy>=op.energy+.10)) && !(sameAlbum(r,op)&&!r.isAlt)).sort((a,b)=>score(b)-score(a)||b.pop-a.pop)[0]||p.find(r=>!sameAlbum(r,op))||p[0]);
-  const pickAn=p=> (p.filter(r=>!r.isAlt && r.tempo>=120 && r.tempo<=132).sort((a,b)=>b.pop-a.pop||score(b)-score(a))[0]||p[0]);
-  const pickCo=(p,base)=> (p.filter(r=> (r.energy<=base.energy-.10)||(r.tempo<=base.tempo-6)).sort((a,b)=>score(b)-score(a)|| (a.isAlt-b.isAlt))[0]||p[0]);
-  const pickPa=(p,av)=> (p.filter(r=> r.tempo>=126&&r.tempo<=134&&r.energy>=.70 && !(av&&sameAlbum(r,av))).sort((a,b)=>score(b)-score(a)||b.pop-a.pop)[0]||p[0]);
-  let op=take(PIN[1]?get(PIN[1]):pickOp(pool.filter(r=>!used.has(r.id))));
-  let ac=take(PIN[2]?get(PIN[2]):pickAc(pool.filter(r=>!used.has(r.id)),op));
-  let an=take(PIN[3]?get(PIN[3]):pickAn(pool.filter(r=>!used.has(r.id))));
-  let co=take(PIN[4]?get(PIN[4]):pickCo(pool.filter(r=>!used.has(r.id)),an));
-  let pa=take(PIN[5]?get(PIN[5]):pickPa(pool.filter(r=>!used.has(r.id)),an));
-  const head=[op,ac,an,co,pa].filter(Boolean).map(x=>x.t);
-  const rest=lastData.filter(t=>!head.some(h=>h.id===t.id));
-  lastData=head.concat(rest);
-  renderList(lastData);
-  setStatus(`Head-5 fixed: ${head.map(h=>h.name).join(' / ')} — total ${lastData.length}`);
-}
-
-/* ===== プレイリスト作成 ===== */
-async function createPlaylist(){
+  // サインインしているアカウントが固定IDと一致するか確認（安全策）
   try{
-    if(!lastData.length){ setStatus("先にリストを作ってから"); return; }
-    const isPublic=$("#plPublic").checked;
-    const need=isPublic?"playlist-modify-public":"playlist-modify-private";
-    if(needScope(need)){ setStatus(`Need '${need}' → re-auth`); forceReauth(); return; }
-    const me=await spGet("me");
-    if(me?.id && me.id!==USER_ID) throw new Error(`Signed in as ${me.id}. Please sign in as ${USER_ID}.`);
-    const pl=await spPost(`users/${USER_ID}/playlists`,{
-      name: $("#plName").value || "PROGAPANDA • Balanced100 (TDCS ONLY)",
-      description: "Auto-curated from TDCS 130 → balanced 100 (with Head-5).",
-      public: !!isPublic
-    }, need);
-    const uris=[...new Set(lastData.map(x=>x.id))].map(id=>"spotify:track:"+id);
-    for(const batch of chunk(uris,100)){
-      await spPost(`playlists/${pl.id}/tracks`,{ uris: batch }, need);
-      await sleep(250);
+    const me = await spGet("me",{});
+    if (me?.id && me.id !== USER_ID) {
+      throw new Error(`Signed in as ${me.id}. Please sign in as ${USER_ID}.`);
     }
-    const url=pl.external_urls?.spotify || `https://open.spotify.com/playlist/${pl.id}`;
+  }catch(e){ setStatus(e.message||String(e)); throw e; }
+
+  return spPost(`users/${USER_ID}/playlists`,
+    {name,description:desc,public:!!isPublic}, {}, minScope);
+}
+async function addTracksToPlaylist(playlistId,trackIds){
+  const uris=[...new Set(trackIds)].filter(Boolean).map(id=>`spotify:track:${id}`);
+  for(const batch of chunk(uris,100)){
+    await spPost(`playlists/${playlistId}/tracks`,{uris:batch},{});
+    await sleep(250);
+  }
+}
+document.getElementById("btnCreate").onclick=async()=>{
+  try{
+    if(!lastData.length){ setStatus("先に Build TDCS-only を実行して曲を用意してね"); return; }
+    const name=$("#plName").value||"PROGAPANDA • TOP130 (TDCS ONLY)";
+    const isPublic=$("#plPublic").checked; // 既定OFF = 非公開
+    setStatus(`Creating ${isPublic?"public":"private"} playlist for ${USER_ID}…`);
+    const pl=await createPlaylistForFixedUser(name,"Auto-built (TDCS ONLY, exact 130).",isPublic);
+    setStatus("Adding tracks…");
+    await addTracksToPlaylist(pl.id,lastData.map(x=>x.id));
+    const url = pl.external_urls?.spotify || `https://open.spotify.com/playlist/${pl.id}`;
     $("#plLink").innerHTML=`<a href="${url}" target="_blank" rel="noopener">Open playlist</a>`;
     setStatus(`Done — ${lastData.length} tracks added (${isPublic?"public":"private"}).`);
   }catch(e){
     setStatus("Playlist error: "+(e.message||e));
   }
-}
+};
 
-/* ===== イベント ===== */
-$("#btnFetch").onclick  = build130;
-$("#btnPick100").onclick= ()=>{ if(!base130.length){ alert("先に130曲を作って"); return; } lastData=pickBalanced100(base130.slice()); renderList(lastData); setStatus(`Balanced 100 built — ${lastData.length}`); };
-$("#btnHead5").onclick  = head5Optimize;
-$("#btnCreate").onclick = createPlaylist;
-$("#btnAbort").onclick  = ()=>{ ABORT=true; setStatus("Abort requested. 現在のAPI呼び出し完了後に停止します。"); };
-
-$("#btnDLhtml").onclick = ()=> lastData.length && download("current_list.html","<!doctype html><meta charset=utf-8><title>List</title><ol>"+lastData.map((r,i)=>`<li>${i+1}. <a href="${r.track_url}" target=_blank rel=noopener>${r.name}</a> — ${r.artists}</li>`).join("")+"</ol>","text/html");
-$("#btnDLjson").onclick = ()=> lastData.length && download("current_list.json", JSON.stringify(lastData,null,2), "application/json");
-$("#btnDLcsv").onclick  = ()=> lastData.length && download("current_list.csv", asCSV(lastData), "text/csv");
-
-/* ===== 起動（PKCEコールバック） ===== */
-(async function boot(){
-  try{
-    const qp=new URLSearchParams(location.search), code=qp.get("code"), state=qp.get("state");
-    if(code){
-      const saved=sessionStorage.getItem("pkce_state");
-      const verifier=sessionStorage.getItem("pkce_verifier");
-      if(!verifier || !saved || state!==saved){ setStatus("State/Verifier mismatch. Start from auth.html"); return; }
+/* ---- Boot: PKCE callback ---- */
+(async function init(){
+  const qp=new URLSearchParams(location.search);
+  const code=qp.get("code"); const state=qp.get("state");
+  if(code){
+    const saved=sessionStorage.getItem("pkce_state");
+    const verifier=sessionStorage.getItem("pkce_verifier");
+    if(!verifier||!saved||state!==saved){ setStatus("State/Verifier mismatch. Start from auth.html"); return; }
+    try{
       const tok=await exchangeAuthCode(code,verifier);
-      sessionStorage.removeItem("pkce_state"); sessionStorage.removeItem("pkce_verifier");
-      history.replaceState({},document.title,location.pathname); // URLから?code除去
+      clearPkce();
+      history.replaceState({},document.title,location.pathname);
       saveToken(tok);
-    }
-    setStatus("Signed in. Build TDCS-only (exact 130) → Pick Balanced 100 → Optimize Head-5 → Create Playlist.");
-  }catch(e){
-    setStatus("Auth error: "+(e.message||e));
+    }catch(e){ setStatus(e.message); return; }
   }
+  document.getElementById("btnFetch").onclick=()=>runTDCSOnly();
 })();
 </script>
 </body>
