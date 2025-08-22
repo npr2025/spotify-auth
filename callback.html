@@ -1,22 +1,22 @@
 <!doctype html>
 <html lang="ja">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TDCS 130→120→100 (FAST / PKCE)</title>
-<style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1100px;margin:36px auto;padding:0 12px}
-  h1{margin:0 0 8px}
-  button{padding:8px 12px;border:1px solid #bbb;border-radius:8px;background:#f6f6f6;cursor:pointer}
-  button:disabled{opacity:.45;cursor:not-allowed}
-  input,select{padding:6px 8px;border:1px solid #ccc;border-radius:6px}
-  #row{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
-  #pins{display:grid;grid-template-columns:180px 1fr 160px;gap:8px;align-items:center;margin:10px 0;padding:10px;border:1px dashed #ddd;border-radius:8px;background:#fafafa}
-  #log{background:#0b1220;color:#cfe3ff;padding:10px;border-radius:8px;max-height:360px;overflow:auto;white-space:pre-wrap;margin-top:12px}
-  #debug{font-size:13px;color:#333;background:#f6f6f9;border:1px solid #e5e6ef;border-radius:8px;padding:8px;margin:12px 0}
-  ol{line-height:1.5}
-  label.small{font-size:12px;color:#666}
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>TDCS 130→120→100 (FAST / PKCE)</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1100px;margin:36px auto;padding:0 12px}
+    h1{margin:0 0 8px}
+    button{padding:8px 12px;border:1px solid #bbb;border-radius:8px;background:#f6f6f6;cursor:pointer}
+    button:disabled{opacity:.45;cursor:not-allowed}
+    input,select{padding:6px 8px;border:1px solid #ccc;border-radius:6px}
+    #row{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
+    #pins{display:grid;grid-template-columns:180px 1fr 160px;gap:8px;align-items:center;margin:10px 0;padding:10px;border:1px dashed #ddd;border-radius:8px;background:#fafafa}
+    #log{background:#0b1220;color:#cfe3ff;padding:10px;border-radius:8px;max-height:360px;overflow:auto;white-space:pre-wrap;margin-top:12px}
+    #debug{font-size:13px;color:#333;background:#f6f6f9;border:1px solid #e5e6ef;border-radius:8px;padding:8px;margin:12px 0}
+    ol{line-height:1.5}
+    label.small{font-size:12px;color:#666}
+  </style>
 </head>
 <body>
 <h1>Spotify Authentication / FAST Builder</h1>
@@ -77,11 +77,10 @@ const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
 const ARTIST_ID    = "55fvQ5I2IZUfcFT2DV02T3";
 const ARTIST_NAME  = "The Darrow Chem Syndicate";
-const USER_ID      = "22fqn5mozguuegi2t3l2zeugy";
-const DESIRED_SCOPES = ["playlist-modify-private","playlist-modify-public"];
+const DESIRED_SCOPES = ["playlist-modify-private","playlist-modify-public"]; // 必要最小限
 
 /* リスト制御（速さ重視プリセット） */
-const LIMIT_130=130, LIMIT_PREFETCH=90, LIMIT_120=120, LIMIT_100=100;
+const LIMIT_130=130, LIMIT_PREFETCH=180, LIMIT_120=120, LIMIT_100=100; // 130 を満たすため prefetch を増量
 /* アルバム収集を浅く、足りなければ singles を少量だけ */
 const FAST = { CAP_ALBUMS_PRIMARY: 30, CAP_ALBUMS_FALLBACK: 10 };
 /* “条件に合う曲” がこの件数に到達したら tracks 取得を早期終了 */
@@ -98,7 +97,7 @@ function stableHash(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){h^=s.c
 function isRemixOnly(name){
   const s = name||"";
   const hasRemix   = /\bremix\b/i.test(s);
-  const hasMixWord = /\bmix\b/i.test(s);
+  const hasMixWord = /\bmix\b/i.test(s); // "remix" には反応しない（\b）
   return hasRemix && !hasMixWord;
 }
 
@@ -187,7 +186,7 @@ function on429(retryAfterSec){
 function onOk(){
   rate.okStreak++;
   if(rate.okStreak % 4 === 0){
-    rate.gapMs = Math.max(1200, Math.floor(rate.gapMs*0.9)); // 徐々に短縮
+    rate.gapMs = Math.max(1200, Math.floor(rate.gapMs*0.9));
   }
 }
 
@@ -312,9 +311,11 @@ $("#btnBuild").onclick = async ()=>{
   $("#btnBuild").disabled=true; $("#btnTrim").disabled=true; $("#btnPick").disabled=true; $("#btnHead5").disabled=true; $("#btnCreate").disabled=true;
   try{
     const market=$("#market").value||"US";
-    // albums を浅く、足りなければ singles を少量追加
-    const groupsPrimary = "album";
-    const groupsFallback = "single";
+    const groupsChosen=$("#groups").value||"album,single"; // ← UI を反映
+
+    // albums を浅く、必要なら singles を少量追加
+    const groupsPrimary = groupsChosen.includes("album")?"album":"single";
+    const groupsFallback = groupsChosen.includes("single")?"single":"album";
 
     setStatus("① FAST build via Albums-batch (albums first).");
     const alids1 = await fetchAllAlbumIds(groupsPrimary, market, FAST.CAP_ALBUMS_PRIMARY);
@@ -322,12 +323,12 @@ $("#btnBuild").onclick = async ()=>{
     let remixIds = raw1.filter(x=>isRemixOnly(x.name)).map(x=>x.id);
 
     if(remixIds.length===0){
-      setStatus("No remix in albums — adding singles (small).");
+      setStatus("No remix in primary group — adding fallback group (small).");
       const alidsS = await fetchAllAlbumIds(groupsFallback, market, FAST.CAP_ALBUMS_FALLBACK);
       const rawS   = await fetchAlbumsWithTracks(alidsS, market);
       remixIds = rawS.filter(x=>isRemixOnly(x.name)).map(x=>x.id);
-    }else if(remixIds.length < 130){
-      setStatus(`Albums found ${remixIds.length} remix tracks — topping up with singles (small).`);
+    }else if(remixIds.length < LIMIT_130){
+      setStatus(`Primary found ${remixIds.length} remix tracks — topping up with fallback (small).`);
       const alidsS = await fetchAllAlbumIds(groupsFallback, market, FAST.CAP_ALBUMS_FALLBACK);
       const rawS   = await fetchAlbumsWithTracks(alidsS, market);
       remixIds = remixIds.concat(rawS.filter(x=>isRemixOnly(x.name)).map(x=>x.id));
@@ -335,7 +336,7 @@ $("#btnBuild").onclick = async ()=>{
 
     if(remixIds.length===0) throw new Error("No remix tracks found.");
 
-    // 事前トリム（<= LIMIT_PREFETCH = 90）＆ 安定シャッフル
+    // 事前トリム（<= LIMIT_PREFETCH）＆ 安定シャッフル
     const preIds = remixIds
       .map(id=>({id, h:stableHash(id)}))
       .sort((a,b)=>a.h-b.h)
@@ -384,7 +385,7 @@ $("#btnBuild").onclick = async ()=>{
     // 130 にキャップ
     pool = dropDupAndKeepLen(pool, pinSet, Math.min(LIMIT_130, pool.length));
     render(pool);
-    setStatus(`Loaded pool: ${pool.length} (FAST mode: albums-first + singles small-topup, adaptive rate-limit)`);
+    setStatus(`Loaded pool: ${pool.length} (FAST mode: primary=${groupsPrimary}, fallback=${groupsFallback}, adaptive rate-limit)`);
     $("#btnTrim").disabled=false;
   }catch(e){
     setStatus("Build error: "+(e.message||e));
@@ -392,7 +393,7 @@ $("#btnBuild").onclick = async ()=>{
   $("#btnBuild").disabled=false;
 };
 
-/*** TRIM 120 / PICK 100 / Head-5 / Create Playlist は従来通り ***/
+/*** TRIM 120 / PICK 100 / Head-5 / Create Playlist ***/
 $("#btnTrim").onclick = ()=>{
   if(!pool.length) return;
   const pins=getPins(); const pinSet=new Set([pins.open,pins.early,pins.mid,pins.late].filter(Boolean));
@@ -453,13 +454,14 @@ $("#btnCreate").onclick=async ()=>{
     if(!lastData.length) return;
     const isPublic=$("#plPublic").checked;
     const need=[isPublic?"playlist-modify-public":"playlist-modify-private"];
-    const me=await spGet("me");
-    if(me?.id && me.id!==USER_ID) throw new Error(`Signed in as ${me.id}. Please sign in as ${USER_ID}.`);
-    const pl=await spPost(`users/${USER_ID}/playlists`,{
+
+    // 固定ユーザ ID の照合と /users/{id} は廃止し、/me/playlists を使用（権限も最小）
+    const pl=await spPost(`me/playlists`,{
       name:$("#plName").value||"PROGAPANDA • Balanced100 (TDCS Remixes)",
       description:"Album-batch FAST. Remix-only (no 'Mix'). Pins at #1/#8/#45/#75. TDCS 130→120→100.",
       public:!!isPublic
     }, need);
+
     const uris=[...new Set(lastData.map(x=>"spotify:track:"+x.id))];
     for(let i=0;i<uris.length;i+=100){ await spPost(`playlists/${pl.id}/tracks`,{uris:uris.slice(i,i+100)}, need); await sleep(300); }
     const url=pl.external_urls?.spotify||`https://open.spotify.com/playlist/${pl.id}`;
