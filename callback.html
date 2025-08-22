@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TDCS 130→100 (Remix-only, Pins enforced)</title>
+<title>TDCS 130→100 (Remix-only, Pins enforced, RL-safe)</title>
 <style>
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1100px;margin:36px auto;padding:0 12px}
   button{padding:8px 12px;border:1px solid #bbb;border-radius:8px;background:#f6f6f6;cursor:pointer}
@@ -25,6 +25,15 @@
   <label>Market
     <select id="market">
       <option>US</option><option selected>JP</option><option>GB</option><option>DE</option>
+    </select>
+  </label>
+  <label>Depth
+    <select id="depth">
+      <option value="4">(200 results)</option>
+      <option value="6" selected>(300 results)</option>
+      <option value="8">(400 results)</option>
+      <option value="12">(600 results)</option>
+      <option value="16">(800 results)</option>
     </select>
   </label>
   <button id="btn130">Build 130 (Remix-only)</button>
@@ -127,20 +136,17 @@ async function refreshTokenNow(){
   if(!r.ok){ clearToken(); throw new Error(`Refresh ${r.status}`); }
   const t=await r.json(); saveToken(t); log("Token refreshed.");
 }
-// ★ デフォルト = スコープ要求なし（GET用）。POST時は引数で必要スコープを渡す。
+// GETはスコープ不要。POST時のみ必要スコープを要求。
 async function ensureToken(requiredScopes=[]){
   updateTokenDebug();
   const tok=sessionStorage.getItem("sp_access_token");
   const exp=+sessionStorage.getItem("sp_exp_at")||0;
-  // 有効なら即返す
   if(tok && Date.now()<exp-120000){
-    // 必要スコープがあればチェック（GET時は [] なので通る）
     if(requiredScopes.length){
       const s=(sessionStorage.getItem("sp_scope")||"").split(" ");
       if(requiredScopes.every(x=>s.includes(x))) return tok;
     }else return tok;
   }
-  // リフレッシュ
   const rt=sessionStorage.getItem("sp_refresh_token");
   if(rt){
     await refreshTokenNow();
@@ -148,44 +154,50 @@ async function ensureToken(requiredScopes=[]){
     const s=(sessionStorage.getItem("sp_scope")||"").split(" ");
     if(requiredScopes.every(x=>s.includes(x))) return sessionStorage.getItem("sp_access_token");
   }
-  // 未ログイン or スコープ不足
   throw new Error("Need login or additional scope");
 }
 function reauth(){ location.href="auth.html"; }
 
-/*** API（レートセーフ） ***/
-let GAP_MS = 1200; // search-only なので軽め
-async function spGet(path,params={}){
+/*** レート制御：Retry-After尊重 + 適応的GAP ***/
+let GAP_MS = 1200;                 // ベース
+let RL_BONUS_MS = 0;               // 直近429時に増やす
+function bumpGap(afterSec){
+  const need = (afterSec*1000) + 300 + Math.floor(Math.random()*200); // 少し余裕 + ジッタ
+  RL_BONUS_MS = Math.max(RL_BONUS_MS*1.2, need);
+  GAP_MS = Math.max(GAP_MS, 1000); // 下限1s
+  log(`rate: set cooldown ~${Math.round((GAP_MS+RL_BONUS_MS)/1000)}s`);
+}
+async function spRequest(method, path, {params, body, scopeNeed=[]}={}){
   const u=new URL("https://api.spotify.com/v1/"+path);
-  Object.entries(params).forEach(([k,v])=>{ if(v!=null&&v!=="") u.searchParams.set(k,v);});
-  await sleep(GAP_MS);
+  if(params) Object.entries(params).forEach(([k,v])=>{ if(v!=null&&v!=="") u.searchParams.set(k,v);});
+  await sleep(GAP_MS + RL_BONUS_MS);
   let tok;
-  try{ tok = await ensureToken([]); } // ★ GETはスコープ不要
-  catch(e){ setStatus("Not signed in. Click Re-auth."); return { __auth_needed: true }; }
-  const r=await fetch(u,{headers:{Authorization:"Bearer "+tok}});
-  if(r.status===401){ log("401 → refresh and retry"); try{await refreshTokenNow();}catch{} return spGet(path,params); }
-  if(r.status===429){ const ra=+r.headers.get("retry-after")||2; log(`429 → wait ${ra}s`); await sleep(ra*1000); return spGet(path,params); }
-  if(!r.ok) throw new Error(`${path} ${r.status}`);
-  return r.json();
-}
-async function spPost(path,body,scopeNeed=["playlist-modify-private"]){
-  await sleep(GAP_MS);
-  let tok;
-  try{ tok = await ensureToken(scopeNeed); }
-  catch(e){ setStatus("Insufficient scope. Press Re-auth and grant playlist permissions."); reauth(); throw e; }
-  const r=await fetch("https://api.spotify.com/v1/"+path,{
-    method:"POST",
-    headers:{Authorization:"Bearer "+tok,"Content-Type":"application/json"},
-    body:JSON.stringify(body)
+  try{ tok = await ensureToken(method==="GET" ? [] : scopeNeed); }
+  catch(e){ if(method==="GET"){ setStatus("Not signed in. Click Re-auth."); return { __auth_needed: true }; } else { setStatus("Insufficient scope. Re-auth and allow playlist perms."); reauth(); throw e; } }
+  const r=await fetch(u,{
+    method, headers:{Authorization:"Bearer "+tok,"Content-Type":"application/json"},
+    body: body? JSON.stringify(body): undefined
   });
-  if(r.status===401){ log("POST 401 → refresh and retry"); try{await refreshTokenNow();}catch{} return spPost(path,body,scopeNeed); }
-  if(r.status===429){ const ra=+r.headers.get("retry-after")||2; log(`POST 429 → wait ${ra}s`); await sleep(ra*1000); return spPost(path,body,scopeNeed); }
-  if(!r.ok) throw new Error(`POST ${path} ${r.status} ${await r.text()}`);
+  if(r.status===401){ log(`${method} ${path} → 401; refreshing...`); try{await refreshTokenNow();}catch{} return spRequest(method,path,{params,body,scopeNeed}); }
+  if(r.status===429){
+    const ra=+r.headers.get("retry-after")||2;
+    log(`${method} ${path} → 429; wait ${ra}s`);
+    bumpGap(ra);
+    await sleep((ra+0.3)*1000);
+    return spRequest(method,path,{params,body,scopeNeed});
+  }
+  RL_BONUS_MS = Math.max(0, RL_BONUS_MS*0.8); // 徐々に減衰
+  if(!r.ok){
+    const txt=await r.text();
+    throw new Error(`${method} ${path} ${r.status} ${txt}`);
+  }
   return r.json();
 }
+const spGet  = (path,params)=>spRequest("GET", path, {params});
+const spPost = (path,body,scopeNeed)=>spRequest("POST", path, {body, scopeNeed});
 
 /*** Search（Remix-only / Mix除外 を検索段階でも適用） ***/
-async function searchAllRemixesByArtist(market="US", maxPages=20){
+async function searchAllRemixesByArtist(market="US", maxPages=6){
   const keep=[], seen=new Set(); let offset=0;
   const q = `artist:"${ARTIST_NAME}" remix`;
   for(let i=0;i<maxPages;i++){
@@ -322,8 +334,9 @@ async function build130(){
   $("#btn130").disabled=true;
   try{
     const mk=$("#market").value||"US";
-    setStatus(`Searching REMIXES of "${ARTIST_NAME}" in ${mk}… (Exclude any 'Mix')`);
-    let tracks=await searchAllRemixesByArtist(mk, 20);
+    const depth=parseInt($("#depth").value||"6",10);
+    setStatus(`Searching REMIXES of "${ARTIST_NAME}" in ${mk}… (Exclude any 'Mix') depth=${depth}`);
+    let tracks=await searchAllRemixesByArtist(mk, depth);
     if(!tracks || tracks.length===0){ setStatus("Sign in first (press Re-auth)."); return; }
     tracks = tracks
       .filter(t=>t && t.artists?.some(a=>a?.id===ARTIST_ID))
@@ -341,7 +354,7 @@ async function build130(){
     base130.sort((a,b)=>(b.popularity||0)-(a.popularity||0));
     window.lastData = base130.slice();
     render(lastData);
-    setStatus(`Loaded ${lastData.length} REMIX tracks — TDCS ONLY (EXACT 130 if available)`);
+    setStatus(`Loaded ${lastData.length} REMIX tracks — TDCS ONLY (EXACT 130 if available). Cooldown=${Math.round((GAP_MS+RL_BONUS_MS)/1000)}s`);
     $("#btn100").disabled = lastData.length===0;
     $("#btnHead5").disabled = lastData.length===0;
     $("#btnCreate").disabled = lastData.length===0;
@@ -421,7 +434,7 @@ $("#btnReauth").onclick=()=>{ clearToken(); reauth(); };
       }
     }
     try{
-      await ensureToken([]); // ★ GET用に無スコープで確認
+      await ensureToken([]); // GET用に無スコープで確認
       setStatus("Signed in. ①Build 130（Remix-only）→ ②Pick Balanced 100（Pins #1/#8/#45/#75）→ ③Head-5 → ④Create Playlist（非公開デフォルト）");
     }catch(e){
       setStatus("Not signed in. Click Re-auth.");
