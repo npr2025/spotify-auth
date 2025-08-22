@@ -1,22 +1,22 @@
 <!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>TDCS 130→120→100 (FAST / PKCE)</title>
-  <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1100px;margin:36px auto;padding:0 12px}
-    h1{margin:0 0 8px}
-    button{padding:8px 12px;border:1px solid #bbb;border-radius:8px;background:#f6f6f6;cursor:pointer}
-    button:disabled{opacity:.45;cursor:not-allowed}
-    input,select{padding:6px 8px;border:1px solid #ccc;border-radius:6px}
-    #row{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
-    #pins{display:grid;grid-template-columns:180px 1fr 160px;gap:8px;align-items:center;margin:10px 0;padding:10px;border:1px dashed #ddd;border-radius:8px;background:#fafafa}
-    #log{background:#0b1220;color:#cfe3ff;padding:10px;border-radius:8px;max-height:360px;overflow:auto;white-space:pre-wrap;margin-top:12px}
-    #debug{font-size:13px;color:#333;background:#f6f6f9;border:1px solid #e5e6ef;border-radius:8px;padding:8px;margin:12px 0}
-    ol{line-height:1.5}
-    label.small{font-size:12px;color:#666}
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TDCS 130→120→100 (FAST / PKCE)</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1100px;margin:36px auto;padding:0 12px}
+  h1{margin:0 0 8px}
+  button{padding:8px 12px;border:1px solid #bbb;border-radius:8px;background:#f6f6f6;cursor:pointer}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  input,select{padding:6px 8px;border:1px solid #ccc;border-radius:6px}
+  #row{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
+  #pins{display:grid;grid-template-columns:180px 1fr 160px;gap:8px;align-items:center;margin:10px 0;padding:10px;border:1px dashed #ddd;border-radius:8px;background:#fafafa}
+  #log{background:#0b1220;color:#cfe3ff;padding:10px;border-radius:8px;max-height:360px;overflow:auto;white-space:pre-wrap;margin-top:12px}
+  #debug{font-size:13px;color:#333;background:#f6f6f9;border:1px solid #e5e6ef;border-radius:8px;padding:8px;margin:12px 0}
+  ol{line-height:1.5}
+  label.small{font-size:12px;color:#666}
+</style>
 </head>
 <body>
 <h1>Spotify Authentication / FAST Builder</h1>
@@ -77,10 +77,11 @@ const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
 const ARTIST_ID    = "55fvQ5I2IZUfcFT2DV02T3";
 const ARTIST_NAME  = "The Darrow Chem Syndicate";
-const DESIRED_SCOPES = ["playlist-modify-private","playlist-modify-public"]; // 必要最小限
+const USER_ID      = "22fqn5mozguuegi2t3l2zeugy";
+const DESIRED_SCOPES = ["playlist-modify-private","playlist-modify-public"];
 
 /* リスト制御（速さ重視プリセット） */
-const LIMIT_130=130, LIMIT_PREFETCH=180, LIMIT_120=120, LIMIT_100=100; // 130 を満たすため prefetch を増量
+const LIMIT_130=130, LIMIT_PREFETCH=90, LIMIT_120=120, LIMIT_100=100;
 /* アルバム収集を浅く、足りなければ singles を少量だけ */
 const FAST = { CAP_ALBUMS_PRIMARY: 30, CAP_ALBUMS_FALLBACK: 10 };
 /* “条件に合う曲” がこの件数に到達したら tracks 取得を早期終了 */
@@ -97,7 +98,7 @@ function stableHash(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){h^=s.c
 function isRemixOnly(name){
   const s = name||"";
   const hasRemix   = /\bremix\b/i.test(s);
-  const hasMixWord = /\bmix\b/i.test(s); // "remix" には反応しない（\b）
+  const hasMixWord = /\bmix\b/i.test(s);
   return hasRemix && !hasMixWord;
 }
 
@@ -170,23 +171,42 @@ function reauthError(reason){
   const err=new Error("REAUTH"); err._reauth=true; return err;
 }
 
-/*** 適応型レートリミッタ ***/
-let rate = { gapMs: 2200, last: 0, okStreak: 0 };
+/*** 適応型レートリミッタ（超保守） ***/
+// 初期 9.5s。429 受信時は Retry-After + 2s を厳守。OK12連続でのみ 10% 短縮。
+// 直列実行＋ジッタ（±300ms）でバーストを抑制。
+const RATE = {
+  gapMs: 9500,         // 現在の間隔
+  minGapMs: 9000,      // 下限
+  maxGapMs: 30000,     // 上限
+  okStreak: 0,         // 連続OK
+  okToStepDown: 12,    // 短縮のための連続OK閾値
+  last: 0
+};
+function jitter(ms){ return ms + Math.floor(Math.random()*600) - 300; }
+
+// 直列化用の簡易ミューテックス
+let _q = Promise.resolve();
+async function _serialize(){ const prev=_q; let release; _q = new Promise(r=>release=r); await prev; return release; }
+
 async function rateWait(){
-  const now=Date.now();
-  const wait=Math.max(0, rate.last + rate.gapMs - now);
-  if(wait) await sleep(wait + Math.floor(Math.random()*200));
-  rate.last = Date.now();
+  const release = await _serialize();
+  try{
+    const wait = Math.max(0, RATE.last + RATE.gapMs - Date.now());
+    if(wait) await sleep(jitter(wait));
+    RATE.last = Date.now();
+  } finally { release(); }
 }
 function on429(retryAfterSec){
-  rate.okStreak = 0;
-  rate.gapMs = Math.max(Math.floor(rate.gapMs*1.8), (retryAfterSec*1000)+800, 2500);
-  log(`429 → wait ${retryAfterSec}s, next gap≈${rate.gapMs}ms`);
+  RATE.okStreak = 0;
+  const after = (Number(retryAfterSec)||2)*1000 + 2000; // Retry-After + 2s
+  RATE.gapMs = Math.min(Math.max(after, Math.floor(RATE.gapMs*1.6), RATE.minGapMs), RATE.maxGapMs);
+  log(`429 → wait ${retryAfterSec}s, next gap≈${RATE.gapMs}ms`);
 }
 function onOk(){
-  rate.okStreak++;
-  if(rate.okStreak % 4 === 0){
-    rate.gapMs = Math.max(1200, Math.floor(rate.gapMs*0.9));
+  RATE.okStreak++;
+  if(RATE.okStreak >= RATE.okToStepDown){
+    RATE.okStreak = 0;
+    RATE.gapMs = Math.max(RATE.minGapMs, Math.floor(RATE.gapMs*0.9)); // ゆっくり短縮
   }
 }
 
@@ -311,11 +331,8 @@ $("#btnBuild").onclick = async ()=>{
   $("#btnBuild").disabled=true; $("#btnTrim").disabled=true; $("#btnPick").disabled=true; $("#btnHead5").disabled=true; $("#btnCreate").disabled=true;
   try{
     const market=$("#market").value||"US";
-    const groupsChosen=$("#groups").value||"album,single"; // ← UI を反映
-
-    // albums を浅く、必要なら singles を少量追加
-    const groupsPrimary = groupsChosen.includes("album")?"album":"single";
-    const groupsFallback = groupsChosen.includes("single")?"single":"album";
+    const groupsPrimary = "album";
+    const groupsFallback = "single";
 
     setStatus("① FAST build via Albums-batch (albums first).");
     const alids1 = await fetchAllAlbumIds(groupsPrimary, market, FAST.CAP_ALBUMS_PRIMARY);
@@ -323,12 +340,12 @@ $("#btnBuild").onclick = async ()=>{
     let remixIds = raw1.filter(x=>isRemixOnly(x.name)).map(x=>x.id);
 
     if(remixIds.length===0){
-      setStatus("No remix in primary group — adding fallback group (small).");
+      setStatus("No remix in albums — adding singles (small).");
       const alidsS = await fetchAllAlbumIds(groupsFallback, market, FAST.CAP_ALBUMS_FALLBACK);
       const rawS   = await fetchAlbumsWithTracks(alidsS, market);
       remixIds = rawS.filter(x=>isRemixOnly(x.name)).map(x=>x.id);
-    }else if(remixIds.length < LIMIT_130){
-      setStatus(`Primary found ${remixIds.length} remix tracks — topping up with fallback (small).`);
+    }else if(remixIds.length < 130){
+      setStatus(`Albums found ${remixIds.length} remix tracks — topping up with singles (small).`);
       const alidsS = await fetchAllAlbumIds(groupsFallback, market, FAST.CAP_ALBUMS_FALLBACK);
       const rawS   = await fetchAlbumsWithTracks(alidsS, market);
       remixIds = remixIds.concat(rawS.filter(x=>isRemixOnly(x.name)).map(x=>x.id));
@@ -336,7 +353,7 @@ $("#btnBuild").onclick = async ()=>{
 
     if(remixIds.length===0) throw new Error("No remix tracks found.");
 
-    // 事前トリム（<= LIMIT_PREFETCH）＆ 安定シャッフル
+    // 事前トリム（<= LIMIT_PREFETCH = 90）＆ 安定シャッフル
     const preIds = remixIds
       .map(id=>({id, h:stableHash(id)}))
       .sort((a,b)=>a.h-b.h)
@@ -363,7 +380,7 @@ $("#btnBuild").onclick = async ()=>{
       })
       .sort((a,b)=>(b.popularity||0)-(a.popularity||0));
 
-    // Pins 補完（不足分のみ少量取得）
+    // Pins 補完（不足分のみ）
     const pins=getPins(); const pinSet=new Set([pins.open,pins.early,pins.mid,pins.late].filter(Boolean));
     const have=new Set(pool.map(x=>x.id));
     const missing=[...pinSet].filter(id=>!have.has(id));
@@ -385,7 +402,7 @@ $("#btnBuild").onclick = async ()=>{
     // 130 にキャップ
     pool = dropDupAndKeepLen(pool, pinSet, Math.min(LIMIT_130, pool.length));
     render(pool);
-    setStatus(`Loaded pool: ${pool.length} (FAST mode: primary=${groupsPrimary}, fallback=${groupsFallback}, adaptive rate-limit)`);
+    setStatus(`Loaded pool: ${pool.length} (FAST mode: albums-first + singles small-topup, adaptive rate-limit)`);
     $("#btnTrim").disabled=false;
   }catch(e){
     setStatus("Build error: "+(e.message||e));
@@ -454,14 +471,13 @@ $("#btnCreate").onclick=async ()=>{
     if(!lastData.length) return;
     const isPublic=$("#plPublic").checked;
     const need=[isPublic?"playlist-modify-public":"playlist-modify-private"];
-
-    // 固定ユーザ ID の照合と /users/{id} は廃止し、/me/playlists を使用（権限も最小）
-    const pl=await spPost(`me/playlists`,{
+    const me=await spGet("me");
+    if(me?.id && me.id!==USER_ID) throw new Error(`Signed in as ${me.id}. Please sign in as ${USER_ID}.`);
+    const pl=await spPost(`users/${USER_ID}/playlists`,{
       name:$("#plName").value||"PROGAPANDA • Balanced100 (TDCS Remixes)",
       description:"Album-batch FAST. Remix-only (no 'Mix'). Pins at #1/#8/#45/#75. TDCS 130→120→100.",
       public:!!isPublic
     }, need);
-
     const uris=[...new Set(lastData.map(x=>"spotify:track:"+x.id))];
     for(let i=0;i<uris.length;i+=100){ await spPost(`playlists/${pl.id}/tracks`,{uris:uris.slice(i,i+100)}, need); await sleep(300); }
     const url=pl.external_urls?.spotify||`https://open.spotify.com/playlist/${pl.id}`;
