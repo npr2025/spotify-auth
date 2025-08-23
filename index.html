@@ -1,89 +1,123 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+<meta http-equiv="Pragma" content="no-cache">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RESCUE index | spotify-auth</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:760px;margin:40px auto;padding:0 12px}
+  a.btn,button{display:inline-block;padding:10px 14px;border:1px solid #bbb;border-radius:8px;background:#f6f6f6;text-decoration:none;cursor:pointer}
+  button:disabled{opacity:.55;cursor:not-allowed}
+  #status{margin-top:10px;color:#2d7a2d}
+  #warn{margin-top:4px;color:#a53}
+  #log{white-space:pre-wrap;background:#0b1220;color:#cfe3ff;padding:10px;border-radius:8px;margin-top:14px;max-height:420px;overflow:auto}
+</style>
+</head>
+<body>
+<h1>RESCUE Index <span style="font-size:12px;border:1px solid #bbb;border-radius:999px;padding:0 6px">vR-01</span></h1>
+<p>まずはページとボタンの反応を確認する最小構成。サインイン→ /v1/me → ログが動けばOK。</p>
+<p>
+  <a class="btn" href="./auth.html">Sign in with Spotify</a>
+  <button id="btnMe">/v1/me</button>
+  <button id="btnRepair">🔧 緊急リセット</button>
+</p>
+<p id="status" class="muted">状態確認中…</p>
+<div id="warn"></div>
+<pre id="log"></pre>
+
 <script>
-// === HOTFIX vS-EDL-01: click委任 + 緊急リセット + 強制実行 ===
+"use strict";
+/*** 固定：あなたのクレデンシャル ***/
+const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e";
+const REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
+const K={access:"sp_access_token",type:"sp_token_type",expAt:"sp_expires_at",refresh:"sp_refresh_token",scope:"sp_scope"};
 
-// 1) クリック委任（個別のaddEventListenerが失敗しても拾う）
-document.addEventListener('click', async (e) => {
-  const btn = e.target.closest('button, a.btn');
-  if (!btn) return;
+/*** ログ/UI ***/
+const $=s=>document.querySelector(s);
+const log=m=>{ const d=new Date().toLocaleTimeString(); const el=$("#log"); el.textContent+=`[${d}] ${m}\n`; el.scrollTop=el.scrollHeight; console.log(m); };
+const warn=m=>$("#warn").textContent=m||"";
+function renderStatus(){
+  try{
+    const a=sessionStorage.getItem(K.access);
+    const e=parseInt(sessionStorage.getItem(K.expAt)||"0",10);
+    if(!a){ $("#status").textContent="未サインイン（上のボタンからサインイン）"; return; }
+    const left=e-Date.now();
+    if(left>60000) $("#status").textContent="Signed in – 有効期限まで約 "+Math.floor(left/1000)+" 秒";
+    else if(left>0) $("#status").textContent="Signed in – まもなく期限切れ";
+    else $("#status").textContent="トークン期限切れ（再サインインしてください）";
+  }catch(err){ $("#status").textContent="状態表示エラー: "+(err.message||err); }
+}
+window.addEventListener("error", e => log("SCRIPT ERROR: "+e.message));
+window.addEventListener("unhandledrejection", e => log("UNHANDLED: "+(e?.reason?.message||e?.reason)));
 
-  // ログ強制表示
-  const id = btn.id || btn.getAttribute('href') || '(no-id)';
-  try { log(`▶ click: ${id}`); } catch(_) { /* logがまだ無ければ無視 */ }
+/*** Token refresh + fetch ***/
+let lastApiTs=0, MIN_API_GAP_MS=800;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+let refreshInflight=null;
+async function ensureFreshToken(){
+  const a=sessionStorage.getItem(K.access), expAt=parseInt(sessionStorage.getItem(K.expAt)||"0",10), r=sessionStorage.getItem(K.refresh);
+  if(a && Date.now()<(expAt-5000)) return a;
+  if(!r) return null;
+  if(!refreshInflight){
+    refreshInflight=(async()=>{
+      let attempt=0;
+      while(true){
+        attempt++;
+        const res=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({client_id:CLIENT_ID,grant_type:"refresh_token",refresh_token:r,redirect_uri:REDIRECT_URI})});
+        if(res.status===429){const ra=parseInt(res.headers.get("Retry-After")||"1",10); await sleep((isNaN(ra)?1:Math.min(60,ra))*1000+200); continue;}
+        const txt=await res.text(); let data=null; try{data=JSON.parse(txt);}catch(_){}
+        if(!res.ok) throw new Error("refresh failed: "+res.status+" "+txt);
+        const expAt=Date.now()+data.expires_in*1000;
+        sessionStorage.setItem(K.access,data.access_token);
+        sessionStorage.setItem(K.type,data.token_type||"Bearer");
+        sessionStorage.setItem(K.expAt,String(expAt));
+        if(data.refresh_token) sessionStorage.setItem(K.refresh,data.refresh_token);
+        if(data.scope) sessionStorage.setItem(K.scope,data.scope);
+        renderStatus(); return data.access_token;
+      }
+    })().finally(()=>{refreshInflight=null;});
+  }
+  return refreshInflight;
+}
+async function callSpotifyJSON(url,{method="GET",headers={},body=null}={}){
+  const wait=Math.max(0,MIN_API_GAP_MS-(Date.now()-lastApiTs)); if(wait) await sleep(wait);
+  let token=await ensureFreshToken(); if(!token) throw new Error("No valid token. Sign in again.");
+  const h=new Headers(headers); h.set("Authorization","Bearer "+token); h.set("Accept","application/json");
+  if(body && !(body instanceof FormData) && !h.has("Content-Type")) h.set("Content-Type","application/json");
+  const res=await fetch(url,{method,headers:h,body}); lastApiTs=Date.now();
+  if(res.status===429){ const ra=parseInt(res.headers.get("Retry-After")||"1",10); log("429 → "+(isNaN(ra)?1:ra)+"秒待機"); await sleep((isNaN(ra)?1:Math.min(60,ra))*1000+200); return callSpotifyJSON(url,{method,headers,body}); }
+  const txt=await res.text(); let data=null; try{data=JSON.parse(txt);}catch(_){}
+  if(!res.ok) throw new Error("HTTP "+res.status+": "+txt);
+  return data||{};
+}
 
-  // 既存のa.btnのデフォ動作は通す（Sign inリンクなど）
-  if (btn.tagName === 'A') return;
-
-  // ボタンごとの強制実行（既存のバインドが死んでてもここで動く）
+/*** HOTFIX: click委任 + 緊急リセット ***/
+document.addEventListener('click', async (e)=>{
+  const btn = e.target.closest('button,a.btn'); if(!btn) return;
+  const id=btn.id||btn.getAttribute('href')||'(no-id)'; log("▶ click: "+id);
+  if(btn.tagName==='A') return; // Sign inリンクは通常遷移
   e.preventDefault();
-  switch (btn.id) {
-    case 'btnMe':
-      try { const me = await callSpotifyJSON('https://api.spotify.com/v1/me', {}, {tag:'/me'}); log(`/me OK: ${me.display_name||'(no name)'} / ${me.id}`); }
-      catch(err){ alert('サインインが必要です'); log('エラー: '+(err.message||err)); }
-      break;
-    case 'btnSignOut':
-      try { Object.values(K).forEach(k=>sessionStorage.removeItem(k)); log('保存トークンを削除しました。'); renderStatus(); }
-      catch(err){ log('エラー: '+(err.message||err)); }
-      break;
-    case 'btnFast':
-      try { await doFastBuild(); } catch(err){ log('エラー: '+(err.message||err)); }
-      break;
-    case 'btnTrim':
-      try { await doTrim(); } catch(err){ log('エラー: '+(err.message||err)); }
-      break;
-    case 'btnBalance':
-      try { await doBalance(); } catch(err){ log('エラー: '+(err.message||err)); }
-      break;
-    case 'btnBuildEditions':
-      try { await buildEditions(); } catch(err){ log('エラー: '+(err.message||err)); alert('エラー: '+(err.message||err)); }
-      break;
-    case 'btnCommit':
-      try {
-        if (!window.final100 || !final100.length) { alert('③Balanced を先に実行してください'); return; }
-        const name=(el('plName').value||'TDCS – Breaks Remix Only 100 (2010+)').trim();
-        const desc=(el('plDesc').value||'Breaks/Breakbeat限定・2010+・Remixのみ・Pins固定・バランス配置').trim();
-        const isPublic=el('plPublic').value==='true';
-        const existing=el('existingId').value.trim()||null;
-        await putPlaylist(name, desc, isPublic, final100.map(t=>`spotify:track:${t.id}`), existing);
-      } catch(err){ log('エラー: '+(err.message||err)); alert('エラー: '+(err.message||err)); }
-      break;
-    case 'btnRepair': // 下の(2)で追加する緊急ボタン
-      try {
-        localStorage.removeItem('sp_build_lock_v1');
-        sessionStorage.removeItem(K.access);
-        sessionStorage.removeItem(K.expAt);
-        sessionStorage.removeItem(K.refresh);
-        sessionStorage.removeItem(K.scope);
-        log('🔧 緊急リセット: ロックとトークンをクリアしました');
-        renderStatus();
-        alert('リセット完了。必要なら Sign in し直してください。');
-      } catch(err){ log('エラー: '+(err.message||err)); }
-      break;
+  if(id==='btnMe'){
+    try{ const me=await callSpotifyJSON("https://api.spotify.com/v1/me"); log(`/v1/me OK: ${me.display_name||'(no name)'} / ${me.id}`); }
+    catch(err){ log("エラー: "+(err.message||err)); alert("サインインしてください。"); }
+  }else if(id==='btnRepair'){
+    try{
+      localStorage.removeItem('sp_build_lock_v1');
+      [K.access,K.expAt,K.refresh,K.scope].forEach(k=>sessionStorage.removeItem(k));
+      renderStatus(); log("🔧 リセット完了。必要なら再サインインを。");
+      alert("リセット完了。'Sign in with Spotify' からやり直してください。");
+    }catch(err){ log("エラー: "+(err.message||err)); }
   }
 });
 
-// 2) 画面に「緊急リセット」ボタンを追加（見失っても大丈夫なように動的追加）
-(function addRepairButton(){
-  try{
-    if (!document.getElementById('btnRepair')) {
-      const holder = document.querySelector('fieldset legend')?.parentElement || document.body;
-      const b = document.createElement('button');
-      b.id = 'btnRepair'; b.textContent = '🔧 緊急リセット（ロック/トークンクリア）';
-      b.style.marginLeft = '8px';
-      holder.querySelector('.progress')?.appendChild(b) || holder.appendChild(b);
-    }
-  }catch(_){}
+/*** 起動ログ ***/
+(function boot(){
+  log("✅ RESCUE index loaded");
+  log("href="+location.href);
+  renderStatus();
 })();
-
-// 3) ビルドロックが残っていたら自動解放（2分待ちを避ける）
-try{
-  const raw = localStorage.getItem('sp_build_lock_v1');
-  if (raw) {
-    const obj = JSON.parse(raw);
-    const tooOld = !obj || (Date.now() - (obj.ts||0) > 30*1000); // 30秒で古いとみなす（従来は120秒）
-    if (tooOld) localStorage.removeItem('sp_build_lock_v1');
-  }
-}catch(_){}
-
-// 4) 初回に「DOM Ready」ログを強制表示（バインド確認用）
-try{ log('✅ HOTFIX wired: DOM ready & click-delegate active'); }catch(_){}
 </script>
+</body>
+</html>
