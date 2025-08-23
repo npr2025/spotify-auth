@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+<meta http-equiv="Pragma" content="no-cache">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>diag | spotify-auth</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:760px;margin:40px auto;padding:0 12px}
+  pre{white-space:pre-wrap;background:#0b1220;color:#cfe3ff;padding:12px;border-radius:8px}
+  button{padding:8px 12px;border:1px solid #bbb;border-radius:8px;background:#f6f6f6;cursor:pointer}
+</style>
+</head>
+<body>
+<h1>Diag Page</h1>
+<p>このページが見えれば <strong>GitHub Pages配信はOK</strong>。下のログにJS実行・オリジン・ストレージなどを表示します。</p>
+<p><a href="./index.html">index.htmlへ</a> / <a href="./auth.html">auth.htmlへ</a> / <a href="./callback.html">callback.htmlへ</a></p>
+<button id="btn">クリック動作テスト</button>
+<pre id="log"></pre>
+<script>
+const log = (m)=>{ const el=document.getElementById('log'); el.textContent += m + "\n"; console.log(m); };
+window.addEventListener('error', e=>log("SCRIPT ERROR: "+e.message));
+window.addEventListener('unhandledrejection', e=>log("UNHANDLED: "+(e?.reason?.message||e?.reason)));
+(function(){
+  log("✅ LOADED diag.html");
+  log("location.href = "+location.href);
+  log("location.origin = "+location.origin);
+  log("location.pathname = "+location.pathname);
+  try{ sessionStorage.setItem("diag_test","ok"); log("sessionStorage = ok"); }catch(e){ log("sessionStorage ERR: "+e.message); }
+  try{ localStorage.setItem("diag_test","ok"); log("localStorage = ok"); }catch(e){ log("localStorage ERR: "+e.message); }
+})();
+document.getElementById('btn').addEventListener('click', ()=>log("click ok @ "+new Date().toLocaleTimeString()));
+</script>
+</body>
+</html>
