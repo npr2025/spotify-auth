@@ -5,12 +5,11 @@
 <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
 <meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spotify Control Center – Breaks Remix Only (2010+) + Editions</title>
+<title>Editions Builder – Breaks Remix Only 2010+ (UK / US / EU / World)</title>
 <style>
-  :root{--w:1040px}
+  :root{--w:980px}
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:var(--w);margin:34px auto;padding:0 12px}
-  h1{margin:0 0 8px}
-  h2{margin:22px 0 8px}
+  h1{margin:0 0 12px}
   fieldset{border:1px solid #ddd;border-radius:10px;padding:12px;margin:12px 0}
   label{display:block;margin:8px 0 4px}
   input,select{width:100%;box-sizing:border-box;padding:8px;border:1px solid #bbb;border-radius:8px}
@@ -22,116 +21,90 @@
   #warn{color:#a53;margin-top:4px}
   #log{white-space:pre-wrap;background:#0b1220;color:#cfe3ff;padding:12px;border-radius:8px;max-height:420px;overflow:auto}
   .muted{opacity:.75}
-  .pill{display:inline-block;padding:2px 8px;border:1px solid #bbb;border-radius:999px;font-size:12px;margin-left:6px}
   .note{font-size:12px;color:#555}
   .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
   .grid label{margin-top:0}
+  .pill{display:inline-block;padding:2px 8px;border:1px solid #bbb;border-radius:999px;font-size:12px;margin-left:6px}
   .progress{display:flex;align-items:center;gap:10px;margin:6px 0}
   progress{width:260px;height:16px}
-  .nowrap{white-space:nowrap}
   .tight{margin-top:4px}
 </style>
 </head>
 <body>
-<h1>Spotify コントロールセンター（Breaks限定・2010+・Remixのみ） <span class="pill">v2025-08-23R-editions.1</span></h1>
+<h1>Editions Builder（Breaks限定・2010+・Remixのみ）<span class="pill">v2025-08-23S</span></h1>
 
+<!-- サインイン -->
 <fieldset>
-  <legend>サインイン／疎通</legend>
+  <legend>サインイン</legend>
   <div class="row">
     <div>
       <a class="btn" href="./auth.html">Sign in with Spotify</a>
-      <button id="btnWho">/v1/me（プロフィール）</button>
+      <button id="btnMe">/v1/me</button>
       <button id="btnSignOut">サインアウト</button>
-      <div class="tight">
-        <label class="nowrap"><input type="checkbox" id="verbose" checked> 詳細ログ</label>
-      </div>
       <div class="progress">
         <progress id="prog" value="0" max="100"></progress>
         <span id="progTxt" class="muted">idle</span>
       </div>
-      <div id="status" class="muted">状態確認中…</div>
+      <div id="status" class="muted">未サインイン</div>
       <div id="warn" class="note"></div>
-      <div id="netNote" class="note"></div>
     </div>
   </div>
 </fieldset>
 
+<!-- エディション（4つだけ） -->
 <fieldset>
-  <legend>マーケット収集（①FAST Build → ②Trim）</legend>
-
+  <legend>エディション選択（4つだけ）</legend>
   <div class="row">
     <div>
-      <label>スキャンする市場（複数選択 / 電子音楽強めの国を初期選択・JP除外）</label>
-      <select id="markets" multiple size="10">
-        <option value="US" selected>US – United States</option>
-        <option value="GB" selected>GB – United Kingdom</option>
-        <option value="DE" selected>DE – Germany</option>
-        <option value="NL" selected>NL – Netherlands</option>
-        <option value="FR" selected>FR – France</option>
-        <option value="ES" selected>ES – Spain</option>
-        <option value="SE" selected>SE – Sweden</option>
-        <option value="IT">IT – Italy</option>
-        <option value="DK">DK – Denmark</option>
-        <option value="FI">FI – Finland</option>
-        <option value="BE">BE – Belgium</option>
-        <option value="AT">AT – Austria</option>
-        <option value="IE">IE – Ireland</option>
-        <option value="PL">PL – Poland</option>
-        <option value="PT">PT – Portugal</option>
-        <option value="CZ">CZ – Czechia</option>
-        <option value="AU">AU – Australia</option>
-        <option value="CA">CA – Canada</option>
-        <option value="BR">BR – Brazil</option>
-        <option value="JP">JP – Japan</option>
-      </select>
-      <div class="note">Ctrl/⌘ で複数選択。<b>UK/US/EU/World エディション</b>は下で自動的に最適マーケットを使います。</div>
-    </div>
-
-    <div>
-      <label>アーティストID</label>
-      <input id="artistId" value="55fvQ5I2IZUfcFT2DV02T3" />
-      <div class="note">The Darrow Chem Syndicate（変更可）</div>
-    </div>
-
-    <div>
-      <label>アルバム取得数（最新から）</label>
-      <input id="albumRecent" type="number" min="5" max="80" value="24" />
-      <div class="note">最新から<b>N枚</b>を母集団に。</div>
-    </div>
-
-    <div>
-      <label>旧作サンプル（アルバム）比率（0.00〜0.80）</label>
-      <input id="oldAlbumRatio" type="number" step="0.05" min="0" max="0.8" value="0.25" />
-      <div class="note">全カタログを広くスキャンし、<b>古い年代側</b>から N×この比率 を追加。<b>20〜30%</b>の過去人気曲を確実に混ぜる狙い。</div>
-    </div>
-  </div>
-
-  <div class="row">
-    <div>
-      <label>含める種別</label>
-      <select id="groups" multiple size="4">
-        <option value="album" selected>album</option>
-        <option value="single" selected>single</option>
-        <option value="compilation">compilation</option>
-        <option value="appears_on">appears_on</option>
-      </select>
-      <div class="note">Ctrl/⌘ で複数選択</div>
-    </div>
-    <div>
-      <label>最小リリース年（2010以上固定）</label>
-      <input id="minYear" type="number" min="2010" max="2100" value="2010" />
-    </div>
-    <div>
-      <label>Era Mix（③並びの素材ブレンド）：古め曲の比率（0.00〜0.80）</label>
-      <input id="ratioOld" type="number" step="0.05" min="0" max="0.8" value="0.30" />
+      <label class="tight"><input type="checkbox" class="ed" value="UK" checked> UK</label>
+      <label class="tight"><input type="checkbox" class="ed" value="US" checked> US</label>
+      <label class="tight"><input type="checkbox" class="ed" value="EU" checked> EU</label>
+      <label class="tight"><input type="checkbox" class="ed" value="WORLD" checked> World</label>
       <div class="note">
-        ③Balanced 100 を組む際、候補プールから<b>古い年代</b>の曲をこの割合で混ぜる。<br>
-        推奨 <b>0.20〜0.30</b>（上の「旧作サンプル%」と併用で、全体体感20〜30%を古めに）。
+        地域で再生可能（available_markets）な曲だけで100曲を構成。足りない場合は閾値を段階的に緩和して必ず着地します。
       </div>
     </div>
     <div>
-      <label>Remixフィルタ</label>
-      <input value="Remixのみ／“Mix”は全除外（固定）" disabled>
+      <label>ベース名（末尾に [UK Edition] 等を自動付与）</label>
+      <input id="baseName" value="TDCS – Breaks Remix Only 100 (2010+)" />
+    </div>
+    <div>
+      <label>説明文（共通）</label>
+      <input id="baseDesc" value="Breaks/Breakbeat限定・2010+・Remixのみ・Pins固定・バランス配置" />
+    </div>
+    <div>
+      <label>公開設定</label>
+      <select id="isPublic">
+        <option value="false" selected>非公開（推奨）</option>
+        <option value="true">公開</option>
+      </select>
+    </div>
+  </div>
+</fieldset>
+
+<!-- 収集ポリシー（一般的な既定） -->
+<fieldset>
+  <legend>収集ポリシー（一般的な既定・必要なら調整）</legend>
+  <div class="row">
+    <div>
+      <label>アーティストID（TDCS既定）</label>
+      <input id="artistId" value="55fvQ5I2IZUfcFT2DV02T3" />
+      <div class="note">The Darrow Chem Syndicate（変更可）</div>
+    </div>
+    <div>
+      <label>最新から取るアルバム枚数</label>
+      <input id="albumRecent" type="number" min="8" max="80" value="24" />
+      <div class="note">20〜30あれば十分。</div>
+    </div>
+    <div>
+      <label>旧作サンプル比率（0.00〜0.80）</label>
+      <input id="oldAlbumRatio" type="number" step="0.05" min="0" max="0.8" value="0.25" />
+      <div class="note">体感20–30%の“過去の人気曲”を混ぜる狙い。</div>
+    </div>
+    <div>
+      <label>Era Mix：古め曲の混合率（0.00〜0.80）</label>
+      <input id="ratioOld" type="number" step="0.05" min="0" max="0.8" value="0.30" />
+      <div class="note">並びを作る際に古い年代をどれだけ混ぜるか。0.20〜0.30が聴きやすい。</div>
     </div>
   </div>
 
@@ -145,101 +118,59 @@
       <input id="wRecent" type="number" step="0.05" min="0" max="1" value="0.4" />
     </div>
     <div>
+      <label>最終曲数</label>
+      <input id="finalSize" type="number" min="80" max="100" value="100" />
+    </div>
+  </div>
+
+  <div class="row">
+    <div>
+      <label>対象リリース種別</label>
+      <div class="tight">
+        <label><input type="checkbox" class="rtype" value="ALBUM" checked> Album</label>
+        <label><input type="checkbox" class="rtype" value="SINGLE" checked> Single</label>
+        <label><input type="checkbox" class="rtype" value="EP" checked> EP</label>
+        <label><input type="checkbox" class="rtype" value="COMPILATION" checked> Compilation</label>
+      </div>
+      <div class="note">EPは Spotify 仕様上「album_type: single かつ曲数≥3」またはタイトルに“EP”。</div>
+    </div>
+    <div>
       <label>ターゲット候補数（Trim上限）</label>
       <input id="targetPool" type="number" min="120" max="200" value="130" />
     </div>
   </div>
 
   <div class="grid">
-    <div><label>#1 ピン曲ID</label><input id="pin1" value="0ueNjvhtXGDFkJQ5WBQ4mE"></div>
-    <div><label>#5 ピン曲ID</label><input id="pin5" value="63dYSEftdSYwMAFBNfQYsA"></div>
-    <div><label>#40 ピン曲ID</label><input id="pin40" value="3NQuIFfQPhTICaXGYe5dAt"></div>
-    <div><label>#60 ピン曲ID</label><input id="pin60" value="7ltcrdlVsXyU5HU9VCAj6P"></div>
+    <div><label>#1 ピン</label><input id="pin1"  value="0ueNjvhtXGDFkJQ5WBQ4mE"></div>
+    <div><label>#5 ピン</label><input id="pin5"  value="63dYSEftdSYwMAFBNfQYsA"></div>
+    <div><label>#40 ピン</label><input id="pin40" value="3NQuIFfQPhTICaXGYe5dAt"></div>
+    <div><label>#60 ピン</label><input id="pin60" value="7ltcrdlVsXyU5HU9VCAj6P"></div>
   </div>
 
   <div class="row">
     <div>
-      <button id="btnFast">① FAST Build（収集）</button>
+      <button id="btnFast">① 収集（FAST Build）</button>
       <button id="btnTrim" disabled>② Trim（120–130）</button>
+      <button id="btnBalance" disabled>③ Balanced 100</button>
     </div>
   </div>
 </fieldset>
 
+<!-- まとめてエディション作成 -->
 <fieldset>
-  <legend>③ Balanced 100（Pins & no-adjacent shared artist）→ ④ Head-5 → ⑤ Create</legend>
+  <legend>④ まとめて作成（UK / US / EU / World）</legend>
   <div class="row">
-    <div>
-      <label>最終曲数</label>
-      <input id="finalSize" type="number" min="50" max="100" value="100" />
-    </div>
-    <div>
-      <label>隣接の共有アーティスト禁止</label>
-      <select id="noAdjacent">
-        <option value="yes" selected>はい（推奨）</option>
-        <option value="no">いいえ</option>
-      </select>
-    </div>
-    <div>
-      <label>ヘッド5を強化（高人気寄せ）</label>
-      <select id="head5">
-        <option value="yes" selected>はい</option>
-        <option value="no">いいえ</option>
-      </select>
-    </div>
-  </div>
-  <div class="row">
-    <div>
-      <button id="btnBalance" disabled>③ Balanced 100 を生成</button>
-      <button id="btnCSV" disabled>CSV出力</button>
-      <button id="btnJSON" disabled>JSON出力</button>
-    </div>
+    <div><button id="btnBuildEditions" disabled>UK/US/EU/World を作成</button></div>
   </div>
 </fieldset>
 
+<!-- 単発作成（任意） -->
 <fieldset>
-  <legend>エディション・ビルダー（UK / US / EU / World）</legend>
-  <div class="row">
-    <div>
-      <label>作るエディション</label>
-      <div class="tight">
-        <label><input type="checkbox" class="ed" value="UK" checked> UK</label>
-        <label><input type="checkbox" class="ed" value="US" checked> US</label>
-        <label><input type="checkbox" class="ed" value="EU" checked> EU</label>
-        <label><input type="checkbox" class="ed" value="WORLD" checked> World</label>
-      </div>
-      <div class="note">
-        収集済みの可用性（available_markets）を使って、地域で再生可能な曲のみを採用。<br>
-        EUは複数国可（初期4カ国以上）。Worldはコア市場60%可（足りなければ段階緩和）。
-      </div>
-    </div>
-    <div>
-      <label>プレイリスト名（共通ベース）</label>
-      <input id="baseName" placeholder="TDCS – Breaks Remix Only 100 (2010+)" />
-      <div class="note">末尾に [UK Edition] などを自動付与します。</div>
-    </div>
-    <div>
-      <label>説明文（共通）</label>
-      <input id="baseDesc" placeholder="Breaks/Breakbeat限定・2010+・Remixのみ・Pins固定・バランス配置" />
-    </div>
-    <div>
-      <label>公開設定</label>
-      <select id="edPublic">
-        <option value="private" selected>非公開（推奨）</option>
-        <option value="public">公開</option>
-      </select>
-    </div>
-  </div>
-  <div class="row">
-    <div><button id="btnBuildEditions" disabled>UK/US/EU/World をまとめて作成</button></div>
-  </div>
-</fieldset>
-
-<fieldset>
-  <legend>⑤（単発）プレイリスト作成/更新</legend>
+  <legend>（任意）単発で作成/更新</legend>
   <div class="row">
     <div>
       <label>プレイリスト名</label>
-      <input id="plName" placeholder="例）TDCS – Breaks Remix Only 100 (2010+)" />
+      <input id="plName" placeholder="TDCS – Breaks Remix Only 100 (2010+)" />
     </div>
     <div>
       <label>説明文</label>
@@ -248,8 +179,8 @@
     <div>
       <label>公開設定</label>
       <select id="plPublic">
-        <option value="private" selected>非公開（推奨）</option>
-        <option value="public">公開</option>
+        <option value="false" selected>非公開</option>
+        <option value="true">公開</option>
       </select>
     </div>
   </div>
@@ -268,11 +199,8 @@
     </div>
   </div>
   <div class="row">
-    <div>
-      <button id="btnCommit" disabled>作成/更新する</button>
-    </div>
+    <div><button id="btnCommit" disabled>⑤ 作成/更新する</button></div>
   </div>
-  <div class="note">※PUTで置換→残りを100件ずつ追加。再実行で整合が戻る安全設計。</div>
 </fieldset>
 
 <h2>ログ</h2>
@@ -280,62 +208,61 @@
 
 <script>
 "use strict";
-/* ====== 起動エラーハンドラ ====== */
-window.addEventListener("error", e => { const L=document.getElementById("log"); if(L) L.textContent+=`[${new Date().toLocaleTimeString()}] SCRIPT ERROR: ${e.message}\n`; });
-window.addEventListener("unhandledrejection", e => { const L=document.getElementById("log"); const msg=e?.reason?.message||e?.reason||"(no reason)"; if(L) L.textContent+=`[${new Date().toLocaleTimeString()}] UNHANDLED: ${msg}\n`; });
 
-/* ====== 固定クライアント ====== */
+/* ========= 固定 ========= */
 const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e";
-
-/* ====== トークン管理 ====== */
 const K={access:"sp_access_token",type:"sp_token_type",expAt:"sp_expires_at",refresh:"sp_refresh_token",scope:"sp_scope"};
-function renderStatus(){try{
-  const a=sessionStorage.getItem(K.access);
-  const e=parseInt(sessionStorage.getItem(K.expAt)||"0",10);
-  if(!a){el("status").textContent="未サインイン。必要になったらボタンから開始。";return;}
-  const left=e-Date.now();
-  if(left>60000) el("status").textContent="Signed in. （有効期限まで約 "+Math.floor(left/1000)+" 秒）";
-  else if(left>0) el("status").textContent="トークン期限切れ間近。必要なら再サインインしてください。";
-  else el("status").textContent="トークン期限切れ。サインインをやり直してください。";
-}catch(err){el("status").textContent="状態表示エラー: "+(err.message||err);}}
+
+/* ========= UI & ログ ========= */
+const el=id=>document.getElementById(id);
+const log=m=>{const d=new Date().toLocaleTimeString(); el("log").textContent+=`[${d}] ${m}\n`; el("log").scrollTop=el("log").scrollHeight;};
+const setProg=(v,label)=>{ el("prog").value=v; el("progTxt").textContent=label||""; };
+const warn=m=>{el("warn").textContent=m||"";};
+function renderStatus(){
+  try{
+    const a=sessionStorage.getItem(K.access);
+    const e=parseInt(sessionStorage.getItem(K.expAt)||"0",10);
+    if(!a){ el("status").textContent="未サインイン（右のボタンからサインインしてください）"; return; }
+    const left=e-Date.now();
+    if(left>60000) el("status").textContent="Signed in – 有効期限まで約 "+Math.floor(left/1000)+" 秒";
+    else if(left>0) el("status").textContent="Signed in – まもなく期限切れ（必要なら再サインイン）";
+    else el("status").textContent="トークン期限切れ（再サインインしてください）";
+  }catch(err){ el("status").textContent="状態表示エラー: "+(err.message||err); }
+}
 renderStatus();
 
-/* ====== ユーティリティ ====== */
-const el=id=>document.getElementById(id);
-let VERBOSE=true;
-const log=m=>{const d=new Date().toLocaleTimeString(); el("log").textContent+=`[${d}] ${m}\n`; el("log").scrollTop=el("log").scrollHeight; };
-const vlog=m=>{ if(VERBOSE) log(m); };
-const warn=m=>{el("warn").textContent=m||"";};
-const setProg=(v,label)=>{ el("prog").value=v; el("progTxt").textContent=label||""; };
-function updateNetNote(){el("netNote").textContent=navigator.onLine?"":"（オフライン検出：オンライン復帰後に再実行してください）";}
-window.addEventListener("online",updateNetNote); window.addEventListener("offline",updateNetNote);
-const verboseEl=el("verbose"); if(verboseEl){ verboseEl.addEventListener("change",()=>{ VERBOSE=verboseEl.checked; }); }
+/* ========= エラーフック ========= */
+window.addEventListener("error", e => log("SCRIPT ERROR: "+e.message));
+window.addEventListener("unhandledrejection", e => log("UNHANDLED: "+(e?.reason?.message||e?.reason||"(no reason)")));
 
-/* ====== API ラッパ ====== */
-let MIN_API_GAP_MS=1000; let lastApiTs=0;
-async function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+/* ========= レート/リフレッシュ/HTTP ========= */
+let MIN_API_GAP_MS=1000, lastApiTs=0;
+async function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 let refreshInflight=null;
 async function ensureFreshToken(clientId=CLIENT_ID){
   const access=sessionStorage.getItem(K.access), expAt=parseInt(sessionStorage.getItem(K.expAt)||"0",10), refresh=sessionStorage.getItem(K.refresh);
-  if(access && Date.now() < (expAt-5000)) return access; if(!refresh) return null;
-  if(!refreshInflight){ refreshInflight=(async()=>{
-    let attempt=0;
-    while(true){
-      attempt++;
-      const res=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({client_id:clientId,grant_type:"refresh_token",refresh_token:refresh})});
-      if(res.status===429){const ra=parseInt(res.headers.get("Retry-After")||"1",10);const ms=Math.min(60,isNaN(ra)?1:ra)*1000; vlog(`refresh 429 → ${Math.ceil(ms/1000)}秒待機`); await sleep(ms+200); continue;}
-      if(res.status>=500 && attempt<=3){const back=Math.min(4000,500*Math.pow(2,attempt-1)); vlog(`refresh 5xx → バックオフ ${back}ms`); await sleep(back); continue;}
-      const txt=await res.text(); let data=null; try{data=JSON.parse(txt);}catch(_){}
-      if(!res.ok) throw new Error("refresh failed: "+res.status+" "+txt);
-      const expAt=Date.now()+(data.expires_in*1000);
-      sessionStorage.setItem(K.access,data.access_token);
-      sessionStorage.setItem(K.type,data.token_type||"Bearer");
-      sessionStorage.setItem(K.expAt,String(expAt));
-      if(data.refresh_token) sessionStorage.setItem(K.refresh,data.refresh_token);
-      if(data.scope) sessionStorage.setItem(K.scope,data.scope);
-      renderStatus(); return data.access_token;
-    }
-  })().finally(()=>{refreshInflight=null;}); }
+  if(access && Date.now()<(expAt-5000)) return access;
+  if(!refresh) return null;
+  if(!refreshInflight){
+    refreshInflight=(async()=>{
+      let attempt=0;
+      while(true){
+        attempt++;
+        const res=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({client_id:clientId,grant_type:"refresh_token",refresh_token:refresh})});
+        if(res.status===429){const ra=parseInt(res.headers.get("Retry-After")||"1",10);await sleep((isNaN(ra)?1:Math.min(60,ra))*1000+200);continue;}
+        if(res.status>=500 && attempt<=3){await sleep(Math.min(4000,500*Math.pow(2,attempt-1)));continue;}
+        const txt=await res.text(); let data=null; try{data=JSON.parse(txt);}catch(_){}
+        if(!res.ok) throw new Error("refresh failed: "+res.status+" "+txt);
+        const expAt=Date.now()+data.expires_in*1000;
+        sessionStorage.setItem(K.access,data.access_token);
+        sessionStorage.setItem(K.type,data.token_type||"Bearer");
+        sessionStorage.setItem(K.expAt,String(expAt));
+        if(data.refresh_token) sessionStorage.setItem(K.refresh,data.refresh_token);
+        if(data.scope) sessionStorage.setItem(K.scope,data.scope);
+        renderStatus(); return data.access_token;
+      }
+    })().finally(()=>{refreshInflight=null;});
+  }
   return refreshInflight;
 }
 function parse403Message(txt){ try{const j=JSON.parse(txt); return j?.error?.message||"";}catch(_){return "";} }
@@ -350,20 +277,11 @@ async function callSpotifyJSON(url,opts={}, {maxRetry=5,expectJSON=true,tag=""}=
     const res=await fetch(url,{...opts,headers}); lastApiTs=Date.now();
 
     if(res.status===429 && attempt<=maxRetry){
-      const ra=parseInt(res.headers.get("Retry-After")||"1",10); const ms=Math.min(60,isNaN(ra)?1:ra)*1000;
-      vlog(`${tag||url} 429 → ${Math.ceil(ms/1000)}秒待機（${attempt}/${maxRetry}）`);
-      await sleep(ms+200); continue;
+      const ra=parseInt(res.headers.get("Retry-After")||"1",10); await sleep((isNaN(ra)?1:Math.min(60,ra))*1000+200); continue;
     }
-    if(res.status===401 && attempt===1){
-      token=await ensureFreshToken(); if(!token) throw new Error("Unauthorized and cannot refresh."); continue;
-    }
-    if(res.status===403){
-      const txt=await res.text(); const msg=parse403Message(txt);
-      throw new Error(`${tag||"HTTP"} 403${msg?(": "+msg):""} ::RAW:: ${txt}`);
-    }
-    if(res.status>=500 && attempt<=maxRetry){
-      const back=Math.min(8000,700*Math.pow(2,attempt-1)); vlog(`${tag||url} 5xx → バックオフ ${back}ms（${attempt}/${maxRetry}）`); await sleep(back); continue;
-    }
+    if(res.status===401 && attempt===1){ token=await ensureFreshToken(); if(!token) throw new Error("Unauthorized and cannot refresh."); continue; }
+    if(res.status===403){ const txt=await res.text(); const msg=parse403Message(txt); throw new Error(`${tag||"HTTP"} 403${msg?(": "+msg):""} ::RAW:: ${txt}`); }
+    if(res.status>=500 && attempt<=maxRetry){ await sleep(Math.min(8000,700*Math.pow(2,attempt-1))); continue; }
     if(!res.ok){ const txt=await res.text(); throw new Error(`${tag||"HTTP"} ${res.status}: ${txt}`); }
 
     if(!expectJSON) return null;
@@ -371,25 +289,21 @@ async function callSpotifyJSON(url,opts={}, {maxRetry=5,expectJSON=true,tag=""}=
   }
 }
 
-/* ====== 共通関数 ====== */
-const chunkArr=(a,n)=>{const out=[]; for(let i=0;i<a.length;i+=n) out.push(a.slice(i,i+n)); return out;};
-const yearFromDate=s=>{ if(!s) return 0; const y=parseInt(String(s).slice(0,4),10); return isNaN(y)?0:y; };
-const trunc=(s,n=48)=>{ s=String(s||""); return s.length>n ? s.slice(0,n-1)+"…" : s; };
+/* ========= 判定系 ========= */
 function tokenize(name){ return (name||"").toLowerCase().replace(/[()[\]{}\-]/g," ").replace(/\s+/g," ").trim().split(" ").filter(Boolean); }
 function isRemixOnlyTitle(name){
-  const t = tokenize(name);
-  const hasRemix = t.includes("remix") || t.includes("remixed") || t.includes("rmx");
-  const hasMix = t.includes("mix") || (t.includes("dj") && t.includes("mix")) || (t.includes("original") && t.includes("mix")) || (t.includes("club") && t.includes("mix")) || (t.includes("extended") && t.includes("mix")) || (t.includes("continuous") && t.includes("mix"));
+  const t=tokenize(name);
+  const hasRemix=t.includes("remix")||t.includes("remixed")||t.includes("rmx");
+  const hasMix = t.includes("mix") || (t.includes("dj")&&t.includes("mix")) || (t.includes("original")&&t.includes("mix")) || (t.includes("club")&&t.includes("mix")) || (t.includes("extended")&&t.includes("mix")) || (t.includes("continuous")&&t.includes("mix"));
   return hasRemix && !hasMix;
 }
-const breaksWordRe = /\b(breaks?|break[-\s]?beat|nu[-\s]?breaks?|big\s*beat|funky\s*breaks?|electro[-\s]?breaks?|progressive\s*breaks?|psy[-\s]?breaks?|acid\s*breaks?)\b/i;
-const genreOk = g => /breakbeat|breaks?|big beat|nu skool breaks|electro breaks?|progressive breaks?|funky breaks?|psybreaks?|acid breaks?/i.test(g||"");
+const breaksWordRe=/\b(breaks?|break[-\s]?beat|nu[-\s]?breaks?|big\s*beat|funky[-\s]*breaks?|electro[-\s]*breaks?|progressive\s*breaks?|psy[-\s]*breaks?|acid\s*breaks?)\b/i;
+const genreOk=g=>/breakbeat|breaks?|big beat|nu skool breaks|electro breaks?|progressive breaks?|funky breaks?|psybreaks?|acid breaks?/i.test(g||"");
+function yearFromDate(s){ if(!s) return 0; const y=parseInt(String(s).slice(0,4),10); return isNaN(y)?0:y; }
 
-/* ====== ロック ====== */
-const LOCK_KEY="sp_job_lock_v1";
-const BUILD_LOCK_KEY="sp_build_lock_v1";
-const TAB_ID=Math.random().toString(36).slice(2);
-const LOCK_TTL=120000;
+/* ========= ロック ========= */
+const LOCK_KEY="sp_job_lock_v1", BUILD_LOCK_KEY="sp_build_lock_v1";
+const TAB_ID=Math.random().toString(36).slice(2), LOCK_TTL=120000;
 let lockHeartbeat=null;
 const now=()=>Date.now();
 const readLock=k=>{try{return JSON.parse(localStorage.getItem(k)||"null");}catch(_){return null;}};
@@ -399,167 +313,140 @@ function startHB(k){stopHB(); lockHeartbeat=setInterval(()=>{const cur=readLock(
 function stopHB(){if(lockHeartbeat){clearInterval(lockHeartbeat); lockHeartbeat=null;}}
 function releaseLock(k){const cur=readLock(k); if(cur&&cur.owner===TAB_ID){localStorage.removeItem(k);} stopHB();}
 
-/* ====== 可用性メモ ====== */
-const trackSeenBy = new Map(); // id -> Set(markets)
-function markSeen(id, market){ let s=trackSeenBy.get(id); if(!s){ s=new Set(); trackSeenBy.set(id,s); } s.add(market); }
+/* ========= 可用性メモ ========= */
+const trackSeenBy=new Map(); // id -> Set(markets)
+function markSeen(id,market){ let s=trackSeenBy.get(id); if(!s){s=new Set(); trackSeenBy.set(id,s);} s.add(market); }
 
-/* ====== バッチ取得 ====== */
+/* ========= データ収集 ========= */
+const chunkArr=(a,n)=>{const out=[]; for(let i=0;i<a.length;i+=n) out.push(a.slice(i,i+n)); return out;};
 async function fetchTracksBatched(ids){
   const uniq=[...new Set(ids)]; const results=[];
-  async function fetchChunk(list, tagBase){
+  async function fetchChunk(list,tagBase){
     try{
-      const data=await callSpotifyJSON(`https://api.spotify.com/v1/tracks?ids=${list.join(",")}`, {}, {tag:`${tagBase}[${list.length}]`});
-      (data.tracks||[]).forEach(t=>{ if(t){ results.push(t); } });
+      const data=await callSpotifyJSON(`https://api.spotify.com/v1/tracks?ids=${list.join(",")}`,{}, {tag:`${tagBase}[${list.length}]`});
+      (data.tracks||[]).forEach(t=>{ if(t) results.push(t); });
     }catch(e){
       if(String(e.message||"").includes(" 403") && list.length>1){
-        const mid=Math.floor(list.length/2);
-        await fetchChunk(list.slice(0,mid), tagBase+"a");
-        await fetchChunk(list.slice(mid), tagBase+"b");
-      }else if(String(e.message||"").includes(" 403") && list.length===1){
-        log(`   × 403 skip track ${list[0]}`);
-      }else{ throw e; }
+        const mid=Math.floor(list.length/2); await fetchChunk(list.slice(0,mid),tagBase+"a"); await fetchChunk(list.slice(mid),tagBase+"b");
+      }else if(String(e.message||"").includes(" 403") && list.length===1){ log(`   × 403 skip track ${list[0]}`); }
+      else throw e;
     }
   }
   const chunks=chunkArr(uniq,50);
-  for(let i=0;i<chunks.length;i++){ setProg(44+Math.round((i/chunks.length)*8), `track details ${i+1}/${chunks.length}`); await fetchChunk(chunks[i], `tracks#${i+1}`); }
+  for(let i=0;i<chunks.length;i++){ setProg(44+Math.round((i/chunks.length)*8),`track details ${i+1}/${chunks.length}`); await fetchChunk(chunks[i],`tracks#${i+1}`); }
   return results;
 }
 async function fetchFeaturesBatched(ids){
   const uniq=[...new Set(ids)]; const feats=new Map();
-  async function fetchChunk(list, tagBase){
+  async function fetchChunk(list,tagBase){
     try{
-      const data=await callSpotifyJSON(`https://api.spotify.com/v1/audio-features?ids=${list.join(",")}`, {}, {tag:`${tagBase}[${list.length}]`});
+      const data=await callSpotifyJSON(`https://api.spotify.com/v1/audio-features?ids=${list.join(",")}`,{}, {tag:`${tagBase}[${list.length}]`});
       (data.audio_features||[]).forEach(f=>{ if(f) feats.set(f.id,f); });
     }catch(e){
       if(String(e.message||"").includes(" 403") && list.length>1){
-        const mid=Math.floor(list.length/2);
-        await fetchChunk(list.slice(0,mid), tagBase+"a");
-        await fetchChunk(list.slice(mid), tagBase+"b");
-      }else if(String(e.message||"").includes(" 403") && list.length===1){
-        log(`   × 403 skip feature ${list[0]}`);
-      }else{ throw e; }
+        const mid=Math.floor(list.length/2); await fetchChunk(list.slice(0,mid),tagBase+"a"); await fetchChunk(list.slice(mid),tagBase+"b");
+      }else if(String(e.message||"").includes(" 403") && list.length===1){ log(`   × 403 skip feature ${list[0]}`); }
+      else throw e;
     }
   }
   const chunks=chunkArr(uniq,100);
-  for(let i=0;i<chunks.length;i++){ setProg(54+Math.round((i/chunks.length)*6), `features ${i+1}/${chunks.length}`); await fetchChunk(chunks[i], `features#${i+1}`); }
+  for(let i=0;i<chunks.length;i++){ setProg(54+Math.round((i/chunks.length)*6),`features ${i+1}/${chunks.length}`); await fetchChunk(chunks[i],`features#${i+1}`); }
   return feats;
 }
 async function fetchArtistsGenresMapBatched(ids){
   const uniq=[...new Set(ids)]; const map=new Map();
-  async function fetchChunk(list, tagBase){
+  async function fetchChunk(list,tagBase){
     try{
-      const data=await callSpotifyJSON(`https://api.spotify.com/v1/artists?ids=${list.join(",")}`, {}, {tag:`${tagBase}[${list.length}]`});
-      (data.artists||[]).forEach(a=>{ if(a) map.set(a.id, a.genres||[]); });
+      const data=await callSpotifyJSON(`https://api.spotify.com/v1/artists?ids=${list.join(",")}`,{}, {tag:`${tagBase}[${list.length}]`});
+      (data.artists||[]).forEach(a=>{ if(a) map.set(a.id,a.genres||[]); });
     }catch(e){
       if(String(e.message||"").includes(" 403") && list.length>1){
-        const mid=Math.floor(list.length/2);
-        await fetchChunk(list.slice(0,mid), tagBase+"a");
-        await fetchChunk(list.slice(mid), tagBase+"b");
-      }else if(String(e.message||"").includes(" 403") && list.length===1){
-        log(`   × 403 skip artist ${list[0]}`);
-      }else{ throw e; }
+        const mid=Math.floor(list.length/2); await fetchChunk(list.slice(0,mid),tagBase+"a"); await fetchChunk(list.slice(mid),tagBase+"b");
+      }else if(String(e.message||"").includes(" 403") && list.length===1){ log(`   × 403 skip artist ${list[0]}`); }
+      else throw e;
     }
   }
   const chunks=chunkArr(uniq,50);
-  for(let i=0;i<chunks.length;i++){ setProg(62+Math.round((i/chunks.length)*8), `artists ${i+1}/${chunks.length}`); await fetchChunk(chunks[i], `artists#${i+1}`); }
+  for(let i=0;i<chunks.length;i++){ setProg(62+Math.round((i/chunks.length)*8),`artists ${i+1}/${chunks.length}`); await fetchChunk(chunks[i],`artists#${i+1}`); }
   return map;
 }
-
-/* ====== アルバム → トラック ====== */
-function getSelectedGroups(){ const opt=[...el("groups").options]; return opt.filter(o=>o.selected).map(o=>o.value).join(","); }
-function getSelectedMarkets(){ const opt=[...el("markets").options]; const arr=opt.filter(o=>o.selected).map(o=>o.value.toUpperCase()); return arr.length?arr:["US","GB","DE","NL","FR","ES","SE"]; }
-
 async function scanArtistAlbums(artistId, market, groupsCsv, scanMax){
   let items=[]; let url=`https://api.spotify.com/v1/artists/${artistId}/albums?market=${encodeURIComponent(market)}&include_groups=${encodeURIComponent(groupsCsv)}&limit=50&offset=0`;
   let page=0;
   while(url && items.length<scanMax){
-    page++; setProg(4, `albums ${market} p${page}`);
-    const data=await callSpotifyJSON(url, {}, {tag:`albums(${market})#${page}`});
+    page++; setProg(4,`albums ${market} p${page}`);
+    const data=await callSpotifyJSON(url,{}, {tag:`albums(${market})#${page}`});
     items.push(...(data.items||[]));
     url=data.next||null;
   }
   items.sort((a,b)=> new Date(b.release_date)-new Date(a.release_date));
   return items;
 }
-async function fetchAlbumTracksVerbose(albumId, albumName, albumDate, market, idx, total){
-  setProg(10+Math.round((idx/Math.max(1,total))*28), `tracks ${market}: ${idx}/${total}`);
+async function fetchAlbumTracks(albumId, albumName, albumDate, market, idx, total){
+  setProg(10+Math.round((idx/Math.max(1,total))*28),`tracks ${market}: ${idx}/${total}`);
   let items=[]; let url=`https://api.spotify.com/v1/albums/${albumId}/tracks?market=${encodeURIComponent(market)}&limit=50&offset=0`;
   while(url){
-    const data=await callSpotifyJSON(url, {}, {tag:`album:${market}:${idx}/${total}`});
-    (data.items||[]).forEach(t=>{ if(t?.id) markSeen(t.id, market); });
+    const data=await callSpotifyJSON(url,{}, {tag:`album:${market}:${idx}/${total}`});
+    (data.items||[]).forEach(t=>{ if(t?.id) markSeen(t.id,market); });
     items.push(...(data.items||[]));
     url=data.next||null;
   }
-  vlog(`  ↳ ${market} ${trunc(albumName)} (${albumDate||"?"}) ${items.length}曲`);
   return items;
 }
 
-/* ====== スコア・Era・並び ====== */
+/* ========= 並び/スコア ========= */
 function dedupeById(arr){ const seen=new Set(); const out=[]; for(const t of arr){ if(!seen.has(t.id)){ seen.add(t.id); out.push(t);} } return out; }
-function computeScores(tracks, wPop, wRec){
-  let minD=Infinity, maxD=-Infinity;
+function computeScores(tracks,wPop,wRec){
+  let minD=Infinity,maxD=-Infinity;
   for(const t of tracks){ const ms=new Date(t.album?.release_date||0).getTime()||0; t._dateMs=ms; if(ms){ if(ms<minD)minD=ms; if(ms>maxD)maxD=ms; } }
-  for(const t of tracks){ const recent = t._dateMs ? ( (t._dateMs-minD) / Math.max(1,(maxD-minD)) ) : 0.5; const pop=(t.popularity||0)/100; t._score = wPop*pop + wRec*recent; }
-  tracks.sort((a,b)=> b._score - a._score);
+  for(const t of tracks){ const recent=t._dateMs?((t._dateMs-minD)/Math.max(1,(maxD-minD))):0.5; const pop=(t.popularity||0)/100; t._score=wPop*pop+wRec*recent; }
+  tracks.sort((a,b)=>b._score-a._score);
 }
 function artistsSet(t){ return new Set((t.artists||[]).map(a=>a.id)); }
-function shareArtist(a,b){ const A=artistsSet(a), B=artistsSet(b); for(const x of A){ if(B.has(x)) return true; } return false; }
-function eraBlendCands(tracks, ratioOld, poolFactor){
-  const arr=[...tracks]; arr.sort((a,b)=> (a._dateMs||0)-(b._dateMs||0)); // 古→新
-  const N=Math.max(50, Math.floor((parseInt(el("finalSize").value||"100",10)) * (poolFactor||1.6)));
+function shareArtist(a,b){ const A=artistsSet(a),B=artistsSet(b); for(const x of A){ if(B.has(x)) return true; } return false; }
+function eraBlendCands(tracks,ratioOld,poolFactor){
+  const arr=[...tracks]; arr.sort((a,b)=> (a._dateMs||0)-(b._dateMs||0));
+  const N=Math.max(80, Math.floor((parseInt(el("finalSize").value||"100",10))*(poolFactor||1.6)));
   const kOld=Math.max(0, Math.min(arr.length, Math.floor(N*ratioOld)));
   const kNew=Math.max(0, Math.min(arr.length-kOld, N-kOld));
   const olds=arr.slice(0, Math.min(kOld, Math.floor(arr.length/2)));
   const news=arr.slice(-Math.min(kNew, Math.ceil(arr.length/2)));
-  const set=new Map(); [...news,...olds].forEach(t=>set.set(t.id,t));
-  return [...set.values()];
+  const set=new Map(); [...news,...olds].forEach(t=>set.set(t.id,t)); return [...set.values()];
 }
 function materializePins(){ return {1:(el("pin1").value||"").trim(),5:(el("pin5").value||"").trim(),40:(el("pin40").value||"").trim(),60:(el("pin60").value||"").trim()}; }
-function balancedOrder(cands, pins, finalSize, options){
-  const posPins=new Map(Object.entries(pins).map(([k,v])=>[parseInt(k,10), v]).filter(([,v])=>v));
+function balancedOrder(cands,pins,finalSize,opt){
+  const posPins=new Map(Object.entries(pins).map(([k,v])=>[parseInt(k,10),v]).filter(([,v])=>v));
   const pinIds=new Set([...posPins.values()]);
   let rest=cands.filter(t=>!pinIds.has(t.id));
 
   const energies=rest.map(t=>t.features.energy||0.5).sort((a,b)=>a-b);
-  const q1=energies[Math.floor(energies.length*0.25)]||0.25;
-  const q2=energies[Math.floor(energies.length*0.50)]||0.5;
-  const q3=energies[Math.floor(energies.length*0.75)]||0.75;
+  const q1=energies[Math.floor(energies.length*0.25)]||0.25, q2=energies[Math.floor(energies.length*0.50)]||0.5, q3=energies[Math.floor(energies.length*0.75)]||0.75;
   const bucket=t=>(t.features.energy<=q1)?0:(t.features.energy<=q2)?1:(t.features.energy<=q3)?2:3;
-  const bins=[[],[],[],[]]; rest.forEach(t=>bins[bucket(t)].push(t));
-  bins.forEach(b=>b.sort((a,b)=> b._score - a._score));
+  const bins=[[],[],[],[]]; rest.forEach(t=>bins[bucket(t)].push(t)); bins.forEach(b=>b.sort((a,b)=>b._score-a._score));
 
   const seq=new Array(finalSize).fill(null);
-  for(const [pos,id] of posPins){
-    const t=cands.find(x=>x.id===id);
-    if(t){ seq[pos-1]=t; } else { log(`Pin #${pos} はエディション可用性/フィルタで除外: ${id}`); }
-  }
-
-  const wantHead5=options.head5; let cycIdx=0;
-  function pickFromBin(bi, prev){
+  for(const [pos,id] of posPins){ const t=cands.find(x=>x.id===id); if(t) seq[pos-1]=t; }
+  let cycIdx=0; const wantHead5=opt.head5!==false;
+  function pickFromBin(bi,prev){
     const arr=bins[bi];
     for(let i=0;i<arr.length;i++){
       const t=arr[i];
-      if(options.noAdjacent && prev && shareArtist(prev,t)) continue;
+      if(opt.noAdjacent && prev && shareArtist(prev,t)) continue;
       arr.splice(i,1); return t;
     }
     return null;
   }
   function pickAny(prev){
-    for(let r=0;r<4;r++){
-      const t=pickFromBin((cycIdx+r)%4, prev);
-      if(t){cycIdx=(cycIdx+r+1)%4; return t;}
-    }
+    for(let r=0;r<4;r++){ const t=pickFromBin((cycIdx+r)%4,prev); if(t){cycIdx=(cycIdx+r+1)%4; return t;} }
     for(let bi=0;bi<4;bi++){ if(bins[bi].length){ return bins[bi].shift(); } }
     return null;
   }
-
   for(let i=0;i<finalSize;i++){
     if(seq[i]) continue;
-    const prev=i>0?seq[i-1]:null;
-    let chosen=null;
+    const prev=i>0?seq[i-1]:null; let chosen=null;
     if(wantHead5 && i>=1 && i<=3){
       const top=[...bins[3],...bins[2]].slice(0,20);
-      for(const t of top){ if(!options.noAdjacent || !prev || !shareArtist(prev,t)){ chosen=t; break; } }
+      for(const t of top){ if(!opt.noAdjacent || !prev || !shareArtist(prev,t)){ chosen=t; break; } }
       if(chosen){ const bi=bucket(chosen); const idx=bins[bi].findIndex(x=>x.id===chosen.id); if(idx>=0) bins[bi].splice(idx,1); }
     }
     if(!chosen) chosen=pickAny(prev);
@@ -568,245 +455,241 @@ function balancedOrder(cands, pins, finalSize, options){
   return seq.filter(Boolean);
 }
 
-/* ====== Breaks 判定 ====== */
+/* ========= Breaks 判定 ========= */
 function classifyBreaks(t, genresMap, seedArtistId){
   for(const a of (t.artists||[])){
-    const gs = genresMap.get(a.id) || [];
+    const gs=genresMap.get(a.id)||[];
     if(gs.some(g=>genreOk(g))) return {ok:true, reason:"genres"};
   }
   if(breaksWordRe.test(t.name||"")) return {ok:true, reason:"title"};
   if(breaksWordRe.test(t.album?.name||"")) return {ok:true, reason:"album"};
-  const label = (t.album && t.album.label) ? t.album.label : "";
+  const label=(t.album && t.album.label)?t.album.label:"";
   if(breaksWordRe.test(label||"")) return {ok:true, reason:"label"};
   if(seedArtistId){
-    const hasSeed = (t.artists||[]).some(a=>a?.id===seedArtistId);
+    const hasSeed=(t.artists||[]).some(a=>a?.id===seedArtistId);
     if(hasSeed) return {ok:true, reason:"seed"};
   }
   return {ok:false, reason:"none"};
 }
 
-/* ====== グローバル状態 ====== */
-let pool=[], trimmed=[], final100=[];
-let albumCache = new Map(); // key: market -> albums[]
-function getMarketsForScan(){
-  // UI選択 + Editionsプリセット（後述のビルドで必要な市場を自動で足す）
-  return new Set(getSelectedMarkets());
+/* ========= Edition 仕様 ========= */
+const EDITIONS={
+  UK:    { markets:["GB","IE"], anyOf:["GB"], suffix:" [UK Edition]" },
+  US:    { markets:["US","CA"], anyOf:["US"], suffix:" [US Edition]" },
+  EU:    { markets:["DE","FR","NL","ES","IT","SE","DK","FI","BE","AT","IE","PL","PT","CZ"], needCount:4, suffix:" [EU Edition]" },
+  WORLD: { markets:["US","GB","DE","FR","NL","ES","IT","SE","AU","CA","BR"], needPct:0.6, suffix:" [World Edition]" }
+};
+function coverageOk(trackId, ed, relaxStep=0){
+  const seen=trackSeenBy.get(trackId)||new Set();
+  if(ed.anyOf){ return ed.anyOf.some(m=>seen.has(m)); }
+  if(ed.needCount){ const c=ed.markets.reduce((n,m)=>n+(seen.has(m)?1:0),0); const need=Math.max(1, ed.needCount-relaxStep); return c>=need; }
+  if(ed.needPct){ const total=ed.markets.length; const c=ed.markets.reduce((n,m)=>n+(seen.has(m)?1:0),0); const need=Math.max(1, Math.ceil(total*(ed.needPct-relaxStep*0.1))); return c>=need; }
+  return true;
 }
 
-/* ====== 収集（FAST Build） ====== */
+/* ========= グローバル状態 ========= */
+let pool=[], trimmed=[], final100=[];
+const albumCache=new Map(); // mkt -> albums[]
+const trackMeta=new Map();
+
+/* ========= 種別フィルタ（Album/Single/EP/Compilation） ========= */
+function needTypes(){
+  const s=new Set([...document.querySelectorAll(".rtype:checked")].map(x=>x.value));
+  return {wantAlbum:s.has("ALBUM"), wantSingle:s.has("SINGLE"), wantEP:s.has("EP"), wantComp:s.has("COMPILATION")};
+}
+function isEP(album){
+  const type=(album.album_type||"").toLowerCase(); const tracks=album.total_tracks||0; const name=(album.name||"").toLowerCase();
+  return (type==="single" && tracks>=3) || /\bep\b/.test(name);
+}
+function matchReleaseType(album, types){
+  const t=(album.album_type||"").toLowerCase();
+  if(t==="album" && types.wantAlbum) return true;
+  if(t==="compilation" && types.wantComp) return true;
+  if(t==="single"){
+    if(types.wantEP && isEP(album)) return true;
+    if(types.wantSingle && !isEP(album)) return true;
+  }
+  return false;
+}
+
+/* ========= 収集（FAST Build） ========= */
 async function doFastBuild(marketsOverride=null){
   if(!acquireLock(BUILD_LOCK_KEY)){ warn("他のタブ/同タブで収集中です。少し待って再実行してください。"); return; }
   startHB(BUILD_LOCK_KEY);
+  pool=[]; trimmed=[]; final100=[]; trackSeenBy.clear(); warn("");
 
-  pool=[]; trimmed=[]; final100=[]; trackSeenBy.clear();
+  const checked=[...document.querySelectorAll(".ed:checked")].map(x=>x.value);
+  if(checked.length===0){ alert("作るエディションにチェックを入れてください。"); releaseLock(BUILD_LOCK_KEY); return; }
 
-  const markets=[...(marketsOverride||getMarketsForScan())];
+  // 4エディションの必要市場を合算
+  const mkts=new Set(); checked.forEach(k=> (EDITIONS[k].markets||[]).forEach(m=>mkts.add(m)));
+  const markets=[...(marketsOverride||mkts)];
   const artistId=el("artistId").value.trim();
-  const groupsCsv=getSelectedGroups()||"album,single";
-  const recentN=Math.max(5, Math.min(80, parseInt(el("albumRecent").value||"24",10)));
+  const recentN=Math.max(8, Math.min(80, parseInt(el("albumRecent").value||"24",10)));
   const oldRatio=Math.max(0, Math.min(0.8, parseFloat(el("oldAlbumRatio").value||"0.25")));
-  const oldN=Math.max(0, Math.round(recentN * oldRatio));
-  const minYear=Math.max(2010, parseInt(el("minYear").value||"2010",10));
+  const oldN=Math.round(recentN*oldRatio);
+  const minYear=Math.max(2010, parseInt(el("minYear")?.value||"2010",10)); // 将来の互換用
   const wPop=parseFloat(el("wPopularity").value||"0.6");
   const wRec=parseFloat(el("wRecent").value||"0.4");
   const targetPool=Math.max(120, Math.min(200, parseInt(el("targetPool").value||"130",10)));
   const SCAN_MAX=120;
+  const types=needTypes();
 
-  log(`=== FAST Build start markets=[${markets.join(",")}] recentN=${recentN} oldN=${oldN} scan<=${SCAN_MAX} ===`);
+  log(`=== FAST Build start editions=[${checked.join(",")}] markets=[${markets.join(",")}] recentN=${recentN} oldN=${oldN} ===`);
 
   try{
+    const groupsCsv="album,single,compilation"; // appears_on は使わない
     const pickedAlbums=[];
     for(const m of markets){
-      let all;
-      if(albumCache.has(m)) all = albumCache.get(m);
-      else { all = await scanArtistAlbums(artistId, m, groupsCsv, SCAN_MAX); albumCache.set(m, all); }
-      const rec = all.slice(0, recentN);
-      const old = oldN ? all.slice(-oldN) : [];
-      log(`市場 ${m}: total=${all.length} → pick recent=${rec.length}, old=${old.length}`);
+      let all=albumCache.get(m);
+      if(!all){ all=await scanArtistAlbums(artistId,m,groupsCsv,SCAN_MAX); albumCache.set(m,all); }
+      // 種別フィルタ
+      const filtered = all.filter(a=>matchReleaseType(a, types));
+      const rec = filtered.slice(0, recentN);
+      const old = oldN ? filtered.slice(-oldN) : [];
+      log(`市場 ${m}: albums(all=${all.length}, afterType=${filtered.length}) → recent=${rec.length}, old=${old.length}`);
       rec.forEach(a=>pickedAlbums.push({market:m, album:a}));
       old.forEach(a=>pickedAlbums.push({market:m, album:a}));
     }
 
+    // アルバム→トラック
     const idBag=[];
     for(let i=0;i<pickedAlbums.length;i++){
       const {market:m, album:a}=pickedAlbums[i];
-      const tracks=await fetchAlbumTracksVerbose(a.id, a.name, a.release_date, m, i+1, pickedAlbums.length);
-      const take=Math.min(5, Math.max(2, Math.ceil(tracks.length/5)));
-      const picked = tracks.slice(0, take).map(t=>t.id);
-      idBag.push(...picked);
-      if(idBag.length >= targetPool*3){ vlog("    → enough candidates (early stop)"); break; }
+      const tracks=await fetchAlbumTracks(a.id, a.name, a.release_date, m, i+1, pickedAlbums.length);
+      // 各アルバムから上位数曲（2〜5曲）
+      const take=Math.min(5, Math.max(2, Math.ceil((a.total_tracks||tracks.length)/5)));
+      idBag.push(...tracks.slice(0,take).map(t=>t.id));
+      if(idBag.length>=targetPool*3){ break; }
     }
-    // 各市場のTop Tracksも可用性メモに
+    // トップトラック補強
     for(const m of markets){
       try{
-        const top=await callSpotifyJSON(`https://api.spotify.com/v1/artists/${artistId}/top-tracks?market=${m}`, {}, {tag:`top-tracks:${m}`});
-        (top.tracks||[]).forEach(t=>{ if(t?.id){ idBag.push(t.id); markSeen(t.id, m); } });
-      }catch(e){ vlog(`top-tracks:${m} 取得失敗（続行）: `+(e.message||e)); }
+        const top=await callSpotifyJSON(`https://api.spotify.com/v1/artists/${artistId}/top-tracks?market=${m}`,{}, {tag:`top-tracks:${m}`});
+        (top.tracks||[]).forEach(t=>{ if(t?.id){ idBag.push(t.id); markSeen(t.id,m); } });
+      }catch(e){ log(`top-tracks:${m} 取得失敗（続行）: ${e.message||e}`); }
     }
 
     const uniq=[...new Set(idBag)];
-    log(`候補（下ごしらえ前）: ${uniq.length}曲 → 詳細/特徴量/ジャンル取得`);
-    const trackObjs = await fetchTracksBatched(uniq);
-    const featsMap  = await fetchFeaturesBatched(trackObjs.map(t=>t.id));
-    const artistIds=new Set(); trackObjs.forEach(t=> (t.artists||[]).forEach(a=>a?.id && artistIds.add(a.id)));
-    const genresMap = await fetchArtistsGenresMapBatched([...artistIds]);
+    log(`候補（下ごしらえ前）: ${uniq.length}曲 → 詳細/特徴量/ジャンル取得…`);
 
-    let filtered = trackObjs.map(t=>{
-      const f=featsMap.get(t.id)||{};
-      return { id:t.id, name:t.name, artists:t.artists||[], popularity:t.popularity||0, duration_ms:t.duration_ms||0,
-        album:t.album||{}, features:{energy:f.energy??0.5,valence:f.valence??0.5,tempo:f.tempo??120,danceability:f.danceability??0.5} };
+    const trackObjs=await fetchTracksBatched(uniq);
+    const featsMap=await fetchFeaturesBatched(trackObjs.map(t=>t.id));
+    const artistIds=new Set(); trackObjs.forEach(t=> (t.artists||[]).forEach(a=>a?.id&&artistIds.add(a.id)));
+    const genresMap=await fetchArtistsGenresMapBatched([...artistIds]);
+
+    // フィルタ（2010+ / RemixOnly / Breaks）
+    let filtered=trackObjs.map(t=>{ const f=featsMap.get(t.id)||{}; return {
+      id:t.id, name:t.name, artists:t.artists||[], popularity:t.popularity||0, duration_ms:t.duration_ms||0,
+      album:t.album||{}, features:{energy:f.energy??0.5,valence:f.valence??0.5,tempo:f.tempo??120,danceability:f.danceability??0.5}
+    }; });
+
+    const counts={year:0, remix:0, breaks:0}; const accept={genres:0,title:0,album:0,label:0,seed:0};
+    filtered=filtered.filter(t=>{
+      const yOk=yearFromDate(t.album?.release_date)>=minYear; if(!yOk){counts.year++;return false;}
+      const rOk=isRemixOnlyTitle(t.name); if(!rOk){counts.remix++;return false;}
+      const cls=classifyBreaks(t,genresMap,el("artistId").value.trim()); if(!cls.ok){counts.breaks++;return false;}
+      accept[cls.reason]=(accept[cls.reason]||0)+1; return true;
     });
 
-    const counts={year:0, remix:0, breaks:0};
-    const acceptReasons={genres:0,title:0,album:0,label:0,seed:0};
-
-    filtered = filtered.filter(t=>{
-      const yOk = yearFromDate(t.album?.release_date) >= minYear;
-      if(!yOk){counts.year++; return false;}
-      const rOk = isRemixOnlyTitle(t.name);
-      if(!rOk){counts.remix++; return false;}
-      const cls = classifyBreaks(t, genresMap, el("artistId").value.trim());
-      if(!cls.ok){counts.breaks++; return false;}
-      acceptReasons[cls.reason] = (acceptReasons[cls.reason]||0)+1;
-      return true;
-    });
-
-    filtered = dedupeById(filtered);
-    computeScores(filtered, wPop, wRec);
-
+    // スコア付与→Trim
+    filtered=dedupeById(filtered); computeScores(filtered,wPop,wRec);
     const upper=Math.max(120, Math.min(130, targetPool, filtered.length));
-    trimmed = filtered.slice(0, upper);
-    pool = filtered;
+    trimmed=filtered.slice(0,upper); pool=filtered;
 
-    log(`Breaks採用内訳: genres=${acceptReasons.genres||0} / title=${acceptReasons.title||0} / album=${acceptReasons.album||0} / label=${acceptReasons.label||0} / seed=${acceptReasons.seed||0}`);
+    log(`Breaks採用内訳: genres=${accept.genres||0} / title=${accept.title||0} / album=${accept.album||0} / label=${accept.label||0} / seed=${accept.seed||0}`);
     log(`フィルタ後: ${filtered.length}曲（除外: 年<${minYear}:${counts.year} / Remix規則:${counts.remix} / Breaks非該当:${counts.breaks}）`);
-    el("btnTrim").disabled = trimmed.length===0;
-    el("btnBalance").disabled = trimmed.length===0;
-    el("btnBuildEditions").disabled = trimmed.length===0;
-    if(trimmed.length===0){ warn("候補0。市場を増やす・旧作サンプルを上げる・groupsを広げる等で再実行。"); }
-    else{ log(`FAST Build 完了：${trimmed.length}曲（multi-market + old-sample）`); }
-  }catch(e){
-    log("エラー: "+(e.message||e));
-  }finally{
-    releaseLock(BUILD_LOCK_KEY);
-  }
+    el("btnTrim").disabled=trimmed.length===0;
+    el("btnBalance").disabled=trimmed.length===0;
+    el("btnBuildEditions").disabled=trimmed.length===0;
+    if(trimmed.length===0) warn("候補0。EP/Single/Album/Compilationの組み合わせや recent/old 比率を調整してください。");
+    else log(`FAST Build 完了：${trimmed.length}曲`);
+  }catch(e){ log("エラー: "+(e.message||e)); }
+  finally{ releaseLock(BUILD_LOCK_KEY); }
 }
 
-/* ====== Edition ルール ====== */
-const EDITIONS={
-  UK:     { markets:["GB","IE"], anyOf:["GB"], suffix:" [UK Edition]" },
-  US:     { markets:["US","CA"], anyOf:["US"], suffix:" [US Edition]" },
-  EU:     { markets:["DE","FR","NL","ES","IT","SE","DK","FI","BE","AT","IE","PL","PT","CZ"], needCount:4, suffix:" [EU Edition]" },
-  WORLD:  { markets:["US","GB","DE","FR","NL","ES","IT","SE","AU","CA","BR"], needPct:0.6, suffix:" [World Edition]" }
-};
-function coverageOk(trackId, ed, relaxStep=0){
-  const seen = trackSeenBy.get(trackId)||new Set();
-  if(ed.anyOf){ // UK/US
-    return ed.anyOf.some(m=>seen.has(m));
-  }
-  if(ed.needCount){ // EU
-    const count = ed.markets.reduce((c,m)=>c+(seen.has(m)?1:0),0);
-    const need = Math.max(1, ed.needCount - relaxStep); // 4 → 3 → 2 …
-    return count>=need;
-  }
-  if(ed.needPct){ // WORLD
-    const total=ed.markets.length;
-    const count = ed.markets.reduce((c,m)=>c+(seen.has(m)?1:0),0);
-    const need = Math.max(1, Math.ceil(total * (ed.needPct - relaxStep*0.1))); // 60%→50%→40%…
-    return count>=need;
-  }
-  return true;
-}
-
-/* ====== ③/⑤ 単発 ====== */
-async function doTrim(){ trimmed = trimmed.slice(0, Math.max(120, Math.min(130, trimmed.length))); log(`Trim 完了：${trimmed.length}曲`); }
+/* ========= Trim / Balance ========= */
+async function doTrim(){ trimmed=trimmed.slice(0, Math.max(120, Math.min(130, trimmed.length))); log(`Trim 完了：${trimmed.length}曲`); }
 async function doBalance(){
-  const finalSize=Math.max(50, Math.min(100, parseInt(el("finalSize").value||"100",10)));
+  const finalSize=Math.max(80, Math.min(100, parseInt(el("finalSize").value||"100",10)));
   const pins=materializePins();
   const ratioOld=Math.max(0, Math.min(0.8, parseFloat(el("ratioOld").value||"0.30")));
-  const candPool = eraBlendCands(trimmed, ratioOld, 1.6);
-  final100 = balancedOrder(candPool, pins, finalSize, {noAdjacent: el("noAdjacent").value==="yes", head5: el("head5").value==="yes"});
+  const cand=eraBlendCands(trimmed, ratioOld, 1.6);
+  final100=balancedOrder(cand, pins, finalSize, {noAdjacent:true, head5:true});
   log(`Balanced 生成：${final100.length}曲（EraMix=${ratioOld} / Remix Only / 2010+）`);
-  el("btnCSV").disabled=false; el("btnJSON").disabled=false; el("btnCommit").disabled=false;
+  el("btnCommit").disabled=final100.length===0;
 }
-function toCSV(rows){ return rows.map(r=>r.map(v=>{const s=v==null?"":String(v); return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s; }).join(",")).join("\n"); }
-el("btnCSV").addEventListener("click", ()=>{ if(!final100.length) return; const rows=[["No","Track ID","Title","Artists","Popularity","Energy","Valence","Tempo","Album Date","Label"], ...final100.map((t,i)=>[i+1,t.id,t.name,(t.artists||[]).map(a=>a.name).join(" & "),t.popularity,t.features.energy,t.features.valence,t.features.tempo,t.album?.release_date||"",t.album?.label||""] )]; const csv=toCSV(rows); const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"})); a.download=`breaks_remixonly_editions_${Date.now()}.csv`; a.click(); });
 
-el("btnJSON").addEventListener("click", ()=>{ if(!final100.length) return; const payload={ meta:{ts:new Date().toISOString(), markets:[...getMarketsForScan()], artistId:el("artistId").value, ratioOld:parseFloat(el("ratioOld").value||"0.3")}, tracks:final100 }; const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:"application/json"})); a.download=`breaks_remixonly_editions_${Date.now()}.json`; a.click(); });
-
-async function commitPlaylist(name, desc, isPublic, uris){
-  const maxRetry = Math.max(1, parseInt(el("maxRetry").value||"5",10));
-  MIN_API_GAP_MS = Math.max(300, parseInt(el("gap").value||"1000",10));
-
-  const me=await callSpotifyJSON("https://api.spotify.com/v1/me", {}, {tag:"/me",maxRetry}); const uid=me.id; if(!uid) throw new Error("ユーザーID取得に失敗");
-  let playlistId=null;
-  log(`POST /users/${uid}/playlists（新規作成）`);
-  const created=await callSpotifyJSON(`https://api.spotify.com/v1/users/${uid}/playlists`, {method:"POST", body:JSON.stringify({name,description:desc,public:isPublic})}, {tag:"POST /users/:id/playlists",maxRetry});
-  playlistId=created.id; if(!playlistId) throw new Error("プレイリスト作成に失敗");
-
-  const chunks=[]; for(let i=0;i<uris.length;i+=100) chunks.push(uris.slice(i,i+100));
-  log(`PUT /playlists/${playlistId}/tracks（置換：${chunks[0]?.length||0}件）`);
-  await callSpotifyJSON(`https://api.spotify.com/v1/playlists/${playlistId}/tracks`, {method:"PUT", body:JSON.stringify({uris:chunks[0]||[]})}, {tag:"PUT tracks",maxRetry, expectJSON:false});
-  for(let i=1;i<chunks.length;i++){
-    log(`POST /playlists/${playlistId}/tracks（追加：${chunks[i].length}件 / ${i+1}/${chunks.length}）`);
-    await callSpotifyJSON(`https://api.spotify.com/v1/playlists/${playlistId}/tracks`, {method:"POST", body:JSON.stringify({uris:chunks[i]})}, {tag:`POST tracks #${i+1}`,maxRetry});
+/* ========= プレイリスト反映 ========= */
+async function putPlaylist(name, desc, isPublic, uris, existingId=null){
+  const maxRetry=Math.max(1, parseInt(el("maxRetry").value||"5",10));
+  MIN_API_GAP_MS=Math.max(300, parseInt(el("gap").value||"1000",10));
+  const me=await callSpotifyJSON("https://api.spotify.com/v1/me",{}, {tag:"/me",maxRetry}); const uid=me.id;
+  let playlistId=existingId||null;
+  if(playlistId){
+    await callSpotifyJSON(`https://api.spotify.com/v1/playlists/${playlistId}`,{method:"PUT",body:JSON.stringify({name,description:desc,public:isPublic})},{tag:"PUT playlist",maxRetry,expectJSON:false});
+  }else{
+    const created=await callSpotifyJSON(`https://api.spotify.com/v1/users/${uid}/playlists`,{method:"POST",body:JSON.stringify({name,description:desc,public:isPublic})},{tag:"POST playlist",maxRetry});
+    playlistId=created.id;
   }
-  log(`完了：https://open.spotify.com/playlist/${playlistId}`);
+  const chunks=[]; for(let i=0;i<uris.length;i+=100) chunks.push(uris.slice(i,i+100));
+  await callSpotifyJSON(`https://api.spotify.com/v1/playlists/${playlistId}/tracks`,{method:"PUT",body:JSON.stringify({uris:chunks[0]||[]})},{tag:"PUT tracks",maxRetry,expectJSON:false});
+  for(let i=1;i<chunks.length;i++){
+    await callSpotifyJSON(`https://api.spotify.com/v1/playlists/${playlistId}/tracks`,{method:"POST",body:JSON.stringify({uris:chunks[i]})},{tag:`POST tracks #${i+1}`,maxRetry});
+  }
+  log(`完成: https://open.spotify.com/playlist/${playlistId}`);
 }
 
-/* ====== Edition Builder（④⑤まで自動） ====== */
+/* ========= Edition Builder ========= */
+function selectedEditions(){ return [...document.querySelectorAll(".ed:checked")].map(x=>x.value); }
 async function buildEditions(){
-  const checked=[...document.querySelectorAll(".ed:checked")].map(x=>x.value);
-  if(checked.length===0){ alert("作るエディションにチェックを入れてください。"); return; }
-  // エディションに必要な市場の合計で再収集（キャッシュ活用）
-  const needMkts=new Set(); checked.forEach(k=> (EDITIONS[k].markets||[]).forEach(m=>needMkts.add(m)));
-  await doFastBuild(needMkts); // 収集はこの集合で実施
+  const eds=selectedEditions(); if(!eds.length){ alert("エディションを選択してください。"); return; }
+  await doFastBuild(); // 収集→trim 済
+  if(!trimmed.length){ alert("候補がありません。収集条件を見直してください。"); return; }
 
+  const finalSize=Math.max(80, Math.min(100, parseInt(el("finalSize").value||"100",10)));
   const pins=materializePins();
-  const finalSize=Math.max(50, Math.min(100, parseInt(el("finalSize").value||"100",10)));
   const ratioOld=Math.max(0, Math.min(0.8, parseFloat(el("ratioOld").value||"0.30")));
   const base=(el("baseName").value||"TDCS – Breaks Remix Only 100 (2010+)").trim();
   const desc=(el("baseDesc").value||"Breaks/Breakbeat限定・2010+・Remixのみ・Pins固定・バランス配置").trim();
-  const isPublic=el("edPublic").value==="public";
+  const isPublic=el("isPublic").value==="true";
 
-  for(const key of checked){
+  for(const key of eds){
     const ed=EDITIONS[key];
-    // 可用性ゲート：足りなければ段階緩和
-    let keep = trimmed.filter(t=>coverageOk(t.id,ed,0));
-    if(keep.length<finalSize) keep = trimmed.filter(t=>coverageOk(t.id,ed,1));
-    if(keep.length<finalSize) keep = trimmed.filter(t=>coverageOk(t.id,ed,2));
-    if(keep.length<finalSize) keep = trimmed.filter(t=>coverageOk(t.id,ed,3));
+    // 可用性ゲート：不足なら緩和
+    let keep=trimmed.filter(t=>coverageOk(t.id,ed,0));
+    if(keep.length<finalSize) keep=trimmed.filter(t=>coverageOk(t.id,ed,1));
+    if(keep.length<finalSize) keep=trimmed.filter(t=>coverageOk(t.id,ed,2));
+    if(keep.length<finalSize) keep=trimmed; // 最終保険
 
-    log(`Edition ${key}: 可用性 after-gate = ${keep.length}曲`);
-    if(keep.length===0){ log(`Edition ${key}: 曲が確保できずスキップ`); continue; }
-
-    const cand = eraBlendCands(keep, ratioOld, 1.6);
-    const seq  = balancedOrder(cand, pins, finalSize, {noAdjacent: el("noAdjacent").value==="yes", head5: el("head5").value==="yes"});
-    const uris = seq.map(t=>`spotify:track:${t.id}`);
-    const name = `${base}${ed.suffix}`;
-    await commitPlaylist(name, `${desc} ${ed.suffix}`, isPublic, uris);
+    const cand=eraBlendCands(keep, ratioOld, 1.6);
+    const seq =balancedOrder(cand, pins, finalSize, {noAdjacent:true, head5:true});
+    const uris=seq.map(t=>`spotify:track:${t.id}`);
+    const name=`${base}${ed.suffix}`;
+    log(`Edition ${key}: 可用性 ${keep.length}曲 → 最終 ${seq.length}曲`);
+    await putPlaylist(name, `${desc} ${ed.suffix}`, isPublic, uris, null);
   }
-  alert("エディションの作成が完了しました。");
+  alert("UK/US/EU/World の作成が完了しました。");
 }
 
-/* ====== ハンドラ ====== */
-el("btnSignOut").addEventListener("click",()=>{ Object.values(K).forEach(k=>sessionStorage.removeItem(k)); log("保存トークンを削除しました。"); renderStatus(); });
-el("btnWho").addEventListener("click",async()=>{ try{ log("GET /v1/me …"); const me=await callSpotifyJSON("https://api.spotify.com/v1/me",{},{tag:"/v1/me"}); log("表示名: "+(me.display_name||"(no name)")+" / ID: "+me.id);}catch(e){log("エラー: "+(e.message||e));} });
+/* ========= ハンドラ ========= */
+el("btnMe").addEventListener("click", async()=>{ try{ const me=await callSpotifyJSON("https://api.spotify.com/v1/me",{}, {tag:"/me"}); log(`/me OK: ${me.display_name||"(no name)"} / ${me.id}`);}catch(e){ log("エラー: "+(e.message||e)); } });
+el("btnSignOut").addEventListener("click",()=>{ Object.values(K).forEach(k=>sessionStorage.removeItem(k)); renderStatus(); log("保存トークンを削除しました。"); });
 
 el("btnFast").addEventListener("click", ()=>{ doFastBuild().catch(e=>log("エラー: "+(e.message||e))); });
 el("btnTrim").addEventListener("click", ()=>{ doTrim().catch(e=>log("エラー: "+(e.message||e))); });
 el("btnBalance").addEventListener("click", ()=>{ doBalance().catch(e=>log("エラー: "+(e.message||e))); });
-
 el("btnCommit").addEventListener("click", async()=>{
   try{
-    if(!final100.length){ alert("③Balancedの結果がありません。先に③を実行してください。"); return; }
-    await commitPlaylist((el("plName").value||"TDCS – Breaks Remix Only 100 (2010+)").trim(), (el("plDesc").value||"Breaks/Breakbeat限定・2010+・Remixのみ・Pins固定・バランス配置").trim(), el("plPublic").value==="public", final100.map(t=>`spotify:track:${t.id}`));
+    if(!final100.length){ alert("③Balanced の結果がありません。先に ③ を実行してください。"); return; }
+    const name=(el("plName").value||"TDCS – Breaks Remix Only 100 (2010+)").trim();
+    const desc=(el("plDesc").value||"Breaks/Breakbeat限定・2010+・Remixのみ・Pins固定・バランス配置").trim();
+    const isPublic=el("plPublic").value==="true";
+    const existing=el("existingId").value.trim()||null;
+    await putPlaylist(name, desc, isPublic, final100.map(t=>`spotify:track:${t.id}`), existing);
   }catch(e){ log("エラー: "+(e.message||e)); alert("エラー: "+(e.message||e)); }
 });
-
 el("btnBuildEditions").addEventListener("click", ()=>{ buildEditions().catch(e=>{ log("エラー: "+(e.message||e)); alert("エラー: "+(e.message||e)); }); });
-
-updateNetNote();
 </script>
 </body>
 </html>
