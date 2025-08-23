@@ -32,7 +32,7 @@
 </style>
 </head>
 <body>
-<h1>Spotify コントロールセンター（Breaks限定・2010+・Remixのみ） <span class="pill">v2025-08-23R-403safe.2</span></h1>
+<h1>Spotify コントロールセンター（Breaks限定・2010+・Remixのみ） <span class="pill">v2025-08-23R-403safe.3</span></h1>
 
 <fieldset>
   <legend>サインイン／疎通</legend>
@@ -205,10 +205,9 @@
 
 <script>
 "use strict";
-/* === 早期エラー捕捉 & 起動確認 === */
+/* === 早期エラー捕捉 === */
 window.addEventListener("error", e => { const L=document.getElementById("log"); if(L) L.textContent+=`[${new Date().toLocaleTimeString()}] SCRIPT ERROR: ${e.message}\n`; });
 window.addEventListener("unhandledrejection", e => { const L=document.getElementById("log"); const msg=e?.reason?.message||e?.reason||"(no reason)"; if(L) L.textContent+=`[${new Date().toLocaleTimeString()}] UNHANDLED: ${msg}\n`; });
-console.log("boot ok");
 
 /* === 固定クライアント === */
 const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e";
@@ -320,8 +319,9 @@ function isRemixOnlyTitle(name){
   return hasRemix && !hasMix;
 }
 
-/* Breaks/Breakbeat 判定 */
-const breaksRegex=/\b(breaks?|break[-\s]?beat|nu[-\s]?breaks?)\b/i;
+/* Breaks/Breakbeat 判定：拡張（genres/title/album/label/seed） */
+const breaksWordRe = /\b(breaks?|break[-\s]?beat|nu[-\s]?breaks?|big\s*beat|funky\s*breaks?|electro[-\s]?breaks?|progressive\s*breaks?|psy[-\s]?breaks?|acid\s*breaks?)\b/i;
+const genreOk = g => /breakbeat|breaks?|big beat|nu skool breaks|electro breaks?|progressive breaks?|funky breaks?|psybreaks?|acid breaks?/i.test(g||"");
 
 /* メタ & 結果 */
 let albumMeta=new Map(); let trackMeta=new Map();
@@ -464,7 +464,7 @@ function eraBlendCands(tracks, ratioOld, poolFactor){
   return [...set.values()];
 }
 
-/* Pins & Balanced（←ここを唯一の定義に統一） */
+/* Pins & Balanced */
 function materializePins(){ return {1:(el("pin1").value||"").trim(),5:(el("pin5").value||"").trim(),40:(el("pin40").value||"").trim(),60:(el("pin60").value||"").trim()}; }
 function balancedOrder(cands, pins, finalSize, options){
   const posPins=new Map(Object.entries(pins).map(([k,v])=>[parseInt(k,10), v]).filter(([,v])=>v));
@@ -519,6 +519,27 @@ function balancedOrder(cands, pins, finalSize, options){
   return seq.filter(Boolean);
 }
 
+/* === Breaks 判定ヘルパ（理由付き） === */
+function classifyBreaks(t, genresMap, seedArtistId){
+  // 1) genres ヒット
+  for(const a of (t.artists||[])){
+    const gs = genresMap.get(a.id) || [];
+    if(gs.some(g=>genreOk(g))) return {ok:true, reason:"genres"};
+  }
+  // 2) タイトル/アルバム名
+  if(breaksWordRe.test(t.name||"")) return {ok:true, reason:"title"};
+  if(breaksWordRe.test(t.album?.name||"")) return {ok:true, reason:"album"};
+  // 3) レーベル名
+  const label = (t.album && t.album.label) ? t.album.label : "";
+  if(breaksWordRe.test(label||"")) return {ok:true, reason:"label"};
+  // 4) seed アーティストが参加していれば採用（フォールバック）
+  if(seedArtistId){
+    const hasSeed = (t.artists||[]).some(a=>a?.id===seedArtistId);
+    if(hasSeed) return {ok:true, reason:"seed"};
+  }
+  return {ok:false, reason:"none"};
+}
+
 /* === メイン（FAST→Trim→Balance） === */
 async function doFastBuild(){
   if(!acquireLock(BUILD_LOCK_KEY)){ warn("他のタブ/同タブで収集中です。少し待って再実行してください。"); return; }
@@ -539,10 +560,12 @@ async function doFastBuild(){
   setProg(0,"start");
 
   try{
+    // 1) アルバム
     const albums=await fetchArtistAlbumsVerbose(artistId, market, groupsCsv, albumLimit);
     albumMeta.clear();
     albums.forEach(a=> albumMeta.set(a.id, {dateMs:new Date(a.release_date).getTime()||0}) );
 
+    // 2) 各アルバムからピック（先頭〜中盤）
     let ids=[];
     for(let i=0;i<albums.length;i++){
       const a=albums[i];
@@ -553,6 +576,7 @@ async function doFastBuild(){
       ids.push(...picked);
       if(ids.length >= targetPool*2){ vlog("    → enough pool gathered (early stop)"); break; }
     }
+    // Top Tracks 補強
     try{
       setProg(42,"top-tracks");
       const top=await callSpotifyJSON(`https://api.spotify.com/v1/artists/${artistId}/top-tracks?market=${market}`, {}, {tag:"top-tracks"});
@@ -562,27 +586,35 @@ async function doFastBuild(){
     const uniq=[...new Set(ids)];
     log(`候補（下ごしらえ前）: ${uniq.length}曲 → 詳細/特徴量/アーティストジャンル取得…`);
 
+    // 3) 詳細・特徴量・genres
     const trackObjs = await fetchTracksBatched(uniq, market);
     const idOrder = trackObjs.map(t=>t.id);
     const featsMap = await fetchFeaturesBatched(idOrder);
     const artistIds=new Set(); trackObjs.forEach(t=> (t.artists||[]).forEach(a=>a?.id && artistIds.add(a.id)));
     const genresMap = await fetchArtistsGenresMapBatched([...artistIds]);
 
+    // 4) フィルタ（2010+ / Remix Only / Breaks）＋理由ログ
     let filtered = trackObjs.map(t=>{
       const f=featsMap.get(t.id)||{};
-      return { id:t.id, name:t.name, artists:t.artists||[], popularity:t.popularity||0, duration_ms:t.duration_ms||0, album:t.album||{}, features:{energy:f.energy??0.5,valence:f.valence??0.5,tempo:f.tempo??120,danceability:f.danceability??0.5} };
+      return { id:t.id, name:t.name, artists:t.artists||[], popularity:t.popularity||0, duration_ms:t.duration_ms||0, album:t.album||{}, features:{energy:f.energy??0.5,valence:f.valence??0.5,tempo:f.tempo??120,danceability:f.danceability??0.5,time_signature:f.time_signature??4} };
     });
 
     const counts={year:0, remix:0, breaks:0};
+    const acceptReasons={genres:0,title:0,album:0,label:0,seed:0};
+    const seedArtistId = artistId || null;
+
     filtered = filtered.filter(t=>{
       const yOk = yearFromDate(t.album?.release_date) >= minYear;
       if(!yOk){counts.year++; return false;}
       const rOk = isRemixOnlyTitle(t.name);
       if(!rOk){counts.remix++; return false;}
-      const bOk = (t.artists||[]).some(a => (genresMap.get(a.id)||[]).some(g=>breaksRegex.test(g))) || breaksRegex.test(t.name||"") || breaksRegex.test(t.album?.name||"");
-      if(!bOk){counts.breaks++; return false;}
+      const cls = classifyBreaks(t, genresMap, seedArtistId);
+      if(!cls.ok){counts.breaks++; return false;}
+      acceptReasons[cls.reason] = (acceptReasons[cls.reason]||0)+1;
       return true;
     });
+
+    log(`Breaks採用内訳: genres=${acceptReasons.genres||0} / title=${acceptReasons.title||0} / album=${acceptReasons.album||0} / label=${acceptReasons.label||0} / seed=${acceptReasons.seed||0}`);
     log(`フィルタ後: ${filtered.length}曲  （除外: 年<${minYear}:${counts.year} / Remix規則:${counts.remix} / Breaks非該当:${counts.breaks}）`);
 
     filtered = dedupeById(filtered);
@@ -591,8 +623,9 @@ async function doFastBuild(){
     trimmed = filtered.slice(0, targetPool);
     pool = filtered;
 
-    log(`FAST Build 完了（403-safe）：${trimmed.length}曲`);
-    el("btnTrim").disabled=false;
+    log(`FAST Build 完了（403-safe＋Breaks拡張）：${trimmed.length}曲`);
+    el("btnTrim").disabled = trimmed.length===0 ? true : false;
+    if(trimmed.length===0){ warn("候補が0です。groupsやアルバム上限を増やすか、マーケットを変えて再実行してください。"); }
   }catch(e){
     log("エラー: "+(e.message||e));
   }finally{
@@ -605,7 +638,7 @@ async function doTrim(){
   const upper=Math.max(120, Math.min(130, targetPool));
   trimmed = trimmed.slice(0, upper);
   log(`Trim 完了：${trimmed.length}曲`);
-  el("btnBalance").disabled = false;
+  el("btnBalance").disabled = trimmed.length===0 ? true : false;
 }
 
 async function doBalance(){
@@ -620,7 +653,7 @@ async function doBalance(){
 
 /* エクスポート */
 function toCSV(rows){ return rows.map(r=>r.map(v=>{const s=v==null?"":String(v); return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s; }).join(",")).join("\n"); }
-el("btnCSV").addEventListener("click", ()=>{ if(!final100.length) return; const rows=[["No","Track ID","Title","Artists","Popularity","Energy","Valence","Tempo","Album Date"], ...final100.map((t,i)=>[i+1,t.id,t.name,(t.artists||[]).map(a=>a.name).join(" & "),t.popularity,t.features.energy,t.features.valence,t.features.tempo,t.album?.release_date||""] )]; const csv=toCSV(rows); const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"})); a.download=`breaks_remixonly_2010plus_${Date.now()}.csv`; a.click(); });
+el("btnCSV").addEventListener("click", ()=>{ if(!final100.length) return; const rows=[["No","Track ID","Title","Artists","Popularity","Energy","Valence","Tempo","Album Date","Label"], ...final100.map((t,i)=>[i+1,t.id,t.name,(t.artists||[]).map(a=>a.name).join(" & "),t.popularity,t.features.energy,t.features.valence,t.features.tempo,t.album?.release_date||"",t.album?.label||""] )]; const csv=toCSV(rows); const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"})); a.download=`breaks_remixonly_2010plus_${Date.now()}.csv`; a.click(); });
 el("btnJSON").addEventListener("click", ()=>{ if(!final100.length) return; const payload={ meta:{ts:new Date().toISOString(), market:el("market").value, artistId:el("artistId").value, minYear:parseInt(el("minYear").value,10), ratioOld:parseFloat(el("ratioOld").value||"0.3"), pins:materializePins()}, tracks:final100 }; const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:"application/json"})); a.download=`breaks_remixonly_2010plus_${Date.now()}.json`; a.click(); });
 
 /* コミット */
