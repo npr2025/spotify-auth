@@ -31,7 +31,7 @@
 </style>
 </head>
 <body>
-<h1>Editions Builder（Breaks限定・2010+・Remixのみ）<span class="pill">v2025-08-23S</span></h1>
+<h1>Editions Builder（Breaks限定・2010+・Remixのみ）<span class="pill">v2025-08-23S+FALLBACK</span></h1>
 
 <!-- サインイン -->
 <fieldset>
@@ -45,7 +45,7 @@
         <progress id="prog" value="0" max="100"></progress>
         <span id="progTxt" class="muted">idle</span>
       </div>
-      <div id="status" class="muted">未サインイン</div>
+      <div id="status" class="muted">未サインイン（右のボタンからサインインしてください）</div>
       <div id="warn" class="note"></div>
     </div>
   </div>
@@ -210,7 +210,7 @@
 "use strict";
 
 /* ========= 固定 ========= */
-const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e";
+const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e"; // auth.html/callback.htmlと共通
 const K={access:"sp_access_token",type:"sp_token_type",expAt:"sp_expires_at",refresh:"sp_refresh_token",scope:"sp_scope"};
 
 /* ========= UI & ログ ========= */
@@ -317,7 +317,37 @@ function releaseLock(k){const cur=readLock(k); if(cur&&cur.owner===TAB_ID){local
 const trackSeenBy=new Map(); // id -> Set(markets)
 function markSeen(id,market){ let s=trackSeenBy.get(id); if(!s){s=new Set(); trackSeenBy.set(id,s);} s.add(market); }
 
-/* ========= データ収集 ========= */
+/* ========= Edition 仕様 & 収集市場 ========= */
+const EDITIONS={
+  UK:    { markets:["GB","IE"], anyOf:["GB"], suffix:" [UK Edition]" },
+  US:    { markets:["US","CA"], anyOf:["US"], suffix:" [US Edition]" },
+  EU:    { markets:["DE","FR","NL","ES","IT","SE","DK","FI","BE","AT","IE","PL","PT","CZ"], needCount:4, suffix:" [EU Edition]" },
+  WORLD: { markets:["US","GB","DE","FR","NL","ES","IT","SE","AU","CA","BR"], needPct:0.6, suffix:" [World Edition]" }
+};
+// UKのみでもプールを厚くするために収集時は広めに見る
+const CORE_SCAN_MARKETS = ["GB","IE","US","DE","FR","NL","ES","IT","SE","CA","AU"];
+
+/* ========= リリース種別フィルタ ========= */
+function needTypes(){
+  const s=new Set([...document.querySelectorAll(".rtype:checked")].map(x=>x.value));
+  return {wantAlbum:s.has("ALBUM"), wantSingle:s.has("SINGLE"), wantEP:s.has("EP"), wantComp:s.has("COMPILATION")};
+}
+function isEP(album){
+  const type=(album.album_type||"").toLowerCase(); const tracks=album.total_tracks||0; const name=(album.name||"").toLowerCase();
+  return (type==="single" && tracks>=3) || /\bep\b/.test(name);
+}
+function matchReleaseType(album, types){
+  const t=(album.album_type||"").toLowerCase();
+  if(t==="album" && types.wantAlbum) return true;
+  if(t==="compilation" && types.wantComp) return true;
+  if(t==="single"){
+    if(types.wantEP && isEP(album)) return true;
+    if(types.wantSingle && !isEP(album)) return true;
+  }
+  return false;
+}
+
+/* ========= APIバッチ ========= */
 const chunkArr=(a,n)=>{const out=[]; for(let i=0;i<a.length;i+=n) out.push(a.slice(i,i+n)); return out;};
 async function fetchTracksBatched(ids){
   const uniq=[...new Set(ids)]; const results=[];
@@ -336,23 +366,99 @@ async function fetchTracksBatched(ids){
   for(let i=0;i<chunks.length;i++){ setProg(44+Math.round((i/chunks.length)*8),`track details ${i+1}/${chunks.length}`); await fetchChunk(chunks[i],`tracks#${i+1}`); }
   return results;
 }
+
+/* ========= 特徴量取得（403フォールバック付き：バッチ→単発→分析→ニュートラル） ========= */
 async function fetchFeaturesBatched(ids){
-  const uniq=[...new Set(ids)]; const feats=new Map();
-  async function fetchChunk(list,tagBase){
+  const uniq=[...new Set(ids)];
+  const feats=new Map();
+  const stats={batchOK:0,batchNull:0,singleOK:0,singleNG:0,analysisOK:0,analysisNG:0,neutral:0};
+
+  const neutral = id => ({ id, energy:0.58, valence:0.45, danceability:0.60, tempo:132, __fallback:"neutral" });
+
+  async function tryBatch(list, tagBase){
+    const data = await callSpotifyJSON(
+      `https://api.spotify.com/v1/audio-features?ids=${list.join(",")}`,
+      {},
+      { tag:`${tagBase}[${list.length}]` }
+    );
+    (data.audio_features||[]).forEach((f, i)=>{
+      const id=list[i];
+      if(f && f.id){
+        feats.set(f.id, f); stats.batchOK++;
+      }else{
+        feats.set(id, null); stats.batchNull++;
+      }
+    });
+  }
+  async function trySingle(id){
+    let attempt=0;
+    while(attempt<3){
+      attempt++;
+      try{
+        const f = await callSpotifyJSON(`https://api.spotify.com/v1/audio-features/${id}`, {}, {tag:`feature:${id}`});
+        if(f && f.id){ feats.set(id, f); stats.singleOK++; return; }
+      }catch(e){
+        if(String(e.message||"").includes(" 403")){
+          await sleep(300*attempt);
+          continue;
+        }else{
+          break;
+        }
+      }
+    }
+    feats.set(id, null); stats.singleNG++;
+  }
+  async function tryAnalysis(id){
+    let attempt=0;
+    while(attempt<2){
+      attempt++;
+      try{
+        const a = await callSpotifyJSON(`https://api.spotify.com/v1/audio-analysis/${id}`, {}, {tag:`analysis:${id}`});
+        const tempo = a?.track?.tempo || 132;
+        feats.set(id, { id, energy:0.58, valence:0.45, danceability:0.60, tempo, __fallback:"analysis" });
+        stats.analysisOK++; return;
+      }catch(e){
+        if(String(e.message||"").includes(" 403")){
+          await sleep(400*attempt);
+          continue;
+        }else{
+          break;
+        }
+      }
+    }
+    feats.set(id, neutral(id)); stats.analysisNG++; stats.neutral++;
+  }
+
+  // 1) バッチ
+  const chunks=chunkArr(uniq,100);
+  for(let i=0;i<chunks.length;i++){
+    setProg(54+Math.round((i/chunks.length)*6), `features ${i+1}/${chunks.length}`);
     try{
-      const data=await callSpotifyJSON(`https://api.spotify.com/v1/audio-features?ids=${list.join(",")}`,{}, {tag:`${tagBase}[${list.length}]`});
-      (data.audio_features||[]).forEach(f=>{ if(f) feats.set(f.id,f); });
+      await tryBatch(chunks[i], `features#${i+1}`);
     }catch(e){
-      if(String(e.message||"").includes(" 403") && list.length>1){
-        const mid=Math.floor(list.length/2); await fetchChunk(list.slice(0,mid),tagBase+"a"); await fetchChunk(list.slice(mid),tagBase+"b");
-      }else if(String(e.message||"").includes(" 403") && list.length===1){ log(`   × 403 skip feature ${list[0]}`); }
-      else throw e;
+      // 403などでバッチ自体が失敗 → 分割して個別へ
+      const sub=chunkArr(chunks[i], 1);
+      for(const one of sub){ feats.set(one[0], null); }
     }
   }
-  const chunks=chunkArr(uniq,100);
-  for(let i=0;i<chunks.length;i++){ setProg(54+Math.round((i/chunks.length)*6),`features ${i+1}/${chunks.length}`); await fetchChunk(chunks[i],`features#${i+1}`); }
+
+  // 2) バッチでnullのものを単発
+  const needSingle = uniq.filter(id => !feats.has(id) || feats.get(id)===null);
+  for(let i=0;i<needSingle.length;i++){
+    await trySingle(needSingle[i]);
+  }
+
+  // 3) それでもnullのものは分析→ニュートラル
+  const needAnalysis = uniq.filter(id => !feats.has(id) || feats.get(id)===null);
+  for(let i=0;i<needAnalysis.length;i++){
+    await tryAnalysis(needAnalysis[i]);
+  }
+
+  log(`features fallback: batchOK=${stats.batchOK} / batchNull=${stats.batchNull} / singleOK=${stats.singleOK} / singleNG=${stats.singleNG} / analysisOK=${stats.analysisOK} / analysisNG=${stats.analysisNG} / neutral=${stats.neutral}`);
   return feats;
 }
+
+/* ========= アーティストジャンル一括 ========= */
 async function fetchArtistsGenresMapBatched(ids){
   const uniq=[...new Set(ids)]; const map=new Map();
   async function fetchChunk(list,tagBase){
@@ -370,6 +476,9 @@ async function fetchArtistsGenresMapBatched(ids){
   for(let i=0;i<chunks.length;i++){ setProg(62+Math.round((i/chunks.length)*8),`artists ${i+1}/${chunks.length}`); await fetchChunk(chunks[i],`artists#${i+1}`); }
   return map;
 }
+
+/* ========= アルバム/トラック ========= */
+const albumCache=new Map(); // market -> albums
 async function scanArtistAlbums(artistId, market, groupsCsv, scanMax){
   let items=[]; let url=`https://api.spotify.com/v1/artists/${artistId}/albums?market=${encodeURIComponent(market)}&include_groups=${encodeURIComponent(groupsCsv)}&limit=50&offset=0`;
   let page=0;
@@ -426,12 +535,12 @@ function balancedOrder(cands,pins,finalSize,opt){
 
   const seq=new Array(finalSize).fill(null);
   for(const [pos,id] of posPins){ const t=cands.find(x=>x.id===id); if(t) seq[pos-1]=t; }
-  let cycIdx=0; const wantHead5=opt.head5!==false;
+  let cycIdx=0; const wantHead5=true;
   function pickFromBin(bi,prev){
     const arr=bins[bi];
     for(let i=0;i<arr.length;i++){
       const t=arr[i];
-      if(opt.noAdjacent && prev && shareArtist(prev,t)) continue;
+      if(opt.noAdjacent!==false && prev && shareArtist(prev,t)) continue;
       arr.splice(i,1); return t;
     }
     return null;
@@ -446,7 +555,7 @@ function balancedOrder(cands,pins,finalSize,opt){
     const prev=i>0?seq[i-1]:null; let chosen=null;
     if(wantHead5 && i>=1 && i<=3){
       const top=[...bins[3],...bins[2]].slice(0,20);
-      for(const t of top){ if(!opt.noAdjacent || !prev || !shareArtist(prev,t)){ chosen=t; break; } }
+      for(const t of top){ if(opt.noAdjacent===false || !prev || !shareArtist(prev,t)){ chosen=t; break; } }
       if(chosen){ const bi=bucket(chosen); const idx=bins[bi].findIndex(x=>x.id===chosen.id); if(idx>=0) bins[bi].splice(idx,1); }
     }
     if(!chosen) chosen=pickAny(prev);
@@ -472,140 +581,129 @@ function classifyBreaks(t, genresMap, seedArtistId){
   return {ok:false, reason:"none"};
 }
 
-/* ========= Edition 仕様 ========= */
-const EDITIONS={
-  UK:    { markets:["GB","IE"], anyOf:["GB"], suffix:" [UK Edition]" },
-  US:    { markets:["US","CA"], anyOf:["US"], suffix:" [US Edition]" },
-  EU:    { markets:["DE","FR","NL","ES","IT","SE","DK","FI","BE","AT","IE","PL","PT","CZ"], needCount:4, suffix:" [EU Edition]" },
-  WORLD: { markets:["US","GB","DE","FR","NL","ES","IT","SE","AU","CA","BR"], needPct:0.6, suffix:" [World Edition]" }
-};
-function coverageOk(trackId, ed, relaxStep=0){
-  const seen=trackSeenBy.get(trackId)||new Set();
-  if(ed.anyOf){ return ed.anyOf.some(m=>seen.has(m)); }
-  if(ed.needCount){ const c=ed.markets.reduce((n,m)=>n+(seen.has(m)?1:0),0); const need=Math.max(1, ed.needCount-relaxStep); return c>=need; }
-  if(ed.needPct){ const total=ed.markets.length; const c=ed.markets.reduce((n,m)=>n+(seen.has(m)?1:0),0); const need=Math.max(1, Math.ceil(total*(ed.needPct-relaxStep*0.1))); return c>=need; }
-  return true;
-}
-
-/* ========= グローバル状態 ========= */
-let pool=[], trimmed=[], final100=[];
-const albumCache=new Map(); // mkt -> albums[]
-const trackMeta=new Map();
-
-/* ========= 種別フィルタ（Album/Single/EP/Compilation） ========= */
-function needTypes(){
-  const s=new Set([...document.querySelectorAll(".rtype:checked")].map(x=>x.value));
-  return {wantAlbum:s.has("ALBUM"), wantSingle:s.has("SINGLE"), wantEP:s.has("EP"), wantComp:s.has("COMPILATION")};
-}
-function isEP(album){
-  const type=(album.album_type||"").toLowerCase(); const tracks=album.total_tracks||0; const name=(album.name||"").toLowerCase();
-  return (type==="single" && tracks>=3) || /\bep\b/.test(name);
-}
-function matchReleaseType(album, types){
-  const t=(album.album_type||"").toLowerCase();
-  if(t==="album" && types.wantAlbum) return true;
-  if(t==="compilation" && types.wantComp) return true;
-  if(t==="single"){
-    if(types.wantEP && isEP(album)) return true;
-    if(types.wantSingle && !isEP(album)) return true;
-  }
-  return false;
-}
-
-/* ========= 収集（FAST Build） ========= */
+/* ========= 収集（FAST Build with エスカレーション & appears_on） ========= */
 async function doFastBuild(marketsOverride=null){
   if(!acquireLock(BUILD_LOCK_KEY)){ warn("他のタブ/同タブで収集中です。少し待って再実行してください。"); return; }
   startHB(BUILD_LOCK_KEY);
-  pool=[]; trimmed=[]; final100=[]; trackSeenBy.clear(); warn("");
+  let pool=[], filtered=[], trimmedLocal=[];
+  trimmed=[]; final100=[]; trackSeenBy.clear(); warn("");
 
   const checked=[...document.querySelectorAll(".ed:checked")].map(x=>x.value);
-  if(checked.length===0){ alert("作るエディションにチェックを入れてください。"); releaseLock(BUILD_LOCK_KEY); return; }
+  if(checked.length===0){ alert("エディションを選んでください。"); releaseLock(BUILD_LOCK_KEY); return; }
 
-  // 4エディションの必要市場を合算
-  const mkts=new Set(); checked.forEach(k=> (EDITIONS[k].markets||[]).forEach(m=>mkts.add(m)));
-  const markets=[...(marketsOverride||mkts)];
+  const needMkts=new Set();
+  checked.forEach(k=> (EDITIONS[k].markets||[]).forEach(m=>needMkts.add(m)));
+  CORE_SCAN_MARKETS.forEach(m=>needMkts.add(m));
+  if(marketsOverride){ marketsOverride.forEach(m=>needMkts.add(m)); }
+  let markets=[...needMkts];
+
   const artistId=el("artistId").value.trim();
-  const recentN=Math.max(8, Math.min(80, parseInt(el("albumRecent").value||"24",10)));
-  const oldRatio=Math.max(0, Math.min(0.8, parseFloat(el("oldAlbumRatio").value||"0.25")));
-  const oldN=Math.round(recentN*oldRatio);
-  const minYear=Math.max(2010, parseInt(el("minYear")?.value||"2010",10)); // 将来の互換用
+  let recentN=Math.max(8, Math.min(80, parseInt(el("albumRecent").value||"24",10)));
+  let oldRatio=Math.max(0, Math.min(0.8, parseFloat(el("oldAlbumRatio").value||"0.25")));
+  const minYear=2010; // 固定
   const wPop=parseFloat(el("wPopularity").value||"0.6");
   const wRec=parseFloat(el("wRecent").value||"0.4");
   const targetPool=Math.max(120, Math.min(200, parseInt(el("targetPool").value||"130",10)));
   const SCAN_MAX=120;
   const types=needTypes();
+  let groupsCsv = "album,single,compilation,appears_on";
 
-  log(`=== FAST Build start editions=[${checked.join(",")}] markets=[${markets.join(",")}] recentN=${recentN} oldN=${oldN} ===`);
+  for(let round=1; round<=2; round++){
+    log(`=== FAST Build r${round} start markets=[${markets.join(",")}] recentN=${recentN} oldN=${Math.round(recentN*oldRatio)} groups=${groupsCsv} ===`);
 
-  try{
-    const groupsCsv="album,single,compilation"; // appears_on は使わない
     const pickedAlbums=[];
-    for(const m of markets){
-      let all=albumCache.get(m);
-      if(!all){ all=await scanArtistAlbums(artistId,m,groupsCsv,SCAN_MAX); albumCache.set(m,all); }
-      // 種別フィルタ
-      const filtered = all.filter(a=>matchReleaseType(a, types));
-      const rec = filtered.slice(0, recentN);
-      const old = oldN ? filtered.slice(-oldN) : [];
-      log(`市場 ${m}: albums(all=${all.length}, afterType=${filtered.length}) → recent=${rec.length}, old=${old.length}`);
-      rec.forEach(a=>pickedAlbums.push({market:m, album:a}));
-      old.forEach(a=>pickedAlbums.push({market:m, album:a}));
+    try{
+      for(const m of markets){
+        let all=albumCache.get(m);
+        if(!all){
+          all=await scanArtistAlbums(artistId, m, groupsCsv, SCAN_MAX);
+          albumCache.set(m, all);
+        }
+        const filteredAlbums = all.filter(a=>matchReleaseType(a, types));
+        const rec = filteredAlbums.slice(0, recentN);
+        const old = oldRatio ? filteredAlbums.slice(-Math.round(recentN*oldRatio)) : [];
+        log(`市場 ${m}: albums(all=${all.length}, afterType=${filteredAlbums.length}) → recent=${rec.length}, old=${old.length}`);
+        rec.forEach(a=>pickedAlbums.push({market:m, album:a}));
+        old.forEach(a=>pickedAlbums.push({market:m, album:a}));
+      }
+
+      const idBag=[];
+      for(let i=0;i<pickedAlbums.length;i++){
+        const {market:m, album:a}=pickedAlbums[i];
+        const tracks=await fetchAlbumTracks(a.id, a.name, a.release_date, m, i+1, pickedAlbums.length);
+        const take=Math.min(5, Math.max(2, Math.ceil((a.total_tracks||tracks.length)/5)));
+        idBag.push(...tracks.slice(0,take).map(t=>t.id));
+        if(idBag.length>=targetPool*3){ break; }
+      }
+
+      for(const m of markets){
+        try{
+          const top=await callSpotifyJSON(`https://api.spotify.com/v1/artists/${artistId}/top-tracks?market=${m}`,{}, {tag:`top-tracks:${m}`});
+          (top.tracks||[]).forEach(t=>{ if(t?.id){ idBag.push(t.id); markSeen(t.id,m); } });
+        }catch(e){ log(`top-tracks:${m} 取得失敗（続行）: ${e.message||e}`); }
+      }
+
+      const uniq=[...new Set(idBag)];
+      log(`候補（下ごしらえ前）: ${uniq.length}曲 → 詳細/特徴量/ジャンル取得…`);
+
+      const trackObjs=await fetchTracksBatched(uniq);
+      const featsMap=await fetchFeaturesBatched(trackObjs.map(t=>t.id));
+      const artistIds=new Set(); trackObjs.forEach(t=> (t.artists||[]).forEach(a=>a?.id&&artistIds.add(a.id)));
+      const genresMap=await fetchArtistsGenresMapBatched([...artistIds]);
+
+      filtered=trackObjs.map(t=>{ const f=featsMap.get(t.id)||{}; return {
+        id:t.id, name:t.name, artists:t.artists||[], popularity:t.popularity||0, duration_ms:t.duration_ms||0,
+        album:t.album||{}, features:{energy:f.energy??0.58,valence:f.valence??0.45,tempo:f.tempo??132,danceability:f.danceability??0.60}
+      }; });
+
+      const counts={year:0, remix:0, breaks:0}; const accept={genres:0,title:0,album:0,label:0,seed:0};
+      filtered=filtered.filter(t=>{
+        const yOk=yearFromDate(t.album?.release_date)>=minYear; if(!yOk){counts.year++;return false;}
+        const rOk=isRemixOnlyTitle(t.name); if(!rOk){counts.remix++;return false;}
+        const cls=classifyBreaks(t,genresMap,artistId); if(!cls.ok){counts.breaks++;return false;}
+        accept[cls.reason]=(accept[cls.reason]||0)+1; return true;
+      });
+
+      filtered = dedupeById(filtered);
+      computeScores(filtered, wPop, wRec);
+
+      const upper=Math.max(120, Math.min(130, targetPool, filtered.length));
+      trimmedLocal=filtered.slice(0, upper); pool=filtered;
+
+      log(`Breaks採用内訳: genres=${accept.genres||0} / title=${accept.title||0} / album=${accept.album||0} / label=${accept.label||0} / seed=${accept.seed||0}`);
+      log(`フィルタ後: ${filtered.length}曲（除外: 年<${minYear}:${counts.year} / Remix規則:${counts.remix} / Breaks非該当:${counts.breaks}）`);
+
+      if(trimmedLocal.length>=120){
+        trimmed = trimmedLocal;
+        el("btnTrim").disabled=false;
+        el("btnBalance").disabled=false;
+        el("btnBuildEditions").disabled=false;
+        log(`FAST Build 完了：${trimmed.length}曲`);
+        break;
+      }
+
+      // ── エスカレーション ──
+      if(round===1){
+        log("プールが薄いためエスカレーション: recentN+50%、oldRatio+0.10、追加市場（US/DE/FR/NL/ES/IT/SE/CA/AU）を強制オン");
+        recentN = Math.min(60, Math.round(recentN*1.5));
+        oldRatio = Math.min(0.40, oldRatio+0.10);
+        markets=[...new Set([...markets, "US","DE","FR","NL","ES","IT","SE","CA","AU"])];
+      }else{
+        // 最終保険
+        trimmed = trimmedLocal;
+        el("btnTrim").disabled = trimmed.length===0;
+        el("btnBalance").disabled = trimmed.length===0;
+        el("btnBuildEditions").disabled = trimmed.length===0;
+        if(trimmed.length===0) warn("候補0。EP/Single/Album/Compilationの組み合わせや recent/old 比率を調整してください。");
+        else log(`FAST Build（保険モード）完了：${trimmed.length}曲`);
+      }
+    }catch(e){
+      log("エラー: "+(e.message||e));
+      break;
     }
+  }
 
-    // アルバム→トラック
-    const idBag=[];
-    for(let i=0;i<pickedAlbums.length;i++){
-      const {market:m, album:a}=pickedAlbums[i];
-      const tracks=await fetchAlbumTracks(a.id, a.name, a.release_date, m, i+1, pickedAlbums.length);
-      // 各アルバムから上位数曲（2〜5曲）
-      const take=Math.min(5, Math.max(2, Math.ceil((a.total_tracks||tracks.length)/5)));
-      idBag.push(...tracks.slice(0,take).map(t=>t.id));
-      if(idBag.length>=targetPool*3){ break; }
-    }
-    // トップトラック補強
-    for(const m of markets){
-      try{
-        const top=await callSpotifyJSON(`https://api.spotify.com/v1/artists/${artistId}/top-tracks?market=${m}`,{}, {tag:`top-tracks:${m}`});
-        (top.tracks||[]).forEach(t=>{ if(t?.id){ idBag.push(t.id); markSeen(t.id,m); } });
-      }catch(e){ log(`top-tracks:${m} 取得失敗（続行）: ${e.message||e}`); }
-    }
-
-    const uniq=[...new Set(idBag)];
-    log(`候補（下ごしらえ前）: ${uniq.length}曲 → 詳細/特徴量/ジャンル取得…`);
-
-    const trackObjs=await fetchTracksBatched(uniq);
-    const featsMap=await fetchFeaturesBatched(trackObjs.map(t=>t.id));
-    const artistIds=new Set(); trackObjs.forEach(t=> (t.artists||[]).forEach(a=>a?.id&&artistIds.add(a.id)));
-    const genresMap=await fetchArtistsGenresMapBatched([...artistIds]);
-
-    // フィルタ（2010+ / RemixOnly / Breaks）
-    let filtered=trackObjs.map(t=>{ const f=featsMap.get(t.id)||{}; return {
-      id:t.id, name:t.name, artists:t.artists||[], popularity:t.popularity||0, duration_ms:t.duration_ms||0,
-      album:t.album||{}, features:{energy:f.energy??0.5,valence:f.valence??0.5,tempo:f.tempo??120,danceability:f.danceability??0.5}
-    }; });
-
-    const counts={year:0, remix:0, breaks:0}; const accept={genres:0,title:0,album:0,label:0,seed:0};
-    filtered=filtered.filter(t=>{
-      const yOk=yearFromDate(t.album?.release_date)>=minYear; if(!yOk){counts.year++;return false;}
-      const rOk=isRemixOnlyTitle(t.name); if(!rOk){counts.remix++;return false;}
-      const cls=classifyBreaks(t,genresMap,el("artistId").value.trim()); if(!cls.ok){counts.breaks++;return false;}
-      accept[cls.reason]=(accept[cls.reason]||0)+1; return true;
-    });
-
-    // スコア付与→Trim
-    filtered=dedupeById(filtered); computeScores(filtered,wPop,wRec);
-    const upper=Math.max(120, Math.min(130, targetPool, filtered.length));
-    trimmed=filtered.slice(0,upper); pool=filtered;
-
-    log(`Breaks採用内訳: genres=${accept.genres||0} / title=${accept.title||0} / album=${accept.album||0} / label=${accept.label||0} / seed=${accept.seed||0}`);
-    log(`フィルタ後: ${filtered.length}曲（除外: 年<${minYear}:${counts.year} / Remix規則:${counts.remix} / Breaks非該当:${counts.breaks}）`);
-    el("btnTrim").disabled=trimmed.length===0;
-    el("btnBalance").disabled=trimmed.length===0;
-    el("btnBuildEditions").disabled=trimmed.length===0;
-    if(trimmed.length===0) warn("候補0。EP/Single/Album/Compilationの組み合わせや recent/old 比率を調整してください。");
-    else log(`FAST Build 完了：${trimmed.length}曲`);
-  }catch(e){ log("エラー: "+(e.message||e)); }
-  finally{ releaseLock(BUILD_LOCK_KEY); }
+  releaseLock(BUILD_LOCK_KEY);
 }
 
 /* ========= Trim / Balance ========= */
@@ -644,7 +742,7 @@ async function putPlaylist(name, desc, isPublic, uris, existingId=null){
 function selectedEditions(){ return [...document.querySelectorAll(".ed:checked")].map(x=>x.value); }
 async function buildEditions(){
   const eds=selectedEditions(); if(!eds.length){ alert("エディションを選択してください。"); return; }
-  await doFastBuild(); // 収集→trim 済
+  await doFastBuild(); // 収集→trim 済み
   if(!trimmed.length){ alert("候補がありません。収集条件を見直してください。"); return; }
 
   const finalSize=Math.max(80, Math.min(100, parseInt(el("finalSize").value||"100",10)));
@@ -656,7 +754,6 @@ async function buildEditions(){
 
   for(const key of eds){
     const ed=EDITIONS[key];
-    // 可用性ゲート：不足なら緩和
     let keep=trimmed.filter(t=>coverageOk(t.id,ed,0));
     if(keep.length<finalSize) keep=trimmed.filter(t=>coverageOk(t.id,ed,1));
     if(keep.length<finalSize) keep=trimmed.filter(t=>coverageOk(t.id,ed,2));
@@ -672,6 +769,15 @@ async function buildEditions(){
   alert("UK/US/EU/World の作成が完了しました。");
 }
 
+/* ========= 可用性判定 ========= */
+function coverageOk(trackId, ed, relaxStep=0){
+  const seen=trackSeenBy.get(trackId)||new Set();
+  if(ed.anyOf){ return ed.anyOf.some(m=>seen.has(m)); }
+  if(ed.needCount){ const c=ed.markets.reduce((n,m)=>n+(seen.has(m)?1:0),0); const need=Math.max(1, ed.needCount-relaxStep); return c>=need; }
+  if(ed.needPct){ const total=ed.markets.length; const c=ed.markets.reduce((n,m)=>n+(seen.has(m)?1:0),0); const need=Math.max(1, Math.ceil(total*(ed.needPct-relaxStep*0.1))); return c>=need; }
+  return true;
+}
+
 /* ========= ハンドラ ========= */
 el("btnMe").addEventListener("click", async()=>{ try{ const me=await callSpotifyJSON("https://api.spotify.com/v1/me",{}, {tag:"/me"}); log(`/me OK: ${me.display_name||"(no name)"} / ${me.id}`);}catch(e){ log("エラー: "+(e.message||e)); } });
 el("btnSignOut").addEventListener("click",()=>{ Object.values(K).forEach(k=>sessionStorage.removeItem(k)); renderStatus(); log("保存トークンを削除しました。"); });
@@ -679,6 +785,7 @@ el("btnSignOut").addEventListener("click",()=>{ Object.values(K).forEach(k=>sess
 el("btnFast").addEventListener("click", ()=>{ doFastBuild().catch(e=>log("エラー: "+(e.message||e))); });
 el("btnTrim").addEventListener("click", ()=>{ doTrim().catch(e=>log("エラー: "+(e.message||e))); });
 el("btnBalance").addEventListener("click", ()=>{ doBalance().catch(e=>log("エラー: "+(e.message||e))); });
+el("btnBuildEditions").addEventListener("click", ()=>{ buildEditions().catch(e=>{ log("エラー: "+(e.message||e)); alert("エラー: "+(e.message||e)); }); });
 el("btnCommit").addEventListener("click", async()=>{
   try{
     if(!final100.length){ alert("③Balanced の結果がありません。先に ③ を実行してください。"); return; }
@@ -689,7 +796,6 @@ el("btnCommit").addEventListener("click", async()=>{
     await putPlaylist(name, desc, isPublic, final100.map(t=>`spotify:track:${t.id}`), existing);
   }catch(e){ log("エラー: "+(e.message||e)); alert("エラー: "+(e.message||e)); }
 });
-el("btnBuildEditions").addEventListener("click", ()=>{ buildEditions().catch(e=>{ log("エラー: "+(e.message||e)); alert("エラー: "+(e.message||e)); }); });
 </script>
 </body>
 </html>
