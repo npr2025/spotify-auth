@@ -4,15 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 
-<!-- 安全化メタ -->
 <meta name="robots" content="noindex,nofollow">
 <meta name="referrer" content="no-referrer">
-<meta name="description" content="Spotifyの公式認可から戻ってきたコードをトークンに交換し、ブラウザのセッションストレージに保存します。">
+<meta name="description" content="Spotifyの公式認可から戻ったコードをトークンに交換し、セッションストレージへ保存します。">
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'self';
                connect-src 'self' https://accounts.spotify.com;
                style-src 'self' 'unsafe-inline';
-               script-src 'self';
+               script-src 'self' 'unsafe-inline';
                frame-ancestors 'none';
                base-uri 'self';
                form-action 'self' https://accounts.spotify.com;">
@@ -36,31 +35,22 @@
 
 <script>
 "use strict";
-/*** 設定 ***/
 const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
 
-/*** キー ***/
-const KEY_VERIFIER = "pkce_verifier";
-const KEY_STATE    = "pkce_state";
-const KEY_CODE_USED_PREFIX = "pkce_code_used_";
-
-/*** UI ***/
+const KEY_VERIFIER="pkce_verifier", KEY_STATE="pkce_state", KEY_CODE_USED_PREFIX="pkce_code_used_";
 const $ = s => document.querySelector(s);
 const log = m => { const el=$("#log"); el.textContent += m + "\n"; console.log(m); };
 function setStatus(t){ $("#status").textContent = t; }
 
-/*** URLパラメータ ***/
 const params = new URLSearchParams(location.search);
 const code  = params.get("code");
 const state = params.get("state");
 const error = params.get("error");
 
-/*** 再使用ブロック ***/
 function isCodeUsed(code){ return sessionStorage.getItem(KEY_CODE_USED_PREFIX + code) === "1"; }
 function markCodeUsed(code){ sessionStorage.setItem(KEY_CODE_USED_PREFIX + code, "1"); }
 
-/*** 429対応 ***/
 async function postTokenWithRetry(payload, maxRetry=3){
   let attempt = 0;
   while (true){
@@ -80,7 +70,6 @@ async function postTokenWithRetry(payload, maxRetry=3){
   }
 }
 
-/*** メイン ***/
 async function run(){
   try{
     if (error){ setStatus("Authorization error: "+error); log("認可でエラー: "+error); $("#btnRetry").hidden = false; return; }
@@ -101,8 +90,7 @@ async function run(){
     const payload = { client_id: CLIENT_ID, grant_type: "authorization_code", code, redirect_uri: REDIRECT_URI, code_verifier: verifier };
     const res = await postTokenWithRetry(payload, 3);
     const txt = await res.text();
-    let data = null;
-    try{ data = JSON.parse(txt); }catch(_){}
+    let data = null; try{ data = JSON.parse(txt); }catch(_){}
     if (!res.ok){
       setStatus(`トークン交換失敗: HTTP ${res.status}`);
       log("Body: " + txt);
@@ -119,7 +107,7 @@ async function run(){
     if (refresh_token) sessionStorage.setItem("sp_refresh_token", refresh_token);
     if (scope) sessionStorage.setItem("sp_scope", scope);
 
-    try{ const cleanUrl = location.origin + location.pathname; history.replaceState({}, "", cleanUrl); }catch(_){}
+    try{ history.replaceState({}, "", location.origin + location.pathname); }catch(_){}
 
     setStatus("接続完了。トークンを保存しました。");
     log("access_token 取得・保存 OK。index.html へ戻って処理を続けてください。");
