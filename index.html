@@ -32,7 +32,7 @@
 </style>
 </head>
 <body>
-<h1>Spotify コントロールセンター（Breaks限定・2010+・Remixのみ） <span class="pill">v2025-08-23R-403safe</span></h1>
+<h1>Spotify コントロールセンター（Breaks限定・2010+・Remixのみ） <span class="pill">v2025-08-23R-403safe.1</span></h1>
 
 <fieldset>
   <legend>サインイン／疎通</legend>
@@ -205,6 +205,17 @@
 
 <script>
 "use strict";
+/* ===== 早期エラーを拾う ===== */
+window.addEventListener("error", e => {
+  const el=document.getElementById("log");
+  if(el) { el.textContent += `[${new Date().toLocaleTimeString()}] SCRIPT ERROR: ${e.message}\n`; }
+});
+window.addEventListener("unhandledrejection", e => {
+  const el=document.getElementById("log");
+  const msg = e?.reason?.message || e?.reason || "(no reason)";
+  if(el) { el.textContent += `[${new Date().toLocaleTimeString()}] UNHANDLED: ${msg}\n`; }
+});
+
 /* ===== 固定クライアント ===== */
 const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e";
 
@@ -234,13 +245,18 @@ const warn=m=>{el("warn").textContent=m||"";};
 const setProg=(v,label)=>{ el("prog").value=v; el("progTxt").textContent=label||""; };
 function updateNetNote(){el("netNote").textContent=navigator.onLine?"":"（オフライン検出：オンライン復帰後に再実行してください）";}
 window.addEventListener("online",updateNetNote); window.addEventListener("offline",updateNetNote);
-el("verbose").addEventListener("change",()=>{ VERBOSE=el("verbose").checked; });
+const verboseEl=el("verbose"); if(verboseEl){ verboseEl.addEventListener("change",()=>{ VERBOSE=verboseEl.checked; }); }
 
 /* ===== トークン管理 ===== */
-function renderStatus(){try{const a=sessionStorage.getItem(K.access);const e=parseInt(sessionStorage.getItem(K.expAt)||"0",10);if(!a){el("status").textContent="未サインイン。必要になったらボタンから開始。";return;}
-const left=e-Date.now(); if(left>60000) el("status").textContent="Signed in. （有効期限まで約 "+Math.floor(left/1000)+" 秒）";
-else if(left>0) el("status").textContent="トークン期限切れ間近。必要なら再サインインしてください。";
-else el("status").textContent="トークン期限切れ。サインインをやり直してください。";}catch(err){el("status").textContent="状態表示エラー: "+(err.message||err);}}
+function renderStatus(){try{
+  const a=sessionStorage.getItem(K.access);
+  const e=parseInt(sessionStorage.getItem(K.expAt)||"0",10);
+  if(!a){el("status").textContent="未サインイン。必要になったらボタンから開始。";return;}
+  const left=e-Date.now();
+  if(left>60000) el("status").textContent="Signed in. （有効期限まで約 "+Math.floor(left/1000)+" 秒）";
+  else if(left>0) el("status").textContent="トークン期限切れ間近。必要なら再サインインしてください。";
+  else el("status").textContent="トークン期限切れ。サインインをやり直してください。";
+}catch(err){el("status").textContent="状態表示エラー: "+(err.message||err);}}
 function saveTokens({access_token,token_type,expires_in,refresh_token,scope}){const expAt=Date.now()+(expires_in*1000); sessionStorage.setItem(K.access,access_token); sessionStorage.setItem(K.type,token_type||"Bearer"); sessionStorage.setItem(K.expAt,String(expAt)); if(refresh_token) sessionStorage.setItem(K.refresh,refresh_token); if(scope) sessionStorage.setItem(K.scope,scope); renderStatus();}
 let refreshInflight=null;
 async function ensureFreshToken(clientId=CLIENT_ID){
@@ -260,7 +276,7 @@ async function ensureFreshToken(clientId=CLIENT_ID){
   return refreshInflight;
 }
 
-/* ===== APIラッパ（403検出・文言解析・タグ付ログ） ===== */
+/* ===== APIラッパ ===== */
 let MIN_API_GAP_MS=1000; let lastApiTs=0;
 async function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
 function parse403Message(txt){ try{const j=JSON.parse(txt); return j?.error?.message||"";}catch(_){return "";} }
@@ -284,7 +300,6 @@ async function callSpotifyJSON(url,opts={}, {maxRetry=5,expectJSON=true,tag=""}=
     }
     if(res.status===403){
       const txt=await res.text(); const msg=parse403Message(txt);
-      // 代表例：insufficient scope / restricted endpoint
       throw new Error(`${tag||"HTTP"} 403${msg?(": "+msg):""} ::RAW:: ${txt}`);
     }
     if(res.status>=500 && attempt<=maxRetry){
@@ -302,15 +317,9 @@ const chunkArr=(a,n)=>{const out=[]; for(let i=0;i<a.length;i+=n) out.push(a.sli
 const yearFromDate=s=>{ if(!s) return 0; const y=parseInt(String(s).slice(0,4),10); return isNaN(y)?0:y; };
 const trunc=(s,n=48)=>{ s=String(s||""); return s.length>n ? s.slice(0,n-1)+"…" : s; };
 
-/* Remixのみ／Mixは全除外（“remix/ remixed/ rmx”はOK、"mix/club/original/dj/extended/continuous mix"はNG） */
+/* Remixのみ／Mixは全除外 */
 function tokenize(name){
-  return (name||"")
-    .toLowerCase()
-    .replace(/[()[\]{}\-]/g," ")
-    .replace(/\s+/g," ")
-    .trim()
-    .split(" ")
-    .filter(Boolean);
+  return (name||"").toLowerCase().replace(/[()[\]{}\-]/g," ").replace(/\s+/g," ").trim().split(" ").filter(Boolean);
 }
 function isRemixOnlyTitle(name){
   const t = tokenize(name);
@@ -319,12 +328,11 @@ function isRemixOnlyTitle(name){
   return hasRemix && !hasMix;
 }
 
-/* Breaks/Breakbeat 判定（genres優先＋タイトル/アルバム名フォールバック） */
+/* Breaks/Breakbeat 判定 */
 const breaksRegex=/\b(breaks?|break[-\s]?beat|nu[-\s]?breaks?)\b/i;
 
 /* メタ & 結果 */
-let albumMeta=new Map(); // albumId -> {dateMs}
-let trackMeta=new Map(); // trackId -> full
+let albumMeta=new Map(); let trackMeta=new Map();
 let poolIds=[], pool=[], trimmed=[], final100=[];
 
 /* UI値 */
@@ -334,7 +342,7 @@ function getSelectedGroups(){ const opt=[...el("groups").options]; return opt.fi
 async function fetchTracksBatched(ids, market){
   const uniq=[...new Set(ids)];
   const results=[];
-  async function fetchChunkDynamic(list, tagBase, level=0){
+  async function fetchChunkDynamic(list, tagBase){
     const qs = `ids=${list.join(",")}` + (market?`&market=${encodeURIComponent(market)}`:"");
     const url = `https://api.spotify.com/v1/tracks?${qs}`;
     try{
@@ -345,8 +353,8 @@ async function fetchTracksBatched(ids, market){
       if(String(e.message||"").includes(" 403") && list.length>1){
         const mid=Math.floor(list.length/2);
         vlog(`  - ${tagBase} 403 → split(${list.length}→${mid}+${list.length-mid})`);
-        await fetchChunkDynamic(list.slice(0,mid), tagBase+"a", level+1);
-        await fetchChunkDynamic(list.slice(mid), tagBase+"b", level+1);
+        await fetchChunkDynamic(list.slice(0,mid), tagBase+"a");
+        await fetchChunkDynamic(list.slice(mid), tagBase+"b");
       }else if(String(e.message||"").includes(" 403") && list.length===1){
         log(`   × 403 skip track ${list[0]}`);
       }else{
@@ -634,8 +642,61 @@ async function doTrim(){
   el("btnBalance").disabled = false;
 }
 
-/* Balanced */
 function materializePins(){ return {1:(el("pin1").value||"").trim(),5:(el("pin5").value||"").trim(),40:(el("pin40").value||"").trim(),60:(el("pin60").value||"").trim()}; }
+function balancedOrder(cands, pins, finalSize, options){
+  const posPins=new Map(Object.entries(pins).map(([k,v])=>[parseInt(k,10), v]).filter(([,v])=>v));
+  const pinIds=new Set([...posPins.values()]);
+  let rest=cands.filter(t=>!pinIds.has(t.id));
+
+  const energies=rest.map(t=>t.features.energy||0.5).sort((a,b)=>a-b);
+  const q1=energies[Math.floor(energies.length*0.25)]||0.25;
+  const q2=energies[Math.floor(energies.length*0.50)]||0.5;
+  const q3=energies[Math.floor(energies.length*0.75)]||0.75;
+  const bucket=t=>(t.features.energy<=q1)?0:(t.features.energy<=q2)?1:(t.features.energy<=q3)?2:3;
+  const bins=[[],[],[],[]]; rest.forEach(t=>bins[bucket(t)].push(t));
+  bins.forEach(b=>b.sort((a,b)=> b._score - a._score));
+
+  const seq=new Array(finalSize).fill(null);
+  for(const [pos,id] of posPins){
+    const t=cands.find(x=>x.id===id);
+    if(t){ seq[pos-1]=t; } else { log(`Pin #${pos} はフィルタ非適合/未取得で除外: ${id}`); }
+  }
+
+  const wantHead5=options.head5, orderCycle=[0,2,1,3]; let cycIdx=0;
+  function pickFromBin(bi, prev){
+    const arr=bins[bi];
+    for(let i=0;i<arr.length;i++){
+      const t=arr[i];
+      if(options.noAdjacent && prev && shareArtist(prev,t)) continue;
+      arr.splice(i,1); return t;
+    }
+    return null;
+  }
+  function pickAny(prev){
+    for(let r=0;r<4;r++){
+      const t=pickFromBin((cycIdx+r)%4, prev);
+      if(t){cycIdx=(cycIdx+r+1)%4; return t;}
+    }
+    for(let bi=0;bi<4;bi++){ if(bins[bi].length){ return bins[bi].shift(); } }
+    return null;
+  }
+
+  const seq=new Array(finalSize).fill(null);
+  for(let i=0;i<finalSize;i++){
+    if(seq[i]) continue;
+    const prev=i>0?seq[i-1]:null;
+    let chosen=null;
+    if(wantHead5 && i>=1 && i<=3){
+      const top=[...bins[3],...bins[2]].slice(0,20);
+      for(const t of top){ if(!options.noAdjacent || !prev || !shareArtist(prev,t)){ chosen=t; break; } }
+      if(chosen){ const bi=bucket(chosen); const idx=bins[bi].findIndex(x=>x.id===chosen.id); if(idx>=0) bins[bi].splice(idx,1); }
+    }
+    if(!chosen) chosen=pickAny(prev);
+    seq[i]=chosen;
+  }
+  return seq.filter(Boolean);
+}
+
 async function doBalance(){
   const finalSize=Math.max(50, Math.min(100, parseInt(el("finalSize").value||"100",10)));
   const pins=materializePins();
@@ -651,10 +712,9 @@ function toCSV(rows){ return rows.map(r=>r.map(v=>{const s=v==null?"":String(v);
 el("btnCSV").addEventListener("click", ()=>{ if(!final100.length) return; const rows=[["No","Track ID","Title","Artists","Popularity","Energy","Valence","Tempo","Album Date"], ...final100.map((t,i)=>[i+1,t.id,t.name,(t.artists||[]).map(a=>a.name).join(" & "),t.popularity,t.features.energy,t.features.valence,t.features.tempo,t.album?.release_date||""] )]; const csv=toCSV(rows); const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"})); a.download=`breaks_remixonly_2010plus_${Date.now()}.csv`; a.click(); });
 el("btnJSON").addEventListener("click", ()=>{ if(!final100.length) return; const payload={ meta:{ts:new Date().toISOString(), market:el("market").value, artistId:el("artistId").value, minYear:parseInt(el("minYear").value,10), ratioOld:parseFloat(el("ratioOld").value||"0.3"), pins:materializePins()}, tracks:final100 }; const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:"application/json"})); a.download=`breaks_remixonly_2010plus_${Date.now()}.json`; a.click(); });
 
-/* コミット */
-let MIN_API_GAP_MS=1000; let lastApiTs=0;
+/* コミット（※ここは “再宣言なし” に修正済み） */
 async function commitPlaylist(){
-  MIN_API_GAP_MS = Math.max(300, parseInt(el("gap").value||"1000",10));
+  MIN_API_GAP_MS = Math.max(300, parseInt(el("gap").value||"1000",10));  // ← let を付けない
   const maxRetry = Math.max(1, parseInt(el("maxRetry").value||"5",10));
   const existing = el("existingId").value.trim();
   if(!final100.length) return alert("Balanced結果がありません。③を実行してください。");
