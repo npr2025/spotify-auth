@@ -3,121 +3,55 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-
+<title>Spotify Auth – Callback</title>
 <meta name="robots" content="noindex,nofollow">
-<meta name="referrer" content="no-referrer">
-<meta name="description" content="Spotifyの公式認可から戻ったコードをトークンに交換し、セッションストレージへ保存します。">
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'self';
                connect-src 'self' https://accounts.spotify.com;
                style-src 'self' 'unsafe-inline';
                script-src 'self' 'unsafe-inline';
                frame-ancestors 'none';
-               base-uri 'self';
-               form-action 'self' https://accounts.spotify.com;">
-
-<title>Spotify Auth Callback</title>
-<style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:900px;margin:36px auto;padding:0 12px}
-  #log{background:#0b1220;color:#cfe3ff;padding:12px;border-radius:8px;white-space:pre-wrap;max-height:420px;overflow:auto;margin-top:12px}
-  a.btn,button{display:inline-block;margin:6px 8px 0 0;padding:9px 12px;border:1px solid #bbb;border-radius:8px;background:#fff;text-decoration:none;cursor:pointer}
-  button:disabled{opacity:.55;cursor:not-allowed}
-</style>
+               base-uri 'self';">
+<style>body{font-family:system-ui;padding:24px}</style>
 </head>
 <body>
-<h1>Spotify 接続完了</h1>
-<p id="status">コード処理中…</p>
-<p>
-  <a class="btn" href="./index.html">トップへ戻る</a>
-  <button id="btnRetry" hidden>もう一度トークン交換</button>
-</p>
-<pre id="log"></pre>
-
+<h1>認可処理中…</h1>
+<pre id="out"></pre>
 <script>
-"use strict";
-const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
-const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
-
-const KEY_VERIFIER="pkce_verifier", KEY_STATE="pkce_state", KEY_CODE_USED_PREFIX="pkce_code_used_";
-const $ = s => document.querySelector(s);
-const log = m => { const el=$("#log"); el.textContent += m + "\n"; console.log(m); };
-function setStatus(t){ $("#status").textContent = t; }
-
-const params = new URLSearchParams(location.search);
-const code  = params.get("code");
-const state = params.get("state");
-const error = params.get("error");
-
-function isCodeUsed(code){ return sessionStorage.getItem(KEY_CODE_USED_PREFIX + code) === "1"; }
-function markCodeUsed(code){ sessionStorage.setItem(KEY_CODE_USED_PREFIX + code, "1"); }
-
-async function postTokenWithRetry(payload, maxRetry=3){
-  let attempt = 0;
-  while (true){
-    attempt++;
-    const res = await fetch("https://accounts.spotify.com/api/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams(payload)
-    });
-    if (res.status !== 429) return res;
-
-    const ra = parseInt(res.headers.get("Retry-After")||"1", 10);
-    const waitMs = Math.min(60, (isNaN(ra)?1:ra)) * 1000;
-    log(`429 Too Many Requests（試行${attempt}/${maxRetry}）。${Math.ceil(waitMs/1000)}秒待機して再試行します。`);
-    if (attempt >= maxRetry) return res;
-    await new Promise(r => setTimeout(r, waitMs + 200));
-  }
-}
-
-async function run(){
+const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e";
+const REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
+const K={access:"sp_access_token",type:"sp_token_type",expAt:"sp_expires_at",refresh:"sp_refresh_token",scope:"sp_scope"};
+const out=(m)=>document.getElementById('out').textContent+=m+"\n";
+(async()=>{
   try{
-    if (error){ setStatus("Authorization error: "+error); log("認可でエラー: "+error); $("#btnRetry").hidden = false; return; }
-    if (!code || !state){ setStatus("code/state が見つかりません。"); $("#btnRetry").hidden = false; return; }
-
-    const st = sessionStorage.getItem(KEY_STATE);
-    if (!st || st !== state){ setStatus("state 不一致（セッションとURLが合いません）。"); log(`session=${st} url=${state}`); $("#btnRetry").hidden = false; return; }
-
-    if (isCodeUsed(code)){ setStatus("この認可コードは既に処理済みです。"); return; }
-    markCodeUsed(code);
-
-    const verifier = sessionStorage.getItem(KEY_VERIFIER);
-    if (!verifier){ setStatus("code_verifier が見つかりません（セッション切れ）。auth からやり直してください。"); $("#btnRetry").hidden = false; return; }
-
-    setStatus("トークン交換中…");
-    log("POST /api/token（PKCE）");
-
-    const payload = { client_id: CLIENT_ID, grant_type: "authorization_code", code, redirect_uri: REDIRECT_URI, code_verifier: verifier };
-    const res = await postTokenWithRetry(payload, 3);
-    const txt = await res.text();
-    let data = null; try{ data = JSON.parse(txt); }catch(_){}
-    if (!res.ok){
-      setStatus(`トークン交換失敗: HTTP ${res.status}`);
-      log("Body: " + txt);
-      $("#btnRetry").hidden = false;
-      return;
-    }
-
-    const { access_token, token_type, expires_in, refresh_token, scope } = data;
-    const expAt = Date.now() + (expires_in*1000);
-
-    sessionStorage.setItem("sp_access_token", access_token);
-    sessionStorage.setItem("sp_token_type", token_type||"Bearer");
-    sessionStorage.setItem("sp_expires_at", String(expAt));
-    if (refresh_token) sessionStorage.setItem("sp_refresh_token", refresh_token);
-    if (scope) sessionStorage.setItem("sp_scope", scope);
-
-    try{ history.replaceState({}, "", location.origin + location.pathname); }catch(_){}
-
-    setStatus("接続完了。トークンを保存しました。");
-    log("access_token 取得・保存 OK。index.html へ戻って処理を続けてください。");
+    const params=new URLSearchParams(location.search);
+    const code=params.get('code'); const err=params.get('error');
+    if(err) throw new Error(err);
+    if(!code) throw new Error("no code");
+    const ver=sessionStorage.getItem('sp_code_verifier');
+    if(!ver) throw new Error("no code_verifier");
+    const body=new URLSearchParams({
+      client_id:CLIENT_ID,
+      grant_type:'authorization_code',
+      code,
+      redirect_uri:REDIRECT_URI,
+      code_verifier:ver
+    });
+    const res=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
+    const txt=await res.text(); let data=null; try{data=JSON.parse(txt);}catch(_){}
+    if(!res.ok) throw new Error(txt||("HTTP "+res.status));
+    const expAt=Date.now()+data.expires_in*1000;
+    sessionStorage.setItem(K.access,data.access_token);
+    sessionStorage.setItem(K.type,data.token_type||"Bearer");
+    sessionStorage.setItem(K.expAt,String(expAt));
+    if(data.refresh_token) sessionStorage.setItem(K.refresh,data.refresh_token);
+    if(data.scope) sessionStorage.setItem(K.scope,data.scope);
+    out("OK. redirect to index.html");
+    location.replace("./index.html");
   }catch(e){
-    setStatus("エラー: " + (e.message||e));
-    $("#btnRetry").hidden = false;
+    out("ERROR: "+(e.message||e));
   }
-}
-$("#btnRetry").addEventListener("click", () => { location.href = "./auth.html"; });
-run();
+})();
 </script>
 </body>
 </html>
