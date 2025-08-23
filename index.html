@@ -1,5 +1,552 @@
 <!doctype html>
+<html lang="ja">
+<head>
 <meta charset="utf-8">
-<meta http-equiv="refresh" content="0; url=auth.html">
-<title>Redirecting…</title>
-<p>Redirecting to <a href="auth.html">auth.html</a></p>
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+<meta http-equiv="Pragma" content="no-cache">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spotify Control Center</title>
+<style>
+  :root{--w:980px}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:var(--w);margin:36px auto;padding:0 12px}
+  h1{margin:0 0 8px}
+  h2{margin:24px 0 8px}
+  fieldset{border:1px solid #ddd;border-radius:10px;padding:12px;margin:12px 0}
+  label{display:block;margin:8px 0 4px}
+  input[type=text],textarea,select{width:100%;box-sizing:border-box;padding:8px;border:1px solid #bbb;border-radius:8px}
+  textarea{min-height:120px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+  .row>*{flex:1 1 260px}
+  button,a.btn{display:inline-block;padding:9px 12px;border:1px solid #bbb;border-radius:8px;background:#f6f6f6;text-decoration:none;cursor:pointer}
+  button:disabled{opacity:.55;cursor:not-allowed}
+  #status{color:#2d7a2d;margin-top:6px}
+  #warn{color:#a53;margin-top:4px}
+  #log{white-space:pre-wrap;background:#0b1220;color:#cfe3ff;padding:12px;border-radius:8px;max-height:360px;overflow:auto}
+  .muted{opacity:.75}
+  .pill{display:inline-block;padding:2px 8px;border:1px solid #bbb;border-radius:999px;font-size:12px;margin-left:6px}
+  .note{font-size:12px;color:#555}
+</style>
+</head>
+<body>
+<h1>Spotify コントロールセンター <span class="pill" id="ver">v2025-08-23F</span></h1>
+
+<fieldset>
+  <legend>サインイン／疎通</legend>
+  <div class="row">
+    <div>
+      <a class="btn" href="./auth.html">Sign in with Spotify</a>
+      <button id="btnWho">/v1/me（プロフィール）</button>
+      <button id="btnSignOut">サインアウト（保存トークン削除）</button>
+      <div id="status" class="muted">状態確認中…</div>
+      <div id="warn" class="note"></div>
+      <div class="note" id="netNote"></div>
+    </div>
+  </div>
+</fieldset>
+
+<fieldset>
+  <legend>プレイリスト準備（ドライラン → CSV/JSON出力）</legend>
+  <div class="row">
+    <div>
+      <label>プレイリスト名</label>
+      <input id="plName" type="text" placeholder="例）TDCS – Balanced 100">
+    </div>
+    <div>
+      <label>説明文</label>
+      <input id="plDesc" type="text" placeholder="例）Pins固定／隣接リミキサーなし／自動更新ログ付き">
+    </div>
+    <div>
+      <label>公開設定</label>
+      <select id="plPublic">
+        <option value="private" selected>非公開（recommended）</option>
+        <option value="public">公開</option>
+      </select>
+    </div>
+  </div>
+
+  <label>トラックURI一覧（1行1つ・spotify:track:… または https://open.spotify.com/track/...）</label>
+  <textarea id="uris" placeholder="spotify:track:xxxxxx
+https://open.spotify.com/track/yyyyyy
+..."></textarea>
+
+  <div class="row">
+    <div>
+      <label>上限曲数</label>
+      <input id="limit" type="text" value="100">
+    </div>
+    <div>
+      <label>重複/無効の扱い</label>
+      <select id="dupe">
+        <option value="dedupe" selected>重複は除外</option>
+        <option value="keep">重複も残す</option>
+      </select>
+    </div>
+    <div>
+      <label>並び</label>
+      <select id="order">
+        <option value="keep" selected>入力順を維持</option>
+        <option value="shuffle">シャッフル</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="row">
+    <div>
+      <button id="btnDry">ドライラン（書き込みなし）</button>
+      <button id="btnCSV" disabled>CSVダウンロード</button>
+      <button id="btnJSON" disabled>JSONダウンロード</button>
+      <button id="btnRestorePlan" disabled>計画を復元</button>
+    </div>
+  </div>
+</fieldset>
+
+<fieldset>
+  <legend>本番反映（新規作成 or 既存更新）</legend>
+  <div class="row">
+    <div>
+      <label>既存のプレイリストID（空なら新規作成）</label>
+      <input id="existingId" type="text" placeholder="例）37i9dQZF1DX...">
+    </div>
+    <div>
+      <label>安全マージン（API最小間隔ms）</label>
+      <input id="gap" type="text" value="1000">
+    </div>
+    <div>
+      <label>最大リトライ</label>
+      <input id="maxRetry" type="text" value="5">
+    </div>
+  </div>
+  <div class="row">
+    <div>
+      <button id="btnCommit" disabled>本番反映を開始</button>
+      <button id="btnCancel" disabled>キャンセル</button>
+    </div>
+  </div>
+  <div class="note">※失敗しても再実行で整合が戻る設計（先頭PUTで全置換→以降100件追加）。</div>
+</fieldset>
+
+<h2>ログ</h2>
+<pre id="log"></pre>
+
+<script>
+"use strict";
+/* =========================[ 固定設定 ]========================= */
+const CLIENT_ID = "1fd6350fcf4945a0b3ddffa2d5730d4e";
+
+/* =========================[ 収納キー ]========================= */
+const K = {
+  access:"sp_access_token",
+  type:"sp_token_type",
+  expAt:"sp_expires_at",
+  refresh:"sp_refresh_token",
+  scope:"sp_scope",
+};
+const DRAFT_KEY = "sp_cc_draft_v1";
+const PLAN_KEY  = "sp_last_plan_v1";
+
+/* =========================[ Cross-Tab Lock ]=================== */
+const LOCK_KEY = "sp_job_lock_v1";
+const TAB_ID = Math.random().toString(36).slice(2);
+const LOCK_TTL = 120_000; // 2分
+let lockHeartbeat = null;
+
+function now(){ return Date.now(); }
+function readLock(){ try{ return JSON.parse(localStorage.getItem(LOCK_KEY)||"null"); }catch(_){ return null; } }
+function writeLock(obj){ localStorage.setItem(LOCK_KEY, JSON.stringify(obj)); }
+function acquireLock(){
+  const cur = readLock(); const t = now();
+  if (!cur || (t - cur.ts) > LOCK_TTL){ writeLock({owner:TAB_ID, ts:t}); return true; }
+  return cur.owner === TAB_ID;
+}
+function startHeartbeat(){
+  stopHeartbeat();
+  lockHeartbeat = setInterval(()=>{
+    const cur = readLock();
+    if (cur && cur.owner === TAB_ID){ cur.ts = now(); writeLock(cur); }
+  }, 5_000);
+}
+function stopHeartbeat(){ if (lockHeartbeat){ clearInterval(lockHeartbeat); lockHeartbeat=null; } }
+function releaseLock(){
+  const cur = readLock();
+  if (cur && cur.owner === TAB_ID){ localStorage.removeItem(LOCK_KEY); }
+  stopHeartbeat();
+}
+
+/* =========================[ ユーティリティ ]=================== */
+const el = id => document.getElementById(id);
+const log = m => { const d=new Date().toLocaleTimeString(); el("log").textContent += `[${d}] ${m}\n`; el("log").scrollTop=el("log").scrollHeight; console.log(m); };
+const warn = m => { el("warn").textContent = m||""; };
+
+function parseUris(raw){
+  const lines = (raw||"").split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  const norm = lines.map(s=>{
+    if (s.startsWith("spotify:track:")) return s;
+    const m = s.match(/open\.spotify\.com\/track\/([A-Za-z0-9]+)/);
+    return m ? `spotify:track:${m[1]}` : null;
+  }).filter(Boolean);
+  return norm;
+}
+function shuffleInPlace(arr){ for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; } return arr; }
+function toCSV(rows){
+  return rows.map(r=>r.map(v=>{
+    const s = v==null ? "" : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+  }).join(",")).join("\n");
+}
+function download(filename, text){
+  const blob = new Blob([text], {type:"text/plain;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+}
+function sleep(ms, checkCancel){
+  return new Promise((resolve,reject)=>{
+    const start = Date.now();
+    function step(){
+      if (checkCancel && checkCancel()) return reject(new Error("aborted"));
+      const d = Date.now() - start;
+      if (d >= ms) return resolve();
+      const rest = Math.min(250, ms - d);
+      setTimeout(step, rest);
+    }
+    setTimeout(step, 0);
+  });
+}
+
+/* =========================[ ネット状態 ]======================= */
+function updateNetNote(){
+  const online = navigator.onLine;
+  el("netNote").textContent = online ? "" : "（オフライン検出：オンライン復帰後に再実行してください）";
+}
+window.addEventListener("online",  updateNetNote);
+window.addEventListener("offline", updateNetNote);
+
+/* =========================[ トークン管理 ]===================== */
+function getTokenInfo(){
+  return {
+    access:  sessionStorage.getItem(K.access),
+    type:    sessionStorage.getItem(K.type) || "Bearer",
+    expAt:   parseInt(sessionStorage.getItem(K.expAt)||"0",10),
+    refresh: sessionStorage.getItem(K.refresh) || null,
+    scope:   sessionStorage.getItem(K.scope) || "",
+  };
+}
+function saveTokens({access_token, token_type, expires_in, refresh_token, scope}){
+  const expAt = Date.now() + (expires_in*1000);
+  sessionStorage.setItem(K.access, access_token);
+  sessionStorage.setItem(K.type, token_type || "Bearer");
+  sessionStorage.setItem(K.expAt, String(expAt));
+  if (refresh_token) sessionStorage.setItem(K.refresh, refresh_token);
+  if (scope)         sessionStorage.setItem(K.scope, scope);
+  renderStatus();
+}
+
+let refreshInflight = null;
+async function ensureFreshToken(clientId){
+  const {access, expAt, refresh} = getTokenInfo();
+  const skew = 5_000;
+  if (access && Date.now() < (expAt - skew)) return access;
+  if (!refresh) return null;
+
+  if (!refreshInflight){
+    refreshInflight = (async () => {
+      // 429/5xxに強いトークン更新
+      let attempt = 0;
+      while (true){
+        attempt++;
+        const res = await fetch("https://accounts.spotify.com/api/token", {
+          method: "POST",
+          headers: {"Content-Type":"application/x-www-form-urlencoded"},
+          body: new URLSearchParams({
+            client_id: clientId,
+            grant_type: "refresh_token",
+            refresh_token: refresh
+          })
+        });
+        if (res.status === 429){
+          const ra = parseInt(res.headers.get("Retry-After")||"1",10);
+          const ms = Math.min(60, isNaN(ra)?1:ra) * 1000;
+          log(`refresh 429 → ${Math.ceil(ms/1000)}秒待機`);
+          await sleep(ms + 200);
+          continue;
+        }
+        if (res.status >= 500 && attempt <= 3){
+          const back = Math.min(4000, 500 * Math.pow(2, attempt-1));
+          log(`refresh 5xx → バックオフ ${back}ms`);
+          await sleep(back);
+          continue;
+        }
+        const txt = await res.text();
+        let data=null; try{ data=JSON.parse(txt);}catch(_){}
+        if (!res.ok) throw new Error("refresh failed: "+res.status+" "+txt);
+        saveTokens(data);
+        return data.access_token;
+      }
+    })().finally(()=>{ refreshInflight = null; });
+  }
+  return refreshInflight;
+}
+
+/* =========================[ APIラッパ ]======================= */
+let MIN_API_GAP_MS = 1000; // UIで可変
+let lastApiTs = 0;
+let globalAbort = null;
+
+async function callSpotifyJSON(url, opts={}, {clientId=CLIENT_ID, maxRetry=5, expectJSON=true}={}){
+  // 連打抑止
+  const wait = Math.max(0, MIN_API_GAP_MS - (Date.now()-lastApiTs));
+  if (wait) await sleep(wait, ()=>globalAbort?.signal?.aborted);
+
+  // トークン（必要なら更新）
+  let token = await ensureFreshToken(clientId);
+  if (!token) throw new Error("No valid token. Sign in again.");
+
+  let attempt = 0;
+  while (true){
+    attempt++;
+    const headers = new Headers(opts.headers||{});
+    headers.set("Authorization", "Bearer "+token);
+    headers.set("Accept","application/json");
+    if (opts.body && !(opts.body instanceof FormData) && !headers.has("Content-Type")){
+      headers.set("Content-Type","application/json");
+    }
+    const controller = globalAbort || new AbortController();
+    const res = await fetch(url, {...opts, headers, signal: controller.signal});
+    lastApiTs = Date.now();
+
+    if (res.status === 429 && attempt <= maxRetry){
+      const ra = parseInt(res.headers.get("Retry-After")||"1",10);
+      const ms = Math.min(60, isNaN(ra)?1:ra) * 1000;
+      log(`429 → ${Math.ceil(ms/1000)}秒待機（${attempt}/${maxRetry}）`);
+      await sleep(ms + 200, ()=>controller.signal.aborted);
+      continue;
+    }
+    if (res.status === 401 && attempt === 1){
+      token = await ensureFreshToken(clientId);
+      if (!token) throw new Error("Unauthorized and cannot refresh.");
+      continue;
+    }
+    if (res.status >= 500 && attempt <= maxRetry){
+      const back = Math.min(8000, 700 * Math.pow(2, attempt-1));
+      log(`5xx → バックオフ ${back}ms（${attempt}/${maxRetry}）`);
+      await sleep(back, ()=>controller.signal.aborted);
+      continue;
+    }
+
+    if (!res.ok){
+      const txt = await res.text();
+      throw new Error(`HTTP ${res.status}: ${txt}`);
+    }
+    if (!expectJSON) return null;
+    const txt = await res.text();
+    if (!txt) return {};
+    try{ return JSON.parse(txt); }catch(_){ return {}; }
+  }
+}
+
+/* =========================[ ステータス表示 ]=================== */
+function renderStatus(){
+  try{
+    const access = sessionStorage.getItem(K.access);
+    const expAt  = parseInt(sessionStorage.getItem(K.expAt)||"0",10);
+    if (!access){ el("status").textContent = "未サインイン。必要になったらボタンから開始。"; return; }
+    const leftMs = expAt - Date.now();
+    if (leftMs > 60_000){
+      el("status").textContent = "Signed in. （有効期限まで約 " + Math.floor(leftMs/1000) + " 秒）";
+    }else if (leftMs > 0){
+      el("status").textContent = "トークン期限切れ間近。必要なら再サインインしてください。";
+    }else{
+      el("status").textContent = "トークン期限切れ。サインインをやり直してください。";
+    }
+  }catch(e){ el("status").textContent = "状態表示エラー: " + (e.message||e); }
+}
+
+/* =========================[ ドラフト保存 ]==================== */
+const draftFields = ["plName","plDesc","plPublic","uris","limit","dupe","order","existingId","gap","maxRetry"];
+function saveDraft(){
+  const obj={}; draftFields.forEach(id=>obj[id]=el(id).value);
+  localStorage.setItem(DRAFT_KEY, JSON.stringify(obj));
+}
+function restoreDraft(){
+  try{
+    const obj=JSON.parse(localStorage.getItem(DRAFT_KEY)||"null");
+    if (!obj) return;
+    draftFields.forEach(id=>{ if (obj[id]!=null) el(id).value = obj[id]; });
+  }catch(_){}
+}
+
+/* =========================[ ドライラン/出力 ]================= */
+let lastPlan = null;
+function buildPlan(){
+  const name = el("plName").value.trim();
+  const desc = el("plDesc").value.trim();
+  const pub  = el("plPublic").value === "public";
+  const limit= Math.max(1, parseInt(el("limit").value||"100",10));
+  const order= el("order").value;
+  const dupe = el("dupe").value;
+
+  const list = parseUris(el("uris").value);
+  if (!list.length) throw new Error("URIがありません。");
+
+  let seq = [...list];
+  if (dupe === "dedupe"){
+    const seen = new Set();
+    seq = seq.filter(u=>!seen.has(u) && seen.add(u));
+  }
+  if (order === "shuffle") shuffleInPlace(seq);
+  seq = seq.slice(0, limit);
+
+  const rows = seq.map((uri, i)=>({no:i+1, uri}));
+  return { meta:{name, desc, public:pub, limit, order, dupe, ts:new Date().toISOString()}, tracks: rows };
+}
+function enableExports(enabled){
+  el("btnCSV").disabled  = !enabled;
+  el("btnJSON").disabled = !enabled;
+  el("btnCommit").disabled = !enabled;
+  el("btnRestorePlan").disabled = !localStorage.getItem(PLAN_KEY);
+}
+
+/* =========================[ 本番反映 ]======================== */
+let cancelFlag = false;
+async function commitPlan(){
+  MIN_API_GAP_MS = Math.max(300, parseInt(el("gap").value||"1000",10));
+  const maxRetry = Math.max(1, parseInt(el("maxRetry").value||"5",10));
+  const existing = el("existingId").value.trim();
+
+  if (!acquireLock()){ warn("他のタブで処理中です。完了を待つか、2分後に再試行してください。"); return; }
+  startHeartbeat(); warn("");
+
+  try{
+    cancelFlag = false;
+    el("btnCommit").disabled = true;
+    el("btnCancel").disabled = false;
+    el("btnDry").disabled = true;
+    globalAbort = new AbortController();
+
+    const plan = lastPlan;
+    if (!plan || !plan.tracks?.length) throw new Error("ドライラン結果がありません。先にドライランしてください。");
+    const uris = plan.tracks.map(x=>x.uri);
+
+    log("GET /v1/me …");
+    const me = await callSpotifyJSON("https://api.spotify.com/v1/me", {}, {maxRetry});
+    const uid = me.id; if (!uid) throw new Error("ユーザーID取得に失敗");
+
+    let playlistId = existing || null;
+
+    if (playlistId){
+      log(`PUT /v1/playlists/${playlistId}（詳細更新）`);
+      await callSpotifyJSON(`https://api.spotify.com/v1/playlists/${playlistId}`, {
+        method:"PUT",
+        body: JSON.stringify({ name: plan.meta.name || undefined, description: plan.meta.desc || undefined, public: plan.meta.public })
+      }, {maxRetry, expectJSON:false});
+    }else{
+      log(`POST /v1/users/${uid}/playlists（新規作成）`);
+      const created = await callSpotifyJSON(`https://api.spotify.com/v1/users/${uid}/playlists`, {
+        method:"POST",
+        body: JSON.stringify({ name: plan.meta.name||"Auto Playlist", description: plan.meta.desc||"", public: plan.meta.public })
+      }, {maxRetry});
+      playlistId = created.id;
+      if (!playlistId) throw new Error("プレイリスト作成に失敗");
+    }
+
+    if (cancelFlag) throw new Error("キャンセルされました。");
+
+    // 100件置換 → 残り追加
+    const chunks = []; for (let i=0;i<uris.length;i+=100) chunks.push(uris.slice(i,i+100));
+
+    log(`PUT /v1/playlists/${playlistId}/tracks（置換：${chunks[0]?.length||0}件）`);
+    await callSpotifyJSON(`https://api.spotify.com/v1/playlists/${playlistId}/tracks`, {
+      method:"PUT",
+      body: JSON.stringify({ uris: chunks[0] || [] })
+    }, {maxRetry, expectJSON:false});
+
+    if (cancelFlag) throw new Error("キャンセルされました。");
+
+    for (let i=1;i<chunks.length;i++){
+      const batch = chunks[i];
+      log(`POST /v1/playlists/${playlistId}/tracks（追加：${batch.length}件 / ${i+1}/${chunks.length}）`);
+      await callSpotifyJSON(`https://api.spotify.com/v1/playlists/${playlistId}/tracks`, {
+        method:"POST",
+        body: JSON.stringify({ uris: batch })
+      }, {maxRetry});
+      if (cancelFlag) throw new Error("キャンセルされました。");
+    }
+
+    const openUrl = `https://open.spotify.com/playlist/${playlistId}`;
+    log(`完了：Playlist ID = ${playlistId}\n${openUrl}`);
+    alert("プレイリスト反映が完了しました。");
+  }catch(e){
+    if (e.name === "AbortError" || /aborted/i.test(String(e))) log("キャンセル済み。");
+    else { log("エラー: " + (e.message||e)); alert("エラー: " + (e.message||e)); }
+  }finally{
+    el("btnCommit").disabled = false;
+    el("btnCancel").disabled = true;
+    el("btnDry").disabled = false;
+    if (globalAbort){ try{ globalAbort.abort(); }catch(_){ } globalAbort=null; }
+    releaseLock();
+  }
+}
+
+/* =========================[ 画面イベント ]==================== */
+function savePlanToLocal(){ if (lastPlan) localStorage.setItem(PLAN_KEY, JSON.stringify(lastPlan)); el("btnRestorePlan").disabled = !localStorage.getItem(PLAN_KEY); }
+
+el("btnSignOut").addEventListener("click", () => {
+  try{ Object.values(K).forEach(k => sessionStorage.removeItem(k)); log("保存トークンを削除しました。"); renderStatus(); }catch(e){ log("削除エラー: "+(e.message||e)); }
+});
+
+el("btnWho").addEventListener("click", async () => {
+  try{ log("GET /v1/me …"); const me = await callSpotifyJSON("https://api.spotify.com/v1/me"); log("表示名: " + (me.display_name || "(no name)") + " / ID: " + me.id); }catch(e){ log("エラー: " + (e.message||e)); }
+});
+
+el("btnDry").addEventListener("click", () => {
+  try{
+    lastPlan = buildPlan();
+    const n = lastPlan.tracks.length;
+    log(`ドライラン完了：${n}曲。CSV/JSONボタンで出力できます。`);
+    enableExports(true);
+    savePlanToLocal();
+  }catch(e){
+    lastPlan = null; enableExports(false);
+    log("エラー: " + (e.message||e));
+  }
+});
+
+el("btnCSV").addEventListener("click", () => {
+  if (!lastPlan) return;
+  const rows = [["No","URI"], ...lastPlan.tracks.map(r=>[r.no, r.uri])];
+  const csv = toCSV(rows);
+  download(`playlist_${Date.now()}.csv`, csv);
+});
+
+el("btnJSON").addEventListener("click", () => {
+  if (!lastPlan) return;
+  download(`playlist_${Date.now()}.json`, JSON.stringify(lastPlan, null, 2));
+});
+
+el("btnRestorePlan").addEventListener("click", () => {
+  try{
+    const obj = JSON.parse(localStorage.getItem(PLAN_KEY)||"null");
+    if (!obj) return;
+    lastPlan = obj;
+    enableExports(true);
+    log("保存された計画を復元しました。");
+  }catch(_){}
+});
+
+el("btnCommit").addEventListener("click", () => commitPlan());
+el("btnCancel").addEventListener("click", () => { cancelFlag = true; if (globalAbort){ try{ globalAbort.abort(); }catch(_){ } } log("キャンセル要求を受け付けました…"); });
+
+draftFields.forEach(id=> el(id).addEventListener("input", saveDraft));
+el("gap").addEventListener("change", ()=>{ MIN_API_GAP_MS = Math.max(300, parseInt(el("gap").value||"1000",10)); });
+
+/* 初期化 */
+restoreDraft(); renderStatus(); enableExports(false); updateNetNote();
+if (localStorage.getItem(PLAN_KEY)) el("btnRestorePlan").disabled = false;
+window.addEventListener("beforeunload", releaseLock);
+</script>
+</body>
+</html>
