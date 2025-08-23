@@ -4,16 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 
-<!-- 安全化メタ -->
+<!-- Safe Browsing 対策 -->
 <meta name="robots" content="noindex,nofollow">
 <meta name="referrer" content="no-referrer">
-<meta name="description" content="このページは Spotify 公式ドメイン（accounts.spotify.com / api.spotify.com）にのみ通信し、ユーザーの認証はSpotifyのOAuth画面で行われます。本ページはパスワード等の情報を収集しません。">
+<meta name="description" content="このページは Spotify 公式ドメイン（accounts.spotify.com / api.spotify.com）のみを使用して OAuth とプレイリスト操作を行います。">
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'self';
                connect-src 'self' https://accounts.spotify.com https://api.spotify.com;
                img-src 'self' data:;
                style-src 'self' 'unsafe-inline';
-               script-src 'self';
+               script-src 'self' 'unsafe-inline';
                frame-ancestors 'none';
                base-uri 'self';
                form-action 'self' https://accounts.spotify.com;">
@@ -46,11 +46,9 @@
 </head>
 <body>
 <h1>Editions Builder（Breaks限定・2010+・Remixのみ）<span class="pill">Safe FINAL</span></h1>
+<p class="note">※本ページは <code>accounts.spotify.com</code> / <code>api.spotify.com</code> 以外に送信しません。パスワードは扱いません。</p>
 
-<!-- 告知 -->
-<p class="note">※このページは <code>accounts.spotify.com</code>（公式）にのみ遷移・通信します。本ページ自体はログイン情報を扱いません。</p>
-
-<!-- サインイン -->
+<!-- 接続 -->
 <fieldset>
   <legend>Spotify 接続</legend>
   <div class="row">
@@ -68,7 +66,7 @@
   </div>
 </fieldset>
 
-<!-- エディション（4つ固定） -->
+<!-- エディション 4択 -->
 <fieldset>
   <legend>エディション（4つから選択）</legend>
   <div class="row">
@@ -77,10 +75,10 @@
       <label class="tight"><input type="checkbox" class="ed" value="US" checked> US</label>
       <label class="tight"><input type="checkbox" class="ed" value="EU" checked> EU</label>
       <label class="tight"><input type="checkbox" class="ed" value="WORLD" checked> World</label>
-      <div class="note">各エディションは自地域で再生可（available_markets）な曲のみで100曲に仕上げます。足りない場合は段階緩和して必ず着地。</div>
+      <div class="note">各エディションは地域可用性（available_markets）を考慮。足りないときは段階緩和して必ず着地。</div>
     </div>
     <div>
-      <label>ベース名（末尾に [UK Edition] 等を自動付与）</label>
+      <label>ベース名（末尾に [UK Edition] 等自動付与）</label>
       <input id="baseName" value="TDCS – Breaks Remix Only 100 (2010+)" />
     </div>
     <div>
@@ -89,10 +87,7 @@
     </div>
     <div>
       <label>公開設定</label>
-      <select id="isPublic">
-        <option value="false" selected>非公開（推奨）</option>
-        <option value="true">公開</option>
-      </select>
+      <select id="isPublic"><option value="false" selected>非公開</option><option value="true">公開</option></select>
     </div>
   </div>
 </fieldset>
@@ -106,23 +101,13 @@
       <input id="artistId" value="55fvQ5I2IZUfcFT2DV02T3" />
       <div class="note">The Darrow Chem Syndicate（変更可）</div>
     </div>
-    <div>
-      <label>最新から取るアルバム枚数</label>
-      <input id="albumRecent" type="number" min="8" max="80" value="30" />
-    </div>
-    <div>
-      <label>旧作サンプル比率（0.00–0.80）</label>
-      <input id="oldAlbumRatio" type="number" step="0.05" min="0" max="0.8" value="0.25" />
-    </div>
-    <div>
-      <label>Era Mix（古め混合率 0.00–0.80）</label>
-      <input id="ratioOld" type="number" step="0.05" min="0" max="0.8" value="0.30" />
-    </div>
+    <div><label>最新から取るアルバム枚数</label><input id="albumRecent" type="number" min="8" max="80" value="30" /></div>
+    <div><label>旧作サンプル比率（0–0.8）</label><input id="oldAlbumRatio" type="number" step="0.05" min="0" max="0.8" value="0.25" /></div>
+    <div><label>Era Mix（古め混合率 0–0.8）</label><input id="ratioOld" type="number" step="0.05" min="0" max="0.8" value="0.30" /></div>
   </div>
-
   <div class="row">
-    <div><label>人気の重み（0–1）</label><input id="wPopularity" type="number" step="0.05" min="0" max="1" value="0.6" /></div>
-    <div><label>新しさの重み（0–1）</label><input id="wRecent" type="number" step="0.05" min="0" max="1" value="0.4" /></div>
+    <div><label>人気の重み</label><input id="wPopularity" type="number" step="0.05" min="0" max="1" value="0.6" /></div>
+    <div><label>新しさの重み</label><input id="wRecent" type="number" step="0.05" min="0" max="1" value="0.4" /></div>
     <div><label>最終曲数</label><input id="finalSize" type="number" min="80" max="100" value="100" /></div>
   </div>
 
@@ -137,10 +122,7 @@
       </div>
       <div class="note">EPは「album_type: single かつ曲数≥3」またはタイトルに“EP”。</div>
     </div>
-    <div>
-      <label>ターゲット候補数（Trim上限）</label>
-      <input id="targetPool" type="number" min="120" max="220" value="150" />
-    </div>
+    <div><label>ターゲット候補数（Trim上限）</label><input id="targetPool" type="number" min="120" max="220" value="150" /></div>
   </div>
 
   <div class="grid">
@@ -162,9 +144,7 @@
 <!-- まとめてエディション作成 -->
 <fieldset>
   <legend>④ まとめて作成（UK / US / EU / World）</legend>
-  <div class="row">
-    <div><button id="btnBuildEditions" disabled>UK/US/EU/World を作成</button></div>
-  </div>
+  <div class="row"><div><button id="btnBuildEditions" disabled>UK/US/EU/World を作成</button></div></div>
 </fieldset>
 
 <!-- 単発作成 -->
@@ -173,9 +153,7 @@
   <div class="row">
     <div><label>プレイリスト名</label><input id="plName" placeholder="TDCS – Breaks Remix Only 100 (2010+)" /></div>
     <div><label>説明文</label><input id="plDesc" placeholder="Breaks/Breakbeat限定・2010+・Remixのみ・Pins固定・バランス配置" /></div>
-    <div><label>公開設定</label>
-      <select id="plPublic"><option value="false" selected>非公開</option><option value="true">公開</option></select>
-    </div>
+    <div><label>公開設定</label><select id="plPublic"><option value="false" selected>非公開</option><option value="true">公開</option></select></div>
   </div>
   <div class="row">
     <div><label>既存プレイリストID（空＝新規）</label><input id="existingId" placeholder="例）37i9dQZF1DX..." /></div>
@@ -189,7 +167,7 @@
 <pre id="log"></pre>
 
 <footer>
-  <p>Note: 認可とAPIは Spotify の公式ドメイン (<code>accounts.spotify.com</code>, <code>api.spotify.com</code>) のみを使用します。</p>
+  <p>Note: 認可とAPIは Spotify 公式 (<code>accounts.spotify.com</code>, <code>api.spotify.com</code>) のみ。</p>
 </footer>
 
 <script>
@@ -410,7 +388,7 @@ async function fetchArtistsGenresMapBatched(ids){
 }
 
 /* アルバム/トラック */
-const albumCache=new Map(); // market -> albums[]
+const albumCache=new Map();
 async function scanArtistAlbums(artistId, market, groupsCsv, scanMax){
   let items=[]; let url=`https://api.spotify.com/v1/artists/${artistId}/albums?market=${encodeURIComponent(market)}&include_groups=${encodeURIComponent(groupsCsv)}&limit=50&offset=0`;
   let page=0;
@@ -468,7 +446,7 @@ async function searchRemixesByArtist(artistId, markets, minYear){
 }
 
 /* 並び/スコア */
-function dedupeById(arr){ const seen=new Set(); const out=[]; for(const t of arr){ if(!seen.has(t.id)){ seen.add(t.id); out.push(t);} } return out; }
+function dedupeById(arr){ const seen=new Set(); const out=[]; for(const t of arr){ if(seen.has(t.id)) continue; seen.add(t.id); out.push(t);} return out; }
 function computeScores(tracks,wPop,wRec){
   let minD=Infinity,maxD=-Infinity;
   for(const t of tracks){ const ms=new Date(t.album?.release_date||t.__albumDate||0).getTime()||0; t._dateMs=ms; if(ms){ if(ms<minD)minD=ms; if(ms>maxD)maxD=ms; } }
@@ -486,7 +464,6 @@ function eraBlendCands(tracks,ratioOld,poolFactor){
   const news=arr.slice(-Math.min(kNew, Math.ceil(arr.length/2)));
   const set=new Map(); [...news,...olds].forEach(t=>set.set(t.id,t)); return [...set.values()];
 }
-function materializePins(){ return {1:(el("pin1").value||"").trim(),5:(el("pin5").value||"").trim(),40:(el("pin40").value||"").trim(),60:(el("pin60").value||"").trim()}; }
 function balancedOrder(cands,pins,finalSize,opt){
   const posPins=new Map(Object.entries(pins).map(([k,v])=>[parseInt(k,10),v]).filter(([,v])=>v));
   const pinIds=new Set([...posPins.values()]);
@@ -544,31 +521,28 @@ function classifyBreaks(t, genresMap, seedArtistId){
 
 /* グローバル */
 let trimmed=[], final100=[];
-const trackMeta=new Map();
 
 /* 収集 */
-const albumCache=new Map();
-const CORE_SCAN_MARKETS = ["GB","IE","US","DE","FR","NL","ES","IT","SE","CA","AU","BR"];
 async function doFastBuild(marketsOverride=null){
-  const BUILD_LOCK_KEY="sp_build_lock_v1";
-  const TAB_ID=Math.random().toString(36).slice(2);
-  function acquire(){const raw=localStorage.getItem(BUILD_LOCK_KEY); if(!raw){localStorage.setItem(BUILD_LOCK_KEY,JSON.stringify({owner:TAB_ID,ts:Date.now()}));return true;} const cur=JSON.parse(raw); if(Date.now()-(cur.ts||0)>30000){localStorage.removeItem(BUILD_LOCK_KEY); localStorage.setItem(BUILD_LOCK_KEY,JSON.stringify({owner:TAB_ID,ts:Date.now()})); return true;} return cur.owner===TAB_ID;}
-  function release(){const cur=localStorage.getItem(BUILD_LOCK_KEY); if(cur){try{const j=JSON.parse(cur); if(j.owner===TAB_ID) localStorage.removeItem(BUILD_LOCK_KEY);}catch(_){}}}
+  // 軽量ロック（30sで自動失効）
+  const raw=localStorage.getItem(BUILD_LOCK_KEY);
+  if(raw){ try{ const j=JSON.parse(raw); if(Date.now()-(j.ts||0)<=30000 && j.owner!==TAB_ID){ warn("他タブで実行中。少し待って再実行してください。"); return; } }catch(_){}
+  }
+  localStorage.setItem(BUILD_LOCK_KEY, JSON.stringify({owner:TAB_ID, ts:Date.now()}));
 
-  if(!acquire()){ warn("ほかのタブで実行中。しばらくして再実行してください。"); return; }
   trimmed=[]; final100=[]; trackSeenBy.clear(); warn("");
 
   const checked=[...document.querySelectorAll(".ed:checked")].map(x=>x.value);
-  if(checked.length===0){ alert("エディションを選んでください。"); release(); return; }
+  if(checked.length===0){ alert("エディションを選んでください。"); localStorage.removeItem(BUILD_LOCK_KEY); return; }
 
   const needMkts=new Set(); checked.forEach(k=> (EDITIONS[k].markets||[]).forEach(m=>needMkts.add(m)));
   CORE_SCAN_MARKETS.forEach(m=>needMkts.add(m));
   if(marketsOverride){ marketsOverride.forEach(m=>needMkts.add(m)); }
-  let markets=[...needMkts];
+  const markets=[...needMkts];
 
   const artistId=el("artistId").value.trim();
-  let recentN=Math.max(8, Math.min(80, parseInt(el("albumRecent").value||"30",10)));
-  let oldRatio=Math.max(0, Math.min(0.8, parseFloat(el("oldAlbumRatio").value||"0.25")));
+  const recentN=Math.max(8, Math.min(80, parseInt(el("albumRecent").value||"30",10)));
+  const oldRatio=Math.max(0, Math.min(0.8, parseFloat(el("oldAlbumRatio").value||"0.25")));
   const minYear=2010;
   const wPop=parseFloat(el("wPopularity").value||"0.6");
   const wRec=parseFloat(el("wRecent").value||"0.4");
@@ -621,7 +595,7 @@ async function doFastBuild(marketsOverride=null){
     }
 
     const uniq=[...collectIds];
-    if(!uniq.length){ warn("候補0。条件を見直してください。"); release(); return; }
+    if(!uniq.length){ warn("候補0。条件を見直してください。"); localStorage.removeItem(BUILD_LOCK_KEY); return; }
 
     log(`候補（下ごしらえ前）: ${uniq.length}曲 → 詳細/特徴量/ジャンル取得…`);
 
@@ -647,7 +621,7 @@ async function doFastBuild(marketsOverride=null){
     filtered = dedupeById(filtered);
     computeScores(filtered, wPop, wRec);
 
-    // エスカレーション
+    // エスカレーション（まだ薄いとき）
     if(filtered.length < 120){
       log("プールが薄い → 追加市場(MX/AR/NZ/NO/CH/HK/SG)でsearch増強");
       const extraMkts = ["MX","AR","NZ","NO","CH","HK","SG"];
@@ -677,7 +651,7 @@ async function doFastBuild(marketsOverride=null){
   }catch(e){
     log("エラー: "+(e.message||e));
   }finally{
-    release();
+    localStorage.removeItem(BUILD_LOCK_KEY);
   }
 }
 
