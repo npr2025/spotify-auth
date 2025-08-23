@@ -2,8 +2,6 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
-<meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Spotify Auth (PKCE)</title>
 <style>
@@ -11,14 +9,12 @@
   button{padding:10px 14px;border:1px solid #bbb;border-radius:8px;background:#f6f6f6;cursor:pointer}
   button:disabled{opacity:.55;cursor:not-allowed}
   #log{white-space:pre-wrap;background:#0b1220;color:#cfe3ff;padding:10px;border-radius:8px;margin-top:14px}
-  .note{font-size:12px;color:#555}
 </style>
 </head>
 <body>
-<h1>Spotify 認可</h1>
-<p>Spotify にサインインして権限（playlist-modify-private / playlist-modify-public）を付与します。</p>
+<h1>Spotify 認可（PKCE）</h1>
+<p>権限（playlist-modify-private / playlist-modify-public）を付与します。自動開始しません。</p>
 <button id="go">Sign in with Spotify</button>
-<div id="netNote" class="note"></div>
 <pre id="log"></pre>
 
 <script>
@@ -28,36 +24,23 @@ const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
 const SCOPES       = "playlist-modify-private playlist-modify-public";
 
-/*** レート対策＋ロック ***/
-const MIN_AUTH_GAP_MS = 15_000;
+/*** レート対策 ***/
+const MIN_AUTH_GAP_MS = 15_000; // クールダウン
 let starting = false;
-const AUTH_LOCK_KEY = "sp_auth_lock_v1";
-const AUTH_LOCK_TTL = 60_000; // 1分
-const TAB_ID = Math.random().toString(36).slice(2);
 
-/*** ストレージキー ***/
 const KEY_VERIFIER = "pkce_verifier";
 const KEY_STATE    = "pkce_state";
 const KEY_LAST_TS  = "pkce_last_auth_ts";
 
-/*** UI ***/
 const log = m => { const el=document.getElementById("log"); el.textContent += m + "\n"; console.log(m); };
-function updateNetNote(){ document.getElementById("netNote").textContent = navigator.onLine ? "" : "（オフライン検出：オンライン復帰後に再試行してください）"; }
-window.addEventListener("online", updateNetNote);
-window.addEventListener("offline", updateNetNote);
 
-/*** helpers ***/
-function readLock(){ try{ return JSON.parse(localStorage.getItem(AUTH_LOCK_KEY)||"null"); }catch(_){ return null; } }
-function writeLock(o){ localStorage.setItem(AUTH_LOCK_KEY, JSON.stringify(o)); }
-function acquireAuthLock(){
-  const cur = readLock(); const t = Date.now();
-  if (!cur || (t - cur.ts) > AUTH_LOCK_TTL){ writeLock({owner:TAB_ID, ts:t}); return true; }
-  return cur.owner === TAB_ID;
+const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf)))
+  .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+async function sha256(str){
+  const data = new TextEncoder().encode(str);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return b64url(hash);
 }
-function releaseAuthLock(){ const cur = readLock(); if (cur && cur.owner === TAB_ID){ localStorage.removeItem(AUTH_LOCK_KEY); } }
-
-const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-async function sha256(str){ const data = new TextEncoder().encode(str); const hash = await crypto.subtle.digest("SHA-256", data); return b64url(hash); }
 // RFC7636: ALPHA / DIGIT / "-" / "." / "_" / "~"
 function randomVerifier(len=128){
   const alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
@@ -66,17 +49,16 @@ function randomVerifier(len=128){
   return out;
 }
 function randHex(n=16){ const a=new Uint8Array(n); crypto.getRandomValues(a); return Array.from(a).map(x=>("0"+x.toString(16)).slice(-2)).join(""); }
+function now(){ return Date.now(); }
 function remainingCooldown(){
   const last = parseInt(sessionStorage.getItem(KEY_LAST_TS)||"0",10);
-  return Math.max(0, MIN_AUTH_GAP_MS - (Date.now()-last));
+  return Math.max(0, MIN_AUTH_GAP_MS - (now()-last));
 }
 
 async function startAuth(){
-  if (!navigator.onLine){ log("オフラインのため開始できません。"); return; }
   if (starting){ log("認可処理は進行中（多重起動を抑止）"); return; }
   const remain = remainingCooldown();
   if (remain>0){ log(`短時間の再実行はブロック中。${Math.ceil(remain/1000)}秒後に再試行してください。`); return; }
-  if (!acquireAuthLock()){ log("他タブで認可開始済み。1分後に再試行してください。"); return; }
 
   try{
     starting = true;
@@ -105,16 +87,13 @@ async function startAuth(){
     log("Spotify へリダイレクトします…");
     location.href = u.toString();
   }catch(e){
-    starting=false; releaseAuthLock();
+    starting=false;
     const btn = document.getElementById("go");
     btn.disabled=false; btn.textContent = "Sign in with Spotify";
     log("Auth init error: "+(e && e.message ? e.message : e));
   }
 }
-
 document.getElementById("go").addEventListener("click", startAuth);
-window.addEventListener("beforeunload", releaseAuthLock);
-updateNetNote();
 </script>
 </body>
 </html>
