@@ -4,15 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 
-<!-- 安全化メタ -->
 <meta name="robots" content="noindex,nofollow">
 <meta name="referrer" content="no-referrer">
-<meta name="description" content="このページはSpotify公式のOAuth認可画面（accounts.spotify.com）に遷移します。本ページ自体は敏感情報を扱いません。">
+<meta name="description" content="Spotify公式のOAuth認可画面（accounts.spotify.com）に遷移します。">
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'self';
                connect-src 'self' https://accounts.spotify.com;
                style-src 'self' 'unsafe-inline';
-               script-src 'self';
+               script-src 'self' 'unsafe-inline';
                frame-ancestors 'none';
                base-uri 'self';
                form-action https://accounts.spotify.com;">
@@ -27,30 +26,23 @@
 </head>
 <body>
 <h1>Spotify 接続</h1>
-<p>公式ドメイン <code>accounts.spotify.com</code> の画面で認可します。本ページはパスワード等を入力するUIを持ちません。</p>
+<p>公式ドメイン <code>accounts.spotify.com</code> の画面で認可します。</p>
 <button id="go">Connect with Spotify</button>
 <pre id="log"></pre>
 
 <script>
 "use strict";
-/*** 設定 ***/
 const CLIENT_ID    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
 const SCOPES       = "playlist-modify-private playlist-modify-public";
 
-/*** レート対策 ***/
 const MIN_AUTH_GAP_MS = 15_000;
 let starting = false;
-
-const KEY_VERIFIER = "pkce_verifier";
-const KEY_STATE    = "pkce_state";
-const KEY_LAST_TS  = "pkce_last_auth_ts";
-
+const KEY_VERIFIER="pkce_verifier", KEY_STATE="pkce_state", KEY_LAST_TS="pkce_last_auth_ts";
 const log = m => { const el=document.getElementById("log"); el.textContent += m + "\n"; console.log(m); };
 
 const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 async function sha256(str){ const data=new TextEncoder().encode(str); const hash=await crypto.subtle.digest("SHA-256", data); return b64url(hash); }
-// RFC7636: ALPHA / DIGIT / "-" / "." / "_" / "~"
 function randomVerifier(len=128){ const alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"; const a=new Uint8Array(len); crypto.getRandomValues(a); let out=""; for(const x of a){ out += alphabet[x % alphabet.length]; } return out; }
 function randHex(n=16){ const a=new Uint8Array(n); crypto.getRandomValues(a); return Array.from(a).map(x=>("0"+x.toString(16)).slice(-2)).join(""); }
 function now(){ return Date.now(); }
@@ -95,6 +87,7 @@ async function startAuth(){
   }
 }
 document.getElementById("go").addEventListener("click", startAuth);
+log("✅ auth.html wired");
 </script>
 </body>
 </html>
