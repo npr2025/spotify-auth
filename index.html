@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 
-<!-- 安全化メタ（inline JS 許可 / 公式ドメインのみ接続） -->
+<!-- 安全メタ（inline JS 許可 / 公式ドメインのみ接続） -->
 <meta name="robots" content="noindex,nofollow">
 <meta name="referrer" content="no-referrer">
-<meta name="description" content="Spotify公式APIでBreaks/Breakbeat（2010+）Remix限定の100曲プレイリストをエディション別に自動構築します。">
+<meta name="description" content="Spotify公式APIでBreaks/Breakbeat（2010+）Remix限定の100曲プレイリストをUK/EU/US/Worldの4エディションで高速構築します。">
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'self';
                connect-src 'self' https://accounts.spotify.com https://api.spotify.com;
@@ -18,9 +18,9 @@
                base-uri 'self';
                form-action 'self' https://accounts.spotify.com;">
 
-<title>Editions Builder – Breaks Remix Only 2010+ (HUD版)</title>
+<title>Editions Builder – Breaks Remix Only 2010+ (Fast Preset)</title>
 <style>
-  :root{--w:1100px;--ok:#1a7f37;--run:#0d6efd;--muted:#667085;--err:#b42318}
+  :root{--w:1100px}
   *{box-sizing:border-box}
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:var(--w);margin:32px auto;padding:0 12px}
   h1{margin:0 0 10px}
@@ -44,8 +44,7 @@
   .hud-top{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .hud-card{border:1px solid #EAECF0;border-radius:10px;padding:10px}
   .hud-kv{display:grid;grid-template-columns:160px 1fr;gap:6px 10px}
-  .hud-kv .k{color:#475467}
-  .hud-kv .v{color:#101828}
+  .hud-kv .k{color:#475467}.hud-kv .v{color:#101828}
   .bar{display:flex;align-items:center;gap:10px}
   progress{width:280px;height:16px}
   .phase{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;margin-top:8px}
@@ -62,8 +61,8 @@
 </style>
 </head>
 <body>
-<h1>Editions Builder（Breaks限定・2010+・Remixのみ）<span class="pill">HUD Final</span></h1>
-<p class="note">このページは <code>accounts.spotify.com</code> / <code>api.spotify.com</code> のみと通信します。パスワードは取り扱いません。</p>
+<h1>Editions Builder（Breaks限定・2010+・Remixのみ）<span class="pill">Fast Preset</span></h1>
+<p class="note">通信先は <code>accounts.spotify.com</code> / <code>api.spotify.com</code> のみ。パスワード等は扱いません。</p>
 
 <!-- HUD -->
 <div class="hud">
@@ -111,16 +110,16 @@
   </div>
 </div>
 
-<!-- エディション選択 -->
+<!-- エディション固定（4択） -->
 <fieldset>
-  <legend>エディション（4つから選択）</legend>
+  <legend>エディション（UK / US / EU / World）</legend>
   <div class="row">
     <div>
       <label class="tight"><input type="checkbox" class="ed" value="UK" checked> UK</label>
       <label class="tight"><input type="checkbox" class="ed" value="US" checked> US</label>
       <label class="tight"><input type="checkbox" class="ed" value="EU" checked> EU</label>
       <label class="tight"><input type="checkbox" class="ed" value="WORLD" checked> World</label>
-      <div class="note">available_markets を考慮して各エディションが100曲で着地するよう段階的に緩和。</div>
+      <div class="note">available_markets を考慮し、各エディションが100曲で着地するよう段階的に緩和。</div>
     </div>
     <div>
       <label>ベース名（末尾に [UK Edition] 等を自動付与）</label>
@@ -137,18 +136,18 @@
   </div>
 </fieldset>
 
-<!-- 収集ポリシー -->
+<!-- 収集ポリシー（催促案デフォルト） -->
 <fieldset>
-  <legend>収集ポリシー（一般既定）</legend>
+  <legend>収集ポリシー（Fastデフォルト）</legend>
   <div class="row">
     <div>
       <label>アーティストID</label>
       <input id="artistId" value="55fvQ5I2IZUfcFT2DV02T3" />
       <div class="note">The Darrow Chem Syndicate（変更可）</div>
     </div>
-    <div><label>最新から取るアルバム枚数</label><input id="albumRecent" type="number" min="8" max="80" value="30" /></div>
-    <div><label>旧作サンプル比率（0–0.8）</label><input id="oldAlbumRatio" type="number" step="0.05" min="0" max="0.8" value="0.25" /></div>
-    <div><label>Era Mix（古め混合率 0–0.8）</label><input id="ratioOld" type="number" step="0.05" min="0" max="0.8" value="0.30" /></div>
+    <div><label>最新から取るアルバム枚数</label><input id="albumRecent" type="number" min="8" max="80" value="20" /></div>
+    <div><label>旧作サンプル比率（0–0.8）</label><input id="oldAlbumRatio" type="number" step="0.05" min="0" max="0.8" value="0.20" /></div>
+    <div><label>Era Mix（古め混合率 0–0.8）</label><input id="ratioOld" type="number" step="0.05" min="0" max="0.8" value="0.25" /></div>
   </div>
   <div class="row">
     <div><label>人気の重み</label><input id="wPopularity" type="number" step="0.05" min="0" max="1" value="0.6" /></div>
@@ -166,7 +165,7 @@
       </div>
       <div class="note">EP は「album_type: single かつ曲数≥3」またはタイトルに“EP”。</div>
     </div>
-    <div><label>ターゲット候補数（Trim上限）</label><input id="targetPool" type="number" min="120" max="220" value="150" /></div>
+    <div><label>ターゲット候補数（Trim上限）</label><input id="targetPool" type="number" min="120" max="220" value="130" /></div>
   </div>
 
   <div class="grid4">
@@ -224,21 +223,11 @@ const log=m=>{const d=new Date().toLocaleTimeString(); el("log").textContent+=`[
 const setProg=(v,label)=>{ el("prog").value=v; el("progTxt").textContent=label||""; el("mini").textContent=label||""; };
 const warn=m=>{el("warn").textContent=m||"";};
 
-/* HUD state */
+/* HUD */
 const HUD={
   counters:{markets:"—", albumsDone:0, albumsTotal:0, tracks:0, cands:0},
-  phase(name, status){ // status: idle/run/ok/err
-    const box=[...document.querySelectorAll('.phase .badge')].find(b=>b.dataset.p===name);
-    if(!box) return;
-    box.classList.remove('b-idle','b-run','b-ok','b-err');
-    box.classList.add(status==='run'?'b-run':status==='ok'?'b-ok':status==='err'?'b-err':'b-idle');
-  },
-  countersRender(){
-    el("c_markets").textContent=this.counters.markets;
-    el("c_albums").textContent=`${this.counters.albumsDone} / ${this.counters.albumsTotal}`;
-    el("c_tracks").textContent=String(this.counters.tracks);
-    el("c_cands").textContent=String(this.counters.cands);
-  }
+  phase(name, status){ const box=[...document.querySelectorAll('.phase .badge')].find(b=>b.dataset.p===name); if(!box) return; box.classList.remove('b-idle','b-run','b-ok','b-err'); box.classList.add(status==='run'?'b-run':status==='ok'?'b-ok':status==='err'?'b-err':'b-idle'); },
+  countersRender(){ el("c_markets").textContent=this.counters.markets; el("c_albums").textContent=`${this.counters.albumsDone} / ${this.counters.albumsTotal}`; el("c_tracks").textContent=String(this.counters.tracks); el("c_cands").textContent=String(this.counters.cands); }
 };
 
 /* 接続表示 */
@@ -251,8 +240,6 @@ function renderStatus(){
     else{ el("status").textContent="トークン期限切れ（再接続してください）"; el("hudToken").textContent="期限切れ"; }
   }catch(err){ el("status").textContent="状態表示エラー: "+(err.message||err); }
 }
-
-/* 例外/未処理 */
 window.addEventListener("error", e => log("SCRIPT ERROR: "+e.message));
 window.addEventListener("unhandledrejection", e => log("UNHANDLED: "+(e?.reason?.message||e?.reason||"(no reason)")));
 
@@ -330,14 +317,13 @@ function releaseLock(k){const cur=readLock(k); if(cur && cur.owner===TAB_ID) loc
 const trackSeenBy=new Map(); // id -> Set(markets)
 function markSeen(id,market){ let s=trackSeenBy.get(id); if(!s){s=new Set(); trackSeenBy.set(id,s);} s.add(market); }
 
-/* Edition/Markets */
+/* Edition/Markets（強市場のみ / JP除外） */
 const EDITIONS={
   UK:    { markets:["GB","IE"], anyOf:["GB"], suffix:" [UK Edition]" },
   US:    { markets:["US","CA"], anyOf:["US"], suffix:" [US Edition]" },
-  EU:    { markets:["DE","FR","NL","ES","IT","SE","DK","FI","BE","AT","IE","PL","PT","CZ"], needCount:4, suffix:" [EU Edition]" },
-  WORLD: { markets:["US","GB","DE","FR","NL","ES","IT","SE","AU","CA","BR"], needPct:0.6, suffix:" [World Edition]" }
+  EU:    { markets:["DE","FR","NL","ES","IT","SE","DK","FI","BE"], needCount:3, suffix:" [EU Edition]" },
+  WORLD: { markets:["US","GB","DE","FR","NL","ES","IT","SE","AU","CA"], needPct:0.6, suffix:" [World Edition]" }
 };
-const CORE_SCAN_MARKETS=["GB","IE","US","DE","FR","NL","ES","IT","SE","CA","AU","BR"];
 
 /* リリース種別 */
 function needTypes(){ const s=new Set([...document.querySelectorAll(".rtype:checked")].map(x=>x.value)); return {wantAlbum:s.has("ALBUM"),wantSingle:s.has("SINGLE"),wantEP:s.has("EP"),wantComp:s.has("COMPILATION")}; }
@@ -507,30 +493,29 @@ async function scanArtistAlbums(artistId, market, groupsCsv, scanMax){
   return items;
 }
 
-/* アルバム→トラック */
-async function fetchAlbumTracks(albumId, albumName, albumDate, market, idx, total){
-  log(`→ tracks fetch ${market} [${idx}/${total}] ${albumName} (${albumDate})`);
-  setProg(10+Math.round((idx/Math.max(1,total))*20),`album ${market}: ${idx}/${total}`);
-  let items=[]; let url=`https://api.spotify.com/v1/albums/${albumId}/tracks?market=${encodeURIComponent(market)}&limit=50&offset=0`;
+/* アルバム→トラック（ログ強化） */
+async function fetchAlbumTracks(albumId, albumName, albumDate, logMarket, idx, total){
+  log(`→ tracks fetch ${logMarket} [${idx}/${total}] ${albumName} (${albumDate})`);
+  setProg(10+Math.round((idx/Math.max(1,total))*20),`album ${logMarket}: ${idx}/${total}`);
+  let items=[]; let url=`https://api.spotify.com/v1/albums/${albumId}/tracks?limit=50&offset=0`;
   while(url){
-    const data=await callSpotifyJSON(url,{}, {tag:`album:${market}:${idx}/${total}`});
-    (data.items||[]).forEach(t=>{ if(t?.id) markSeen(t.id,market); });
+    const data=await callSpotifyJSON(url,{}, {tag:`album:${logMarket}:${idx}/${total}`});
     items.push(...(data.items||[]));
     url=data.next||null;
   }
   HUD.counters.tracks += items.length; HUD.countersRender();
-  log(`← tracks fetched ${market} [${idx}/${total}] ${albumName} → ${items.length}曲 (+${items.length})`);
+  log(`← tracks fetched ${logMarket} [${idx}/${total}] ${albumName} → ${items.length}曲 (+${items.length})`);
   return items.map(t=>({ ...t, __albumDate: albumDate, __albumName: albumName }));
 }
 
-/* 検索フォールバック */
+/* 検索フォールバック（強市場のみ / 浅め） */
 async function searchRemixesByArtist(artistId, markets, minYear){
   const outIds=new Set(); let artistName=null;
   try{ const ai=await callSpotifyJSON(`https://api.spotify.com/v1/artists/${artistId}`,{}, {tag:"artistName"}); artistName=ai?.name||""; }
   catch(e){ log("artist name 取得失敗: "+(e.message||e)); return []; }
   const years=`${minYear}-2030`;
   for(const mkt of markets){
-    for(let offset=0; offset<1000; offset+=50){
+    for(let offset=0; offset<=200; offset+=50){ // shallow（速さ優先）
       try{
         setProg(32, `search ${mkt} off ${offset}`);
         const q=encodeURIComponent(`artist:"${artistName}" remix year:${years}`);
@@ -542,7 +527,7 @@ async function searchRemixesByArtist(artistId, markets, minYear){
           const hasSeed=(t.artists||[]).some(a=>a?.id===artistId); if(!hasSeed) continue;
           if(!isRemixOnlyTitle(t.name)) continue;
           const yOk=yearFromDate(t.album?.release_date)>=minYear; if(!yOk) continue;
-          outIds.add(t.id); markSeen(t.id, mkt);
+          outIds.add(t.id); // available_markets はトラック詳細で補完
         }
       }catch(e){ log(`search ${mkt} off ${offset} 失敗: ${e.message||e}`); break; }
     }
@@ -551,7 +536,7 @@ async function searchRemixesByArtist(artistId, markets, minYear){
   return [...outIds];
 }
 
-/* FAST Build */
+/* FAST Build（催促案：市場限定＋アルバム重複統合） */
 async function doFastBuild(){
   // ロック
   const cur=readLock(BUILD_LOCK_KEY); if(cur && Date.now()-(cur.ts||0) < 30000 && cur.owner!==TAB_ID){ warn("他タブで実行中。少し待って再実行してください。"); return; }
@@ -563,26 +548,27 @@ async function doFastBuild(){
   HUD.counters={markets:"—", albumsDone:0, albumsTotal:0, tracks:0, cands:0}; HUD.countersRender();
 
   try{
+    // エディションの市場（強市場のみ）
     const eds=[...document.querySelectorAll(".ed:checked")].map(x=>x.value);
     if(!eds.length){ alert("エディションを選択してください。"); releaseLock(BUILD_LOCK_KEY); return; }
-    const needMkts=new Set(); eds.forEach(k=> (EDITIONS[k].markets||[]).forEach(m=>needMkts.add(m))); CORE_SCAN_MARKETS.forEach(m=>needMkts.add(m));
-    const markets=[...needMkts]; HUD.counters.markets=markets.join(", "); HUD.countersRender();
+    const markets=[...new Set(eds.flatMap(k=>EDITIONS[k].markets))];
+    HUD.counters.markets=markets.join(", "); HUD.countersRender();
 
     const artistId=el("artistId").value.trim();
-    const recentN=Math.max(8, Math.min(80, parseInt(el("albumRecent").value||"30",10)));
-    const oldRatio=Math.max(0, Math.min(0.8, parseFloat(el("oldAlbumRatio").value||"0.25")));
+    const recentN=Math.max(8, Math.min(80, parseInt(el("albumRecent").value||"20",10)));
+    const oldRatio=Math.max(0, Math.min(0.8, parseFloat(el("oldAlbumRatio").value||"0.20")));
     const minYear=2010;
     const wPop=parseFloat(el("wPopularity").value||"0.6");
     const wRec=parseFloat(el("wRecent").value||"0.4");
-    let targetPool=Math.max(120, Math.min(220, parseInt(el("targetPool").value||"150",10)));
-    const SCAN_MAX=140;
+    let targetPool=Math.max(120, Math.min(220, parseInt(el("targetPool").value||"130",10)));
+    const SCAN_MAX=100; // 催促案：ページ浅め
     const types=needTypes();
     const groupsCsv="album,single,compilation,appears_on";
 
-    log(`=== FAST Build start editions=[${eds.join(",")}] markets=[${markets.join(",")}] recentN=${recentN} oldN=${Math.round(recentN*oldRatio)} ===`);
+    log(`=== FAST Build (fast-preset) editions=[${eds.join(",")}] markets=[${markets.join(",")}] recentN=${recentN} oldN=${Math.round(recentN*oldRatio)} ===`);
 
-    // アルバム収集
-    const picked=[];
+    // アルバム収集（市場横断で重複を統合）
+    const pickedRaw=[];
     for(const m of markets){
       let all=albumCache.get(m);
       if(!all){ all=await scanArtistAlbums(artistId, m, groupsCsv, SCAN_MAX); albumCache.set(m, all); }
@@ -590,21 +576,32 @@ async function doFastBuild(){
       const rec=filteredAlbums.slice(0, recentN);
       const old=oldRatio ? filteredAlbums.slice(-Math.round(recentN*oldRatio)) : [];
       log(`市場 ${m}: albums(all=${all.length}, afterType=${filteredAlbums.length}) → recent=${rec.length}, old=${old.length}`);
-      rec.forEach(a=>picked.push({market:m, album:a}));
-      old.forEach(a=>picked.push({market:m, album:a}));
+      rec.forEach(a=>pickedRaw.push({market:m, album:a}));
+      old.forEach(a=>pickedRaw.push({market:m, album:a}));
     }
+    // 同一アルバム統合
+    const pickedMap=new Map();
+    for(const {market,album} of pickedRaw){
+      if(!pickedMap.has(album.id)) pickedMap.set(album.id,{album,markets:new Set()});
+      pickedMap.get(album.id).markets.add(market);
+    }
+    const picked=[...pickedMap.values()];
     HUD.counters.albumsTotal=picked.length; HUD.countersRender();
     HUD.phase('albums','ok'); HUD.phase('tracks','run');
 
-    // トラック収集
+    // トラック収集（統合アルバムで1回だけ取得し、可視市場を全付与）
     const collectIds=new Set();
     for(let i=0;i<picked.length;i++){
-      const {market:m, album:a}=picked[i];
-      const tracks=await fetchAlbumTracks(a.id, a.name, a.release_date, m, i+1, picked.length);
+      const {album:a, markets:mkts}=picked[i];
+      const logMkt = mkts.values().next().value || markets[0];
+      const tracks=await fetchAlbumTracks(a.id, a.name, a.release_date, logMkt, i+1, picked.length);
       HUD.counters.albumsDone=i+1; HUD.countersRender();
 
       for(const t of tracks){
         if(!t?.id) continue;
+        // 見えた全市場を付与
+        for(const m of mkts) markSeen(t.id, m);
+
         const seedOK=(t.artists||[]).some(x=>x?.id===artistId);
         if(!seedOK) continue;
         if(!isRemixOnlyTitle(t.name)) continue;
@@ -619,7 +616,7 @@ async function doFastBuild(){
     log(`アルバム全曲スキャン後: ${collectIds.size}曲`);
     HUD.phase('tracks','ok');
 
-    // search フォールバック
+    // search フォールバック（強市場のみ / 浅め）
     if(collectIds.size < targetPool){
       const extra=await searchRemixesByArtist(artistId, markets, minYear);
       extra.forEach(id=>collectIds.add(id));
@@ -657,32 +654,16 @@ async function doFastBuild(){
       accept[cls.reason]=(accept[cls.reason]||0)+1; return true;
     });
     filtered=dedupeById(filtered);
-    const wPop=parseFloat(el("wPopularity").value||"0.6");
-    const wRec=parseFloat(el("wRecent").value||"0.4");
     computeScores(filtered, wPop, wRec);
 
-    // 追加市場で増強（薄いとき）
-    if(filtered.length < 120){
-      log("プールが薄い → 追加市場(MX/AR/NZ/NO/CH/HK/SG)でsearch増強");
-      const extraMkts=["MX","AR","NZ","NO","CH","HK","SG"];
-      const more=await searchRemixesByArtist(artistId, extraMkts, minYear);
-      const moreTracks=await fetchTracksBatched([...new Set(more)]);
-      moreTracks.forEach(t=>{
-        const f=featsMap.get(t.id)||{};
-        filtered.push({id:t.id, name:t.name, artists:t.artists||[], popularity:t.popularity||0, duration_ms:t.duration_ms||0, album:t.album||{}, features:{energy:f.energy??0.58,valence:f.valence??0.45,tempo:f.tempo??132,danceability:f.danceability??0.60}});
-      });
-      filtered=dedupeById(filtered);
-      computeScores(filtered, wPop, wRec);
-    }
+    // Poolが薄ければ、そのままでも Trim で着地（催促案）
+    const upper=Math.max(120, Math.min(130, filtered.length));
+    trimmed=filtered.slice(0, upper);
 
     const minYearTxt=2010;
     log(`Breaks採用内訳: genres=${accept.genres||0} / title=${accept.title||0} / album=${accept.album||0} / label=${accept.label||0} / seed=${accept.seed||0}`);
     log(`フィルタ後: ${filtered.length}曲（除外: 年<${minYearTxt}:${counts.year} / Remix規則:${counts.remix} / Breaks非該当:${counts.breaks}）`);
     HUD.phase('filter','ok');
-
-    // Trim 直前候補
-    const upper=Math.max(120, Math.min(130, filtered.length));
-    trimmed=filtered.slice(0, upper);
 
     if(trimmed.length>=120){
       el("btnTrim").disabled=false;
@@ -692,12 +673,12 @@ async function doFastBuild(){
       log(`FAST Build 完了：${trimmed.length}曲`);
       setProg(96,"ready to Trim / Balance");
     }else{
-      warn("候補が120未満。Release種別を全部ONにする、または albumRecent を上げると増えます。");
+      warn("候補が120未満。Album/Single/EP/Compilationを全ON・albumRecent↑で増やせます。");
       setProg(92,"need more pool");
     }
   }catch(e){
     log("エラー: "+(e.message||e));
-    HUD.phase('albums','err'); HUD.phase('tracks','err'); /* どこで落ちても赤に */
+    HUD.phase('albums','err'); HUD.phase('tracks','err');
   }finally{
     releaseLock(BUILD_LOCK_KEY);
   }
@@ -709,7 +690,7 @@ async function doBalance(){
   HUD.phase('balance','run');
   const finalSize=Math.max(80, Math.min(100, parseInt(el("finalSize").value||"100",10)));
   const pins={1:(el("pin1").value||"").trim(),5:(el("pin5").value||"").trim(),40:(el("pin40").value||"").trim(),60:(el("pin60").value||"").trim()};
-  const ratioOld=Math.max(0, Math.min(0.8, parseFloat(el("ratioOld").value||"0.30")));
+  const ratioOld=Math.max(0, Math.min(0.8, parseFloat(el("ratioOld").value||"0.25")));
   const cand=eraBlendCands(trimmed, ratioOld, 1.6);
   final100=balancedOrder(cand, pins, finalSize, {noAdjacent:true, head5:true});
   log(`Balanced 生成：${final100.length}曲（EraMix=${ratioOld} / Remix Only / 2010+）`);
@@ -750,7 +731,7 @@ async function buildEditions(){
 
   const finalSize=Math.max(80, Math.min(100, parseInt(el("finalSize").value||"100",10)));
   const pins={1:(el("pin1").value||"").trim(),5:(el("pin5").value||"").trim(),40:(el("pin40").value||"").trim(),60:(el("pin60").value||"").trim()};
-  const ratioOld=Math.max(0, Math.min(0.8, parseFloat(el("ratioOld").value||"0.30")));
+  const ratioOld=Math.max(0, Math.min(0.8, parseFloat(el("ratioOld").value||"0.25")));
   const base=(el("baseName").value||"TDCS – Breaks Remix Only 100 (2010+)").trim();
   const desc=(el("baseDesc").value||"Breaks/Breakbeat限定・2010+・Remixのみ・Pins固定・バランス配置").trim();
   const isPublic=el("isPublic").value==="true";
@@ -772,7 +753,7 @@ async function buildEditions(){
   alert("UK/US/EU/World の作成が完了しました。");
 }
 
-/* クリック委任（無反応対策）+ 緊急リセット */
+/* クリック委任 + 緊急リセット */
 document.addEventListener('click', async (e)=>{
   const btn=e.target.closest('button, a.btn'); if(!btn) return;
   const id=btn.id||btn.getAttribute('href')||'(no-id)'; log(`▶ click: ${id}`);
