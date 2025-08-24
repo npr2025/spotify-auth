@@ -2,40 +2,75 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Editions Builder – Simple Mode（Breaks 2010+ / Remix Only）</title>
 
 <meta name="robots" content="noindex,nofollow">
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="Content-Security-Policy"
-      content="default-src 'self';
-               connect-src 'self' https://accounts.spotify.com https://api.spotify.com;
-               img-src 'self' data:;
-               style-src 'self' 'unsafe-inline';
-               script-src 'self' 'unsafe-inline';
-               frame-ancestors 'none';
-               base-uri 'self';
-               form-action 'self' https://accounts.spotify.com;">
+  content="default-src 'self';
+           connect-src 'self' https://accounts.spotify.com https://api.spotify.com;
+           img-src 'self' data:;
+           style-src 'self' 'unsafe-inline';
+           script-src 'self' 'unsafe-inline';
+           frame-ancestors 'none';
+           base-uri 'self';
+           form-action 'self' https://accounts.spotify.com;">
 
 <style>
   :root{--w:980px}
   *{box-sizing:border-box}
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:var(--w);margin:28px auto;padding:0 14px;background:#fff}
+  html,body{height:100%}
+  body{
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
+    -webkit-text-size-adjust:100%;
+    -webkit-tap-highlight-color:transparent;
+    max-width:var(--w); margin:28px auto; padding:0 14px 72px; /* 72px = ドック分 */
+    background:#fff;
+  }
   h1{margin:0 0 10px}
   .muted{color:#667085}
   .note{font-size:12px;color:#667085}
   .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
   .row>*{flex:1 1 220px}
-  input,select{width:100%;padding:9px 10px;border:1px solid #D0D5DD;border-radius:8px}
-  button,a.btn{display:inline-block;padding:10px 14px;border:1px solid #D0D5DD;border-radius:8px;background:#F9FAFB;cursor:pointer;text-decoration:none}
+  input,select{
+    width:100%;padding:12px 12px;border:1px solid #D0D5DD;border-radius:10px;font-size:16px; /* iOSズーム防止 */
+  }
+  button,a.btn{
+    display:inline-block;padding:12px 14px;border:1px solid #D0D5DD;border-radius:10px;background:#F9FAFB;
+    cursor:pointer;text-decoration:none;min-height:44px
+  }
   button:disabled{opacity:.55;cursor:not-allowed}
   fieldset{border:1px solid #E4E7EC;border-radius:12px;padding:12px;margin:12px 0}
   legend{padding:0 6px}
-  #log{white-space:pre-wrap;background:#0b1220;color:#cfe3ff;border-radius:10px;padding:12px;max-height:420px;overflow:auto}
   .pill{display:inline-block;font-size:12px;border:1px solid #E4E7EC;border-radius:999px;padding:2px 8px;margin-left:8px}
   .hud{border:1px solid #E4E7EC;border-radius:12px;padding:12px;margin:10px 0}
   .kv{display:grid;grid-template-columns:120px 1fr;gap:6px 10px}
-  progress{width:280px;height:16px}
+  progress{width:100%;height:16px}
+  details>summary{cursor:pointer;padding:8px 0;font-weight:600}
+  #log{
+    white-space:pre-wrap;background:#0b1220;color:#cfe3ff;border-radius:10px;padding:12px;max-height:420px;overflow:auto;
+  }
+
+  /* 固定ドック（モバイル操作バー） */
+  .dock{
+    position:fixed;left:0;right:0;bottom:0;z-index:10;
+    background:#fff;border-top:1px solid #E4E7EC;
+    padding:8px 10px calc(8px + env(safe-area-inset-bottom));
+    display:flex;gap:8px;justify-content:space-between
+  }
+  .dock button{flex:1 1 auto}
+
+  /* モバイル最適化 */
+  @media (max-width:720px){
+    body{margin:16px auto;padding:0 10px 86px}
+    .row>*{flex:1 1 100%}
+    .kv{grid-template-columns:1fr}
+    .kv>div:nth-child(odd){color:#667085}
+    fieldset legend{font-size:14px}
+    h1{font-size:20px}
+    .sticky-actions{display:none} /* 上の大ボタン列は小画面では邪魔 */
+  }
 </style>
 </head>
 <body>
@@ -50,8 +85,10 @@
     <div>進捗</div>
     <div>
       <progress id="prog" value="0" max="100"></progress>
-      <span id="progTxt" class="muted">準備OK</span>
-      <button id="btnRepair" style="float:right">🔧 緊急リセット</button>
+      <div class="row" style="margin-top:8px">
+        <span id="progTxt" class="muted" style="flex:1 1 auto">準備OK</span>
+        <button id="btnRepair" style="flex:0 0 auto">🔧 緊急リセット</button>
+      </div>
     </div>
   </div>
   <div class="row" style="margin-top:8px">
@@ -97,7 +134,7 @@
     <div>
       <label>Trim上限（候補ターゲット）</label>
       <input id="targetPool" type="number" min="120" max="220" value="150">
-      <div class="note">まず 150 曲へトリムします</div>
+      <div class="note">まず 150 曲へトリム</div>
     </div>
     <div>
       <label>Balanced曲数</label>
@@ -110,15 +147,14 @@
     <div>
       <label>人気の重み</label>
       <input id="wPopularity" type="number" step="0.05" min="0" max="1" value="0.55">
-      <div class="note">0.0=無視 / 1.0=人気のみ</div>
     </div>
     <div>
       <label>新しさの重み</label>
       <input id="wRecent" type="number" step="0.05" min="0" max="1" value="0.45">
-      <div class="note">0.0=無視 / 1.0=新譜のみ</div>
     </div>
   </div>
-  <div class="row">
+  <!-- デスクトップの操作列（モバイルは下のドックを使う） -->
+  <div class="row sticky-actions">
     <div>
       <button id="btnFast">① 収集（Quick）</button>
       <button id="btnTrim" disabled>② Trim（150）</button>
@@ -148,8 +184,20 @@
   <div class="note">※ Balancedが未生成なら Trim(最大150) をそのまま出します。</div>
 </fieldset>
 
-<h2>ログ</h2>
-<pre id="log"></pre>
+<h2 style="margin-bottom:6px">ログ</h2>
+<details id="logBox">
+  <summary class="muted">開く（モバイルでは重いので閉じています）</summary>
+  <pre id="log"></pre>
+</details>
+
+<!-- 画面下ドック（モバイル操作バー） -->
+<div class="dock" role="toolbar" aria-label="操作">
+  <button id="mbFast">収集</button>
+  <button id="mbTrim" disabled>Trim</button>
+  <button id="mbBalance" disabled>Bal</button>
+  <button id="mbBuild" disabled>作成</button>
+  <button id="mbCommit" disabled>更新</button>
+</div>
 
 <script>
 "use strict";
@@ -161,7 +209,16 @@ const K={access:"sp_access_token",type:"sp_token_type",expAt:"sp_expires_at",ref
 
 /*** 便利 ***/
 const el=id=>document.getElementById(id);
-const log=m=>{const d=new Date().toLocaleTimeString(); const L=el("log"); L.textContent+=`[${d}] ${m}\n`; L.scrollTop=L.scrollHeight;};
+const log=(m)=>{
+  const d=new Date().toLocaleTimeString();
+  const L=el("log");
+  // 末尾300行だけ保持（モバイルで重くならないように）
+  const next=L.textContent+`[${d}] ${m}\n`;
+  const lines=next.split("\n");
+  const trimmed=(lines.length>300?lines.slice(-300):lines).join("\n");
+  L.textContent=trimmed;
+  L.scrollTop=L.scrollHeight;
+};
 const setProg=(v,t)=>{el("prog").value=v; el("progTxt").textContent=t||"";};
 const status=(t)=>{el("status").textContent=t||"";};
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -206,7 +263,7 @@ async function ensureFreshToken(){
 }
 function parse403(txt){ try{const j=JSON.parse(txt); return j?.error?.message||"";}catch(_){return "";} }
 async function callSpotifyJSON(url,opts={}, {maxRetry=5,expectJSON=true,tag=""}={}){
-  MIN_API_GAP_MS=Math.max(300, parseInt(el("gap").value||"900",10));
+  MIN_API_GAP_MS=Math.max(300, parseInt(el("gap")?.value||"900",10));
   const wait=Math.max(0,MIN_API_GAP_MS-(Date.now()-lastApiTs)); if(wait) await sleep(wait);
   let token=await ensureFreshToken(); if(!token) throw new Error("No valid token. Connect again.");
   let attempt=0;
@@ -254,7 +311,6 @@ const EDITIONS={
 
 /*** 小道具 ***/
 const chunk=(a,n)=>{const out=[]; for(let i=0;i<a.length;i+=n) out.push(a.slice(i,i+n)); return out; };
-function dedupeById(arr){ const s=new Set(); const o=[]; for(const t of arr){ if(s.has(t.id)) continue; s.add(t.id); o.push(t);} return o; }
 function computeScores(tracks,wPop,wRec){
   let minD=Infinity,maxD=-Infinity;
   for(const t of tracks){ const ms=new Date(t.album?.release_date||t.__albumDate||0).getTime()||0; t._dateMs=ms; if(ms){ if(ms<minD)minD=ms; if(ms>maxD)maxD=ms; } }
@@ -354,7 +410,7 @@ async function fetchArtistsGenresMapBatched(ids){
 let trimmed=[], finalSeq=[];
 const albumCache=new Map();
 
-/*** 収集（シンプルUI） ***/
+/*** 収集（シンプルUI：モバイル共通） ***/
 async function doFastBuild(){
   trimmed=[]; finalSeq=[]; trackSeenBy.clear();
   setProg(2,"start");
@@ -371,18 +427,15 @@ async function doFastBuild(){
 
   log(`=== FAST Build start editions=[${eds.join(",")}] recent=${recentN} oldRatio=${oldRatio} maxTracks<=${maxTracks} ===`);
 
-  // 1) アルバム収集（Single/EPのみ）＆重複統合
   const groupsCsv="album,single,compilation,appears_on";
   const SCAN_MAX=200;
   const pickedMap=new Map();
   for(const m of markets){
     let all=albumCache.get(m); if(!all){ all=await scanArtistAlbums(artistId,m,groupsCsv,SCAN_MAX); albumCache.set(m,all); }
     const filtered=all.filter(a=>{
-      const type=(a.album_type||"").toLowerCase();
-      const ep = isEP(a), single=isSingle(a);
-      const ok=(ep||single);
+      const ep=isEP(a), single=isSingle(a);
       const tracks=(a.total_tracks||99) <= maxTracks;
-      return ok && tracks;
+      return (ep||single) && tracks;
     });
     const rec=filtered.slice(0, recentN);
     const old=oldRatio ? filtered.slice(-Math.round(recentN*oldRatio)) : [];
@@ -395,7 +448,6 @@ async function doFastBuild(){
   const picked=[...pickedMap.values()];
   setProg(12,`albums ${picked.length}`);
 
-  // 2) アルバム→トラック
   const collectIds=new Set();
   for(let i=0;i<picked.length;i++){
     const {album:a, markets:mkts}=picked[i];
@@ -412,7 +464,6 @@ async function doFastBuild(){
   }
   log(`アルバム全曲スキャン後: ${collectIds.size}曲`);
 
-  // 3) search フォールバック（Remix限定）
   if(collectIds.size<targetPool){
     const extra=await searchRemixesByArtist(artistId, markets, minYear);
     extra.forEach(id=>collectIds.add(id));
@@ -420,7 +471,6 @@ async function doFastBuild(){
   }
   if(!collectIds.size){ log("候補0。条件を見直してください。"); return; }
 
-  // 4) 詳細・特徴量・アーティストジャンル
   setProg(40,"details");
   const trackObjs=await fetchTracksBatched([...collectIds]);
   setProg(56,"features");
@@ -429,7 +479,6 @@ async function doFastBuild(){
   setProg(70,"artists");
   const genresMap=await fetchArtistsGenresMapBatched([...artistIds]);
 
-  // 5) Breaks 判定（不足時は自動緩和）
   function classifyBreaks(t){
     const byGenres=(t.artists||[]).some(a=>(genresMap.get(a.id)||[]).some(genreOK));
     const byTitle =breaksWord.test(t.name||"");
@@ -455,13 +504,12 @@ async function doFastBuild(){
   };
 
   let filtered = base.filter(t => passCore(t) && classifyBreaks(t));
-  if(filtered.length < 120){ // 自動緩和
+  if(filtered.length < 120){
     log(`Breaks 判定を緩和: ${filtered.length}曲 → 再評価中…`);
     filtered = base.filter(passCore);
     log(`→ 緩和後: ${filtered.length}曲`);
   }
 
-  // 6) スコア→Trim（150）
   const wPop=parseFloat(el("wPopularity").value||"0.55");
   const wRec=parseFloat(el("wRecent").value||"0.45");
   computeScores(filtered,wPop,wRec);
@@ -470,13 +518,12 @@ async function doFastBuild(){
   log(`Trim 完了：${trimmed.length}曲（ターゲット${upper}）`);
   setProg(90,`trimmed ${trimmed.length}`);
 
-  el("btnTrim").disabled=false;
-  el("btnBalance").disabled=false;
-  el("btnBuildEditions").disabled=false;
-  el("btnCommit").disabled=false;
+  // ボタン活性（上とドック両方）
+  ['btnTrim','btnBalance','btnBuildEditions','btnCommit','mbTrim','mbBalance','mbBuild','mbCommit'].forEach(id=>{
+    const b=el(id); if(b) b.disabled=false;
+  });
 }
 
-/*** Trim / Balanced / Playlist ***/
 async function doTrim(){
   if(!trimmed.length) return alert("先に①収集を実行してください");
   const upper=Math.min(parseInt(el("targetPool").value||"150",10), trimmed.length);
@@ -550,16 +597,31 @@ async function buildEditions(){
   alert("UK/US/EU/World の作成が完了しました。");
 }
 
-/*** クリック委任 + 緊急系 ***/
+/*** クリック委任（PC用ボタンとモバイルドック連動） + 緊急系 ***/
 document.addEventListener('click', async (e)=>{
   const btn=e.target.closest('button, a.btn'); if(!btn) return;
   const id=btn.id||btn.getAttribute('href')||'(no-id)'; log(`▶ click: ${id}`);
   if(btn.tagName==='A') return;
   e.preventDefault();
   try{
-    switch(btn.id){
-      case 'btnMe': { try{ const me=await callSpotifyJSON('https://api.spotify.com/v1/me',{}, {tag:'/me'}); el('hudUser').textContent=`${me.display_name||'(no name)'} / ${me.id}`; }catch(err){ alert('Spotify 接続が必要です'); log('エラー: '+(err.message||err)); } break; }
-      case 'btnSignOut': { try{ ['sp_access_token','sp_expires_at','sp_refresh_token','sp_scope','sp_token_type'].forEach(k=>sessionStorage.removeItem(k)); renderStatus(); log('保存トークンを削除しました'); }catch(err){ log('エラー: '+(err.message||err)); } break; }
+    switch(id){
+      /* モバイルドック → 上位ボタン呼び出し */
+      case 'mbFast': return void el('btnFast').click();
+      case 'mbTrim': return void el('btnTrim').click();
+      case 'mbBalance': return void el('btnBalance').click();
+      case 'mbBuild': return void el('btnBuildEditions').click();
+      case 'mbCommit': return void el('btnCommit').click();
+
+      case 'btnMe': {
+        try{ const me=await callSpotifyJSON('https://api.spotify.com/v1/me',{}, {tag:'/me'}); el('hudUser').textContent=`${me.display_name||'(no name)'} / ${me.id}`; }
+        catch(err){ alert('Spotify 接続が必要です'); log('エラー: '+(err.message||err)); }
+        break;
+      }
+      case 'btnSignOut': {
+        try{ ['sp_access_token','sp_expires_at','sp_refresh_token','sp_scope','sp_token_type'].forEach(k=>sessionStorage.removeItem(k)); renderStatus(); log('保存トークンを削除しました'); }
+        catch(err){ log('エラー: '+(err.message||err)); }
+        break;
+      }
       case 'btnFast': await doFastBuild(); break;
       case 'btnTrim': await doTrim(); break;
       case 'btnBalance': await doBalance(); break;
@@ -591,6 +653,18 @@ document.addEventListener('click', async (e)=>{
 (function boot(){
   log(`✅ index loaded: ${location.href}`);
   renderStatus();
+  // ログはモバイルで既定クローズ
+  try{ if (window.matchMedia('(max-width: 720px)').matches) el('logBox').open=false; }catch(_){}
+  // ドックの活性状態を上のボタンに追従
+  const mirror=()=>['mbTrim','mbBalance','mbBuild','mbCommit'].forEach((id,i)=>{
+    const src=['btnTrim','btnBalance','btnBuildEditions','btnCommit'][i];
+    const s=el(src), d=el(id); if(s && d) d.disabled=s.disabled;
+  });
+  const mo=new MutationObserver(mirror);
+  ['btnTrim','btnBalance','btnBuildEditions','btnCommit'].forEach(id=>{
+    const b=el(id); if(!b) return;
+    mo.observe(b,{attributes:true,attributeFilter:['disabled']});
+  });
 })();
 </script>
 </body>
