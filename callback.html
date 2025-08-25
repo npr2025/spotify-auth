@@ -16,10 +16,9 @@
 <p><a href="auth.html" class="btn">アプリへ戻る</a></p>
 <pre id="log"></pre>
 <script>
-/*** ←←← auth.html と完全一致に ***/
+/*** auth.html と完全一致の固定値（ゼロ幅/空白サニタイズ） ***/
 const CLIENT_ID_RAW    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 const REDIRECT_URI_RAW = "https://npr2025.github.io/spotify-auth/callback.html";
-/*** サニタイズ ***/
 const zws=/[\u200B-\u200D\uFEFF]/g;
 const CLIENT_ID   = CLIENT_ID_RAW.replace(zws,"").trim();
 const REDIRECT_URI= REDIRECT_URI_RAW.replace(zws,"").trim();
@@ -37,7 +36,7 @@ const log=(s)=>{ const el=document.getElementById("log"); el.textContent+=(el.te
   if(!code_verifier){ document.getElementById("status").textContent="Missing code_verifier"; log("code_verifier missing"); return; }
 
   // 可視デバッグ
-  log(`🔎 Tokenリクエスト直前ダイアグ
+  log(`🔎 Tokenリクエスト直前
   CLIENT_ID(len=${CLIENT_ID.length}): ${CLIENT_ID? CLIENT_ID.slice(0,6)+"…"+CLIENT_ID.slice(-6):"(empty)"}
   REDIRECT_URI: ${REDIRECT_URI}
   code(len=${code.length}), code_verifier(len=${code_verifier.length})`);
@@ -59,10 +58,9 @@ const log=(s)=>{ const el=document.getElementById("log"); el.textContent+=(el.te
     if(!res.ok){
       document.getElementById("status").textContent="Failed";
       if((j.error||"").includes("invalid_client")){
-        log("❌ INVALID_CLIENT → CLIENT_ID が誤り/一致していない可能性大。");
+        log("❌ INVALID_CLIENT → CLIENT_ID/REDIRECT_URI が一致していないか、Dashboard未登録。");
         log("  ・auth.html と callback.html の CLIENT_ID が同一か");
-        log("  ・REDIRECT_URI が Allowed Redirect URIs と完全一致か（ドメイン/パス/ポート/https）");
-        log("  ・CLIENT_ID に空白/改行/ゼロ幅が混入していないか（本ビルドは自動除去済み）");
+        log("  ・REDIRECT_URI が Allowed Redirect URIs と完全一致か（https/ドメイン/パス）");
       }
       log("Token error payload: "+JSON.stringify(j));
       return;
