@@ -1,3 +1,5 @@
+合うティム
+
 <!doctype html>
 <html lang="ja">
 <head>
@@ -109,8 +111,8 @@ function dumpAuthDiag(stage){
   REDIRECT_URI(len=${REDIRECT_URI.length}): ${REDIRECT_URI}`);
 }
 async function startAuth(){
-  if(!CLIENT_ID || CLIENT_ID.includes("YOUR_SPOTIFY_CLIENT_ID")){ alert("CLIENT_ID 未設定"); return; }
-  if(!REDIRECT_URI || REDIRECT_URI.includes("your-domain.example")){ alert("REDIRECT_URI 未設定"); return; }
+  if(!CLIENT_ID || CLIENT_ID.includes("1fd6350fcf4945a0b3ddffa2d5730d4e")){ alert("CLIENT_ID 未設定"); return; }
+  if(!REDIRECT_URI || REDIRECT_URI.includes("https://npr2025.github.io/spotify-auth/callback.htme")){ alert("REDIRECT_URI 未設定"); return; }
   dumpAuthDiag("Authorize前ダイアグ");
 
   const verifier = randomString(64);
