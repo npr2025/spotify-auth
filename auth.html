@@ -226,6 +226,32 @@ function autoPick(columns, aliases){
   }
   return "";
 }
+
+/* ★ 追加：内容ベースの列推測（ゼロ件対策） */
+function guessCols(rows){
+  const cols = [...new Set(rows.slice(0,300).flatMap(r=>Object.keys(r)))];
+  const norm = s => String(s||"").toLowerCase();
+  const score = (c, likeWords) => {
+    let s=0, n=0;
+    for(const r of rows.slice(0,500)){
+      const v = String(r[c] ?? "");
+      if(!v) continue;
+      n++;
+      const ln = norm(v);
+      s += likeWords.some(w=> ln.includes(w)) ? 2 : 1;
+      if(/\b[A-Z]{2}-?[A-Z0-9]{3}-?[0-9]{2}-?[0-9]{5}\b/.test(v)) s -= 2; // ISRCっぽい
+      if(/https?:|open\.spotify\.com|spotify:/.test(ln)) s -= 2; // URL系
+    }
+    return n? s/n : -1;
+  };
+  const bestBy = like => cols.sort((a,b)=> score(b,like)-score(a,like))[0] || "";
+  return {
+    name:   bestBy(["title","track","曲","タイトル","name"]),
+    artist: bestBy(["artist","artists","アーティスト"]),
+    isrc:   cols.find(c=>/isrc/i.test(c)) || ""
+  };
+}
+
 function autoMap(){
   const srcCols=collectColumns(sourceRows);
   const anCols=collectColumns(analyticsRows);
@@ -250,6 +276,7 @@ function autoMap(){
   const euA=["eu","available_eu","avail_eu","欧州","ヨーロッパ"];
   const woA=["world","available_world","avail_world","global","worldwide","全世界"];
 
+  // 別名から自動
   $("mapSourceId").value     = autoPick(srcCols, idAlias);
   $("mapSourceISRC").value   = autoPick(srcCols, isrcAlias);
   $("mapSourceName").value   = autoPick(srcCols, nameAlias);
@@ -273,6 +300,17 @@ function autoMap(){
   $("mapUS").value = autoPick(anCols, usA);
   $("mapEU").value = autoPick(anCols, euA);
   $("mapWO").value = autoPick(anCols, woA);
+
+  // ★ 空欄は内容から推測して補完
+  const sGuess=guessCols(sourceRows); const aGuess=guessCols(analyticsRows);
+  if(!$("mapSourceName").value)   $("mapSourceName").value   = sGuess.name;
+  if(!$("mapSourceArtist").value) $("mapSourceArtist").value = sGuess.artist;
+  if(!$("mapSourceISRC").value)   $("mapSourceISRC").value   = sGuess.isrc;
+  if(!$("mapAnalyticName").value)   $("mapAnalyticName").value   = aGuess.name;
+  if(!$("mapAnalyticArtist").value) $("mapAnalyticArtist").value = aGuess.artist;
+  if(!$("mapAnalyticISRC").value)   $("mapAnalyticISRC").value   = aGuess.isrc;
+
+  log(`🧭 自動推測 → ソース(name:${$("mapSourceName").value||"-"}, artist:${$("mapSourceArtist").value||"-"}, isrc:${$("mapSourceISRC").value||"-"}) / 分析(name:${$("mapAnalyticName").value||"-"}, artist:${$("mapAnalyticArtist").value||"-"}, isrc:${$("mapAnalyticISRC").value||"-"})`);
 }
 
 /* ---------- 読込 ---------- */
@@ -355,7 +393,6 @@ function computeScoresAndDiagnostics(){
 
     if(srcRow){
       match++;
-      // 可能な限りID/ISRC/名前を保有（URI解決で利用）
       const srcId  = extractTrackId(getVal(srcRow, $("mapSourceId").value));
       const srcIsc = String(getVal(srcRow, $("mapSourceISRC").value)||"").trim();
       const srcN   = getVal(srcRow, $("mapSourceName").value) || n || "";
@@ -376,17 +413,24 @@ function computeScoresAndDiagnostics(){
   ソース: ID=${src.idCount}, ISRC=${src.isrcCount}, 名前=${src.nameCount}
   分析:   キー抽出試行=${anKeys}（行あたり最大3） → マッチ=${match}`);
 
+  // ★ 0件でも落とさない：候補と列一覧を提示して終了
   if(rows.length===0){
+    const sG = guessCols(sourceRows);
+    const aG = guessCols(analyticsRows);
     const srcCols = collectColumns(sourceRows).join(", ");
     const anCols  = collectColumns(analyticsRows).join(", ");
-    throw new Error("一致0件。列マッピングを見直してください。\n[ソース列] "+srcCols+"\n[分析列] "+anCols);
+    log("❌ 一致0件。列マッピングを見直して再実行してください。");
+    log(`候補（ソース） name:${sG.name||"-"}, artist:${sG.artist||"-"}, isrc:${sG.isrc||"-"}`);
+    log(`候補（分析）   name:${aG.name||"-"}, artist:${aG.artist||"-"}, isrc:${aG.isrc||"-"}`);
+    log("🔤 ソース列: "+srcCols);
+    log("🔤 分析列:  "+anCols);
+    return [];
   }
 
   // 3) スコア化
   const playsCols = {p24:$("mapP24").value, p7:$("mapP7").value, p28:$("mapP28").value};
   const srCols    = {s24:$("mapSR24").value, s7:$("mapSR7").value, s28:$("mapSR28").value};
 
-  // 正規化の最大
   let max24=0,max7=0,max28=0;
   for(const r of rows){
     max24=Math.max(max24, num(r.a[playsCols.p24]));
@@ -407,7 +451,6 @@ function computeScoresAndDiagnostics(){
     const wPop= +$("wPopularity").value || .55;
     r.score = wPop*saveComp + (1-wPop)*playComp;
 
-    // 任意列（地域・remixer）
     const uk = truthy(getVal(r.a,$("mapUK").value));
     const us = truthy(getVal(r.a,$("mapUS").value));
     const eu = truthy(getVal(r.a,$("mapEU").value));
@@ -447,10 +490,7 @@ function extractPlaylistId(s){ s=String(s||""); let m=s.match(/playlist\/([A-Za-
 /* ---------- URI解決（ID/ISRC/名前+アーティスト） ---------- */
 const resolveCache = new Map(); // key → "spotify:track:ID"
 async function resolveUriOne(item){
-  // 1) すでにIDがある
   if(item.id && item.id.length===22) return "spotify:track:"+item.id;
-
-  // 2) ISRC
   if(item.isrc){
     const key="ISRC:"+item.isrc;
     if(resolveCache.has(key)) return resolveCache.get(key);
@@ -462,8 +502,6 @@ async function resolveUriOne(item){
       }
     }catch{}
   }
-
-  // 3) 名前＋アーティスト
   if(item.name && item.artist){
     const key="NM:"+ (item.name+"|"+item.artist).toLowerCase();
     if(resolveCache.has(key)) return resolveCache.get(key);
@@ -475,7 +513,7 @@ async function resolveUriOne(item){
       }
     }catch{}
   }
-  return ""; // 解決不可
+  return "";
 }
 async function toUris(items){
   const uris=[]; let ok=0, ng=0;
@@ -501,6 +539,12 @@ async function run(doPreview=false){
     clearLog();
     log("🔎 スコア計算（XLSX全シート＋3段階マッチ）…");
     const rows = computeScoresAndDiagnostics();
+
+    if(!rows.length){
+      log("⏹️ マッチ0件のため処理を中断しました。列マッピングを見直して再実行してください。");
+      return;
+    }
+
     const balancedN=+$("balancedN").value||150;
     const finalN=+$("finalN").value||130;
     const top=rows.slice(0,balancedN);
@@ -509,7 +553,6 @@ async function run(doPreview=false){
     const edUK=mk("UK"), edUS=mk("US"), edEU=mk("EU"), edWO=mk("WORLD");
 
     if(doPreview){
-      // プレビュー用に各5曲をURI解決して表示
       const sample=[...edUK.slice(0,5),...edUS.slice(0,5),...edEU.slice(0,5),...edWO.slice(0,5)];
       const uris=await toUris(sample);
       log("👀 プレビューURI（合計"+uris.length+"）\n"+uris.join("\n"));
