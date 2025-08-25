@@ -34,6 +34,19 @@
 </div>
 
 <fieldset>
+  <legend>固定値（ズレ防止用・必ずあなたの値に変更）</legend>
+  <div class="grid2">
+    <label>CLIENT_ID（Dashboardの値を貼る）
+      <input id="showCID" type="text" value="YOUR_SPOTIFY_CLIENT_ID">
+    </label>
+    <label>REDIRECT_URI（Dashboardの Allowed Redirect URIs と完全一致）
+      <input id="showRURI" type="text" value="https://your-domain.example/callback.html">
+    </label>
+  </div>
+  <small class="hint">※ 上の2つは表示用。実際の動作は下の <code>CLIENT_ID</code> / <code>REDIRECT_URI</code> 定数で固定しています。</small>
+</fieldset>
+
+<fieldset>
   <legend>設定</legend>
   <label>API間隔(ms) <input id="gap" type="number" value="900"></label>
   <div class="grid2">
@@ -69,9 +82,9 @@
 </fieldset>
 
 <script>
-/*** あなたの環境に合わせて ***/
-const CLIENT_ID    = "YOUR_SPOTIFY_CLIENT_ID";
-const REDIRECT_URI = location.origin + location.pathname.replace(/auth\.html$/,"callback.html");
+/*** 固定：Dashboardと完全一致させる ***/
+const CLIENT_ID    = "YOUR_SPOTIFY_CLIENT_ID";              // ← ここを置換
+const REDIRECT_URI = "https://your-domain.example/callback.html"; // ← ここを置換（Allowed Redirect URIs と完全一致）
 const SCOPES       = "playlist-modify-public playlist-modify-private ugc-image-upload";
 
 /* ---------- util ---------- */
@@ -116,6 +129,14 @@ function findCol(obj, candidates){
 
 /* ---------- Auth ---------- */
 async function startAuth(){
+  if(!CLIENT_ID || CLIENT_ID.includes("YOUR_SPOTIFY_CLIENT_ID")){
+    alert("CLIENT_ID が未設定です。auth.html の定数を書き換えてください。");
+    return;
+  }
+  if(!REDIRECT_URI || REDIRECT_URI.includes("your-domain.example")){
+    alert("REDIRECT_URI が未設定です。auth.html の定数を書き換えてください。");
+    return;
+  }
   const verifier = randomString(64);
   localStorage.setItem(LS.ver, verifier);
   const challenge = await sha256(verifier);
@@ -159,7 +180,7 @@ async function spFetch(path, method="GET", body=null){
 
 /* ---------- ファイル読み込み ---------- */
 let sourceRows = [];     // ソースCSV（母集団）
-let analyticsRows = [];  // 分析データ（全シート結合後）
+let analyticsRows = [];  // 分析データ（全シート結合）
 
 function readCSV(file){
   return new Promise((resolve,reject)=>{
@@ -173,7 +194,6 @@ async function readXLSX_allSheets(file){
   for(const name of wb.SheetNames){
     const sheet = wb.Sheets[name];
     const json  = XLSX.utils.sheet_to_json(sheet,{defval:""});
-    // トレース用に__sheet付与
     for(const r of json){ r.__sheet = name; }
     rows = rows.concat(json);
     details.push(`${name}:${json.length}`);
@@ -244,7 +264,7 @@ function computeScores(){
   // 2) 列名候補
   const get = (obj,cands)=>{ const k=findCol(obj,cands); return k? obj[k]: null; };
 
-  // 正規化のため各窓のplays最大値
+  // plays最大値（窓ごと）
   const playsCols = [
     ["plays_24h","p24","streams24","play_24h"],
     ["plays_7d","p7","streams7","play_7d"],
@@ -296,7 +316,7 @@ function computeScores(){
     const wo = truthy(get(a,["world","available_world","avail_world"]));
     const rem = (get(a,["remixer","remixers","remixer_name"]) ?? "").toString().trim();
 
-    rows.push({ id, a, score, flags:{uk,us,eu,wo}, remixer: rem, s: srcIdx[id] });
+    rows.push({ id, a, score, flags:{uk,us,eu,wo}, remixer: rem, s: null });
   }
 
   rows.sort((x,y)=> y.score - x.score);
@@ -380,8 +400,15 @@ async function run(doPreview=false){
 $("btnConnect").onclick = startAuth;
 $("btnReset").onclick = ()=>{ Object.values(LS).forEach(k=>localStorage.removeItem(k)); setStatus(); log("🧽 ローカルトークン削除"); };
 $("btnCheck").onclick = async ()=>{
-  try{ await refreshTokenIfNeeded(); const me=await spFetch("/v1/me","GET"); $("status").textContent=`接続中（${me.display_name||me.id}）`; log("✅ API確認 OK"); }
-  catch(e){ log("⚠️ 接続エラー: "+e.message); }
+  try{
+    await refreshTokenIfNeeded();
+    const me=await spFetch("/v1/me","GET");
+    $("status").textContent=`接続中（${me.display_name||me.id}）`;
+    log("✅ API確認 OK");
+  }catch(e){
+    if(String(e.message).includes("invalid_client")) log("❌ INVALID_CLIENT: CLIENT_ID / REDIRECT_URI を確認（Dashboardと完全一致）");
+    log("⚠️ 接続エラー: "+e.message);
+  }
 };
 $("fileSource").addEventListener("change", loadFiles);
 $("fileAnalytics").addEventListener("change", loadFiles);
