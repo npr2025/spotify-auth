@@ -18,14 +18,11 @@
 </p>
 <pre id="log"></pre>
 <script>
-const CLIENT_ID = "YOUR_SPOTIFY_CLIENT_ID";
-const LS = {
-  acc: "sp_access_token",
-  ref: "sp_refresh_token",
-  exp: "sp_token_exp",
-  ver: "sp_code_verifier",
-};
+/*** 固定：auth.html と完全一致させる ***/
+const CLIENT_ID    = "YOUR_SPOTIFY_CLIENT_ID";              // ← 同じ値に
+const REDIRECT_URI = "https://your-domain.example/callback.html"; // ← 同じ値に
 
+const LS = { acc:"sp_access_token", ref:"sp_refresh_token", exp:"sp_token_exp", ver:"sp_code_verifier" };
 const log = (s)=>{ const el=document.getElementById("log"); el.textContent += (el.textContent? "\n": "") + s; el.scrollTop = el.scrollHeight; };
 
 (async ()=>{
@@ -42,7 +39,7 @@ const log = (s)=>{ const el=document.getElementById("log"); el.textContent += (e
   const body = new URLSearchParams({
     grant_type: "authorization_code",
     code,
-    redirect_uri: location.origin + location.pathname,
+    redirect_uri: REDIRECT_URI,      // ← auth.html で投げたのと完全一致
     client_id: CLIENT_ID,
     code_verifier
   });
@@ -53,8 +50,19 @@ const log = (s)=>{ const el=document.getElementById("log"); el.textContent += (e
       headers:{ "Content-Type":"application/x-www-form-urlencoded" },
       body
     });
-    const j = await res.json();
-    if(!res.ok){ log("Token error: "+JSON.stringify(j)); document.getElementById("status").textContent="Failed"; return; }
+    const txt = await res.text();
+    let j; try{ j = JSON.parse(txt); }catch{ j = {raw:txt}; }
+
+    if(!res.ok){
+      if((j.error||"").includes("invalid_client")){
+        document.getElementById("status").textContent="Failed (INVALID_CLIENT)";
+        log("❌ INVALID_CLIENT: CLIENT_ID / REDIRECT_URI を Dashboard と完全一致に。末尾 /callback.html・http/https・ポート番号まで確認。");
+      }else{
+        document.getElementById("status").textContent="Failed";
+      }
+      log("Token error: "+JSON.stringify(j));
+      return;
+    }
 
     localStorage.setItem(LS.acc, j.access_token);
     localStorage.setItem(LS.ref, j.refresh_token||"");
