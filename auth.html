@@ -4,7 +4,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Editions Builder — FULL AUTO</title>
+<title>Editions Builder — Analytics Only</title>
 <style>
 :root{--bg:#0b1220;--fg:#cfe3ff}
 body{font-family:system-ui;max-width:1180px;margin:32px auto;padding:0 12px}
@@ -27,7 +27,7 @@ small.hint{color:#666}
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
-<h1>Editions Builder — FULL AUTO</h1>
+<h1>Editions Builder — Analytics Only</h1>
 <p id="status">未接続</p>
 <div>
   <button id="btnConnect">Spotifyにサインイン</button>
@@ -63,9 +63,8 @@ small.hint{color:#666}
 
 <fieldset>
   <legend>ファイル</legend>
-  <label>ソースCSV（Propgapandaソース.csv）<input id="fileSource" type="file" accept=".csv"></label>
   <label>分析（Excel .xlsx / CSV）<input id="fileAnalytics" type="file" accept=".xlsx,.csv"></label>
-  <small class="hint">列の選択は不要。中身から全自動で検出します。</small>
+  <small class="hint">列の選択は不要。**分析ファイルだけ**から自動で拾います。</small>
 </fieldset>
 
 <fieldset>
@@ -80,11 +79,9 @@ small.hint{color:#666}
 </fieldset>
 
 <script>
-/*** 全自動フラグ ***/
-const AUTO_RUN   = true; // ファイル読込で即 解析
-const AUTO_WRITE = true; // 解決率が閾値以上なら自動上書き
-
-/*** 強制アーティストID（The Darrow Chem Syndicate） ***/
+/*** === モード固定: 分析内容だけでSpotify検索 === ***/
+const ANALYTICS_ONLY = true; // ← 常時 true（ソースCSV不要）
+/*** アーティストID強制（The Darrow Chem Syndicate） ***/
 const FORCED_ARTIST_IDS = ["55fvQ5I2IZUfcFT2DV02T3"];
 
 /*** Spotifyアプリ設定 ***/
@@ -99,7 +96,6 @@ const log=s=>{const el=$("log"); el.textContent+=(el.textContent?"\n":"")+s; el.
 const clearLog=()=>{$("log").textContent="";};
 const isAuthed=()=>!!localStorage.getItem(LS.acc)&&Date.now()<(+localStorage.getItem(LS.exp)||0)-5000;
 function setStatus(){ $("status").textContent=isAuthed()?"接続中（OK）":"未接続"; if(isAuthed()&&_pending) resolveAndWrite(); }
-function filesReady(){ return $("fileSource").files.length && $("fileAnalytics").files.length; }
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const num=x=>{const s=String(x??0).replace(/[ %,，]/g,"");const v=parseFloat(s);return isFinite(v)?v:0;};
 
@@ -154,75 +150,61 @@ async function spFetch(path,method="GET",body=null){
   throw new Error("Spotify API max retries");
 }
 
-/*** ファイル読込 ***/
-let sourceRows=[], analyticsRows=[];
-let _pending=null; // {edUK,edUS,edEU,edWO,finalN, mode:"match"|"fallback"}
+/*** ファイル読込（分析のみ） ***/
+let analyticsRows=[];
+let _pending=null; // {edUK,edUS,edEU,edWO,finalN}
 function readCSV(file){ return new Promise((resolve,reject)=>Papa.parse(file,{header:true,skipEmptyLines:true,complete:r=>resolve(r.data),error:reject})); }
 async function readXLSX_allSheets(file){
   const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:"array"});
   let rows=[], details=[]; for(const name of wb.SheetNames){ const json=XLSX.utils.sheet_to_json(wb.Sheets[name],{defval:""}); json.forEach(r=>r.__sheet=name); rows=rows.concat(json); details.push(`${name}:${json.length}`); }
   return { rows, details };
 }
-async function loadFiles(){
+async function loadFile(){
   clearLog(); progress(1,"ファイル読み込み…");
   log("📥 ファイル読み込み…");
-  sourceRows=await readCSV($("fileSource").files[0]); log(`✅ ソース: ${sourceRows.length} 行`);
-  const f2=$("fileAnalytics").files[0];
-  if(f2.name.toLowerCase().endsWith(".xlsx")){
-    const res=await readXLSX_allSheets(f2); analyticsRows=res.rows; log(`✅ 分析: XLSX 合計 ${analyticsRows.length} 行 [${res.details.join(", ")}]`);
-  }else{ analyticsRows=await readCSV(f2); log(`✅ 分析: CSV ${analyticsRows.length} 行`); }
+  const f=$("fileAnalytics").files[0];
+  if(f.name.toLowerCase().endsWith(".xlsx")){
+    const res=await readXLSX_allSheets(f); analyticsRows=res.rows; log(`✅ 分析: XLSX 合計 ${analyticsRows.length} 行 [${res.details.join(", ")}]`);
+  }else{ analyticsRows=await readCSV(f); log(`✅ 分析: CSV ${analyticsRows.length} 行`); }
   progress(6,"読み込み完了");
-  await runAnalysis(); // 認証不要フェーズは即実行
+  await runAnalysis(); // 即解析
 }
 
-/*** 共通ヘルパ ***/
+/*** 列検出（分析用） ***/
 function columns(rows){ const s=new Set(); rows.slice(0,300).forEach(r=>Object.keys(r).forEach(k=>s.add(k))); return [...s]; }
-function bestColOrEmpty(cols, scorer, min=0.15){ let best=null,bestSc=-1; for(const c of cols){ const sc=scorer(c); if(sc>bestSc){ bestSc=sc; best=c; } } return (bestSc>=min)? best:""; }
 const ISRC_RE=/^[A-Z]{2}-?[A-Z0-9]{3}-?\d{2}-?\d{5}$/i;
-function pickByName(cols, prefers, forbids){
-  const bad=new RegExp((forbids||[]).join("|"),"i"); const L=cols.filter(c=>!bad.test(c)).map(c=>[c,norm(c)]);
-  for(const k of prefers){ const n=norm(k); const hit=L.find(([o,nm])=> nm===n || nm.includes(n)); if(hit) return hit[0]; }
-  return cols.find(c=>!bad.test(c)) || "";
-}
+function bestColOrEmpty(cols, scorer, min=0.15){ let best=null,bestSc=-1; for(const c of cols){ const sc=scorer(c); if(sc>bestSc){ bestSc=sc; best=c; } } return (bestSc>=min)? best:""; }
+function pickByName(cols, prefers, forbids){ const bad=new RegExp((forbids||[]).join("|"),"i"); const L=cols.filter(c=>!bad.test(c)).map(c=>[c,norm(c)]); for(const k of prefers){ const n=norm(k); const hit=L.find(([o,nm])=> nm===n || nm.includes(n)); if(hit) return hit[0]; } return cols.find(c=>!bad.test(c)) || ""; }
 
-/*** 列自動検出（誤検出ブロック付） ***/
-function pickSourceColumns(rows){
-  const cols=columns(rows);
-  const BAD=/^(rank|upc|original file name|original filename)$/i;
-  const scoreId=c=>{ if(BAD.test(c)) return 0; let m=0,n=0; for(const r of rows.slice(0,1200)){ const v=String(r[c]??""); if(!v) continue; n++; if(/spotify:track:[A-Za-z0-9]{22}/.test(v)||/open\.spotify\.com\/track\/[A-Za-z0-9]{22}/.test(v)||/^[A-Za-z0-9]{22}$/.test(v)) m++; } return n? m/n:0; };
-  const scoreIsrc=c=>{ if(BAD.test(c)) return 0; let m=0,n=0; for(const r of rows.slice(0,2000)){ const v=String(r[c]??""); if(!v) continue; n++; if(ISRC_RE.test(v)) m++; } return n? m/n:0; };
-  const scoreArtistId=c=>{ if(BAD.test(c)) return 0; let m=0,n=0; for(const r of rows.slice(0,1500)){ const v=String(r[c]??""); if(!v) continue; n++; if(/spotify:artist:[A-Za-z0-9]{22}/.test(v)||/open\.spotify\.com\/artist\/[A-Za-z0-9]{22}/.test(v)||/\b[A-Za-z0-9]{22}\b/.test(v)) m++; } return n? m/n:0; };
-
-  const idCol       = bestColOrEmpty(cols, scoreId,       0.20);
-  const isrcCol     = bestColOrEmpty(cols, scoreIsrc,     0.20);
-  const artistIdCol = bestColOrEmpty(cols, scoreArtistId, 0.20);
-
-  const nameCol   = pickByName(cols,["track title","track_name","title","曲名","タイトル"],["album","upc","rank"]);
-  const verCol    = pickByName(cols,["track version","version","バージョン"],["album","upc","rank"]);
-  const artistCol = pickByName(cols,["track primary artists","primary artists","artists","artist","アーティスト"],["album","upc","rank"]);
-  const remixCol  = pickByName(cols,["remixer","remixers","リミキサー"],["upc","rank"]);
-  return {idCol,isrcCol,artistIdCol,nameCol,verCol,artistCol,remixCol};
-}
-function pickAnalyticColumns(rows, srcTitles){
+function pickAnalyticColumns(rows){
   const cols=columns(rows);
   const BAD=/^(rank|score|index|upc|original file name|original filename)$/i;
 
-  const scoreId=c=>{ if(BAD.test(c)) return 0; let m=0,n=0; for(const r of rows.slice(0,1200)){ const v=String(r[c]??""); if(!v) continue; n++; if(/spotify:track:[A-Za-z0-9]{22}/.test(v)||/open\.spotify\.com\/track\/[A-Za-z0-9]{22}/.test(v)||/^[A-Za-z0-9]{22}$/.test(v)) m++; } return n? m/n:0; };
+  const scoreId=c=>{ if(BAD.test(c)) return 0; let m=0,n=0; for(const r of rows.slice(0,1500)){ const v=String(r[c]??""); if(!v) continue; n++; if(/spotify:track:[A-Za-z0-9]{22}/.test(v)||/open\.spotify\.com\/track\/[A-Za-z0-9]{22}/.test(v)||/^[A-Za-z0-9]{22}$/.test(v)) m++; } return n? m/n:0; };
   const scoreIsrc=c=>{ if(BAD.test(c)) return 0; let m=0,n=0; for(const r of rows.slice(0,2000)){ const v=String(r[c]??""); if(!v) continue; n++; if(ISRC_RE.test(v)) m++; } return n? m/n:0; };
 
   const idCol   = bestColOrEmpty(cols, scoreId,   0.20) || pickByName(cols,["spotify_uri","track_uri","uri","url"],["rank","upc"]);
   const isrcCol = bestColOrEmpty(cols, scoreIsrc, 0.20) || pickByName(cols,["isrc","isrc_code"],["rank","upc"]);
 
-  // title はソースタイトル集合との一致率で選ぶ
-  const tCands=cols.filter(c=>!/rank|score|upc/i.test(c)).filter(c=>/title|曲名|name/i.test(c));
-  const setSrc=new Set(srcTitles.slice(0,600).map(norm));
-  let bestT=null, bestSc=-1;
-  for(const c of tCands){
-    let s=0,n=0; for(const r of rows.slice(0,800)){ const v=norm(String(r[c]??"")); if(!v) continue; n++; if(setSrc.has(v)) s++; }
-    const sc=n? s/n:0; if(sc>bestSc){ bestSc=sc; bestT=c; }
+  // タイトル／アーティストは文字列比率と語彙多様性で選ぶ
+  const stringRate=c=>{ let n=0,s=0; for(const r of rows.slice(0,800)){ const v=r[c]; if(v==null||v==="") continue; n++; if(/[A-Za-z\u3040-\u30FF\u4E00-\u9FFF]/.test(String(v))) s++; } return n? s/n:0; };
+  const variety=c=>{ const set=new Set(); rows.slice(0,800).forEach(r=>{ const v=String(r[c]??"").trim(); if(v) set.add(v.toLowerCase()); }); return set.size/Math.max(1,Math.min(800,rows.length)); };
+
+  function pickTitle(){
+    let cand = cols.filter(c=>!/rank|score|upc/i.test(c)).filter(c=>/title|曲名|name/i.test(c));
+    if(!cand.length) cand = cols.filter(c=>!/rank|score|upc/i.test(c));
+    cand = cand.map(c=>[c, 0.7*stringRate(c)+0.3*variety(c)]).sort((a,b)=>b[1]-a[1]);
+    return (cand[0]&&cand[0][1]>=0.35)? cand[0][0] : cand[0]? cand[0][0] : "";
   }
-  const nameCol = bestT || pickByName(cols,["title","track title","曲名","name"],["rank","score","upc"]);
-  const artistCol = pickByName(cols,["artist","artists","artist_name","アーティスト"],["rank","score","upc"]);
+  function pickArtist(){
+    let cand = cols.filter(c=>!/rank|score|upc/i.test(c)).filter(c=>/artist|アーティスト/i.test(c));
+    if(!cand.length) cand = cols.filter(c=>!/rank|score|upc/i.test(c));
+    cand = cand.map(c=>[c, 0.7*stringRate(c)+0.3*variety(c)]).sort((a,b)=>b[1]-a[1]);
+    return (cand[0]&&cand[0][1]>=0.35)? cand[0][0] : "";
+  }
+
+  const nameCol = pickTitle();
+  const artistCol = pickArtist();
 
   const p24 = pickByName(cols,["plays_24h","p24","streams24","24h"],["rank","score"]);
   const p7  = pickByName(cols,["plays_7d","p7","streams7","7d"],["rank","score"]);
@@ -240,6 +222,48 @@ function pickAnalyticColumns(rows, srcTitles){
   return {idCol,isrcCol,nameCol,artistCol,p24,p7,p28,s24,s7,s28, uk,us,eu,wo};
 }
 
+/*** スコア ***/
+function computeScores(rows, cfg){
+  const {p24,p7,p28,s24,s7,s28}=cfg;
+  let max24=0,max7=0,max28=0; for(const r of rows){ max24=Math.max(max24,num(r[p24])); max7=Math.max(max7,num(r[p7])); max28=Math.max(max28,num(r[p28])); }
+  const out=[];
+  for(const a of rows){
+    const sr24=num(a[s24])/100, sr7=num(a[s7])/100, sr28=num(a[s28])/100;
+    const pl24=max24? num(a[p24])/max24:0, pl7=max7? num(a[p7])/max7:0, pl28=max28? num(a[p28])/max28:0;
+    const w=[0.5,0.3,0.2], wPop= +$("wPopularity").value || .55;
+    const saveC=w[0]*sr24+w[1]*sr7+w[2]*sr28, playC=w[0]*pl24+w[1]*pl7+w[2]*pl28;
+    const score=(isFinite(saveC)? wPop*saveC:0) + (isFinite(playC)? (1-wPop)*playC:0);
+    out.push({a,score});
+  }
+  out.sort((x,y)=> y.score-x.score);
+  return out;
+}
+
+/*** FALLBACK: 分析のみでアイテム生成（Spotify検索用） ***/
+function buildItemsFromAnalyticsOnly(cfg){
+  const out=[];
+  const nameC=cfg.nameCol, artistC=cfg.artistCol, isrcC=cfg.isrcCol, idC=cfg.idCol;
+  for(const a of analyticsRows){
+    const id  = idC   ? extractTrackId(a[idC]) : "";
+    const isrc= isrcC ? String(a[isrcC]||"").trim().toUpperCase() : "";
+    const name= String(a[nameC]||"").trim();
+    const artist = String(a[artistC]||"").trim();
+    if(!name) continue;
+    out.push({
+      id, isrc, name, artist,
+      remixer:"",
+      artistIds: FORCED_ARTIST_IDS.slice(),
+      flags: {
+        uk: cfg.uk ? !!String(a[cfg.uk]).trim() : false,
+        us: cfg.us ? !!String(a[cfg.us]).trim() : false,
+        eu: cfg.eu ? !!String(a[cfg.eu]).trim() : false,
+        wo: cfg.wo ? !!String(a[cfg.wo]).trim() : true
+      }
+    });
+  }
+  return out;
+}
+
 /*** 抽出ヘルパ ***/
 function extractTrackId(raw){
   const s=String(raw||"").trim(); if(!s) return "";
@@ -249,140 +273,9 @@ function extractTrackId(raw){
   m=s.match(/^([A-Za-z0-9]{22})$/); if(m) return m[1];
   return "";
 }
-function extractArtistIds(raw){
-  if(raw==null) return [];
-  const s=String(raw);
-  const parts=s.split(/[,;\/|]+|\s{2,}/g).map(x=>x.trim()).filter(Boolean);
-  const ids=[]; const push=id=>{ if(id && !ids.includes(id)) ids.push(id); };
-  for(const p of parts){
-    let m=p.match(/spotify:artist:([A-Za-z0-9]{22})/); if(m){ push(m[1]); continue; }
-    m=p.match(/open\.spotify\.com\/artist\/([A-Za-z0-9]{22})/); if(m){ push(m[1]); continue; }
-    m=p.match(/\b([A-Za-z0-9]{22})\b/); if(m){ push(m[1]); continue; }
-  }
-  return ids;
-}
 
-/*** ソース索引 ***/
-function buildSourceIndex(cfg){
-  const {idCol,isrcCol,artistIdCol,nameCol,verCol,artistCol,remixCol}=cfg;
-  const idxExact=new Map(), blob=[], titles=[];
-  let hasArtistIds=0;
-
-  for(const r of sourceRows){
-    const id   = idCol? extractTrackId(r[idCol]) : "";
-    const isrc = isrcCol? String(r[isrcCol]||"").trim().toUpperCase() : "";
-    const title = String(r[nameCol]||"").trim();
-    const ver   = String(r[verCol]||"").trim();
-    const disp  = (!ver || /original\s*mix/i.test(ver)) ? title : `${title} - ${ver}`;
-    const ttok  = tokensTitle(disp);
-    const vinfo = canonVersion(ver+" "+String(r[remixCol]||""));
-    const artistIds = artistIdCol ? extractArtistIds(r[artistIdCol]) : [];
-    if(artistIds.length) hasArtistIds++;
-
-    if(id)   idxExact.set("ID:"+id, r);
-    if(isrc) idxExact.set("ISRC:"+isrc, r);
-    if(disp) idxExact.set("NM:"+norm(disp), r);
-
-    blob.push({r, disp, ttok, vinfo, artistIds});
-    titles.push(disp);
-  }
-  log(`🎯 アーティストID付き行: ${hasArtistIds} / ${sourceRows.length}`);
-  return {idxExact, blob, titles, artistCol, remixCol, nameCol, verCol, artistIdCol};
-}
-
-/*** 分析→ソース 突合（Exact→Fuzzy, 進捗対応） ***/
-function parseAnalysisTitle(a, cfg){
-  const name=String(a[cfg.nameCol]||"");
-  const art =cfg.artistCol? String(a[cfg.artistCol]||"") : "";
-  const disp=name; const ttok=tokensTitle(disp+" "+art); const vinfo=canonVersion(disp);
-  return {disp, ttok, vinfo};
-}
-function fuzzyBest(sourceBlob, an){
-  let best=null;
-  const titleWeight= an.vinfo.kinds.size? 0.75: 0.85;
-  const verWeight=1-titleWeight;
-  for(const s of sourceBlob){
-    const ts = jaccard(an.ttok, s.ttok);
-    const vk = jaccard(an.vinfo.kinds, s.vinfo.kinds);
-    const vr = jaccard(an.vinfo.remTok, s.vinfo.remTok);
-    const ver = 0.6*vk + 0.4*vr;
-    const score = titleWeight*ts + verWeight*ver;
-    if(!best || score>best.score) best={s,score,ts,ver};
-  }
-  return best;
-}
-function autoMatch(srcIdx, anCfg, onTick){
-  const idA=anCfg.idCol, isrcA=anCfg.isrcCol;
-  let thr=0.86; const minFrac=0.5;
-  let rows=[], diag=null;
-
-  for(; thr>=0.72; thr-=0.02){
-    rows=[]; diag={exact:0,fuzzy:0,none:0};
-    const total=analyticsRows.length;
-    let i=0;
-    for(const a of analyticsRows){
-      i++; if(onTick && (i%20===0 || i===total)) onTick(i,total); // 20件ごと更新
-      const id=idA? extractTrackId(a[idA]):"";
-      const isc=isrcA? String(a[isrcA]||"").trim().toUpperCase():"";
-      const an=parseAnalysisTitle(a, anCfg);
-      let pick = (id && srcIdx.idxExact.get("ID:"+id)) || (isc && srcIdx.idxExact.get("ISRC:"+isc)) || srcIdx.idxExact.get("NM:"+norm(an.disp));
-      let mode="exact", score=1;
-      if(!pick){
-        const best=fuzzyBest(srcIdx.blob, an);
-        if(best && best.score>=thr){ pick=best.s.r; mode="fuzzy"; score=best.score; }
-      }
-      if(pick){ rows.push({ a, s:pick, _mode:mode, _score:score }); mode==="exact"? diag.exact++:diag.fuzzy++; }
-      else{ diag.none++; }
-    }
-    const frac = rows.length / Math.max(1, total);
-    if(frac>=minFrac) break;
-  }
-  return {rows, thr, diag};
-}
-
-/*** スコア ***/
-function computeScores(rows, anCfg){
-  const {p24,p7,p28,s24,s7,s28}=anCfg;
-  let max24=0,max7=0,max28=0; for(const r of rows){ max24=Math.max(max24,num(r.a[p24])); max7=Math.max(max7,num(r.a[p7])); max28=Math.max(max28,num(r.a[p28])); }
-  for(const r of rows){
-    const sr24=num(r.a[s24])/100, sr7=num(r.a[s7])/100, sr28=num(r.a[s28])/100;
-    const pl24=max24? num(r.a[p24])/max24:0, pl7=max7? num(r.a[p7])/max7:0, pl28=max28? num(r.a[p28])/max28:0;
-    const w=[0.5,0.3,0.2], wPop= +$("wPopularity").value || .55;
-    const saveC=w[0]*sr24+w[1]*sr7+w[2]*sr28, playC=w[0]*pl24+w[1]*pl7+w[2]*pl28;
-    r.score=wPop*saveC + (1-wPop)*playC;
-  }
-  rows.sort((a,b)=> b.score-a.score);
-  return rows;
-}
-
-/*** FALLBACK: 分析ファイルだけでアイテム生成（Spotify検索用） ***/
-function buildItemsFromAnalyticsOnly(anCfg){
-  const out=[];
-  for(const a of analyticsRows){
-    const id  = anCfg.idCol   ? extractTrackId(a[anCfg.idCol]) : "";
-    const isrc= anCfg.isrcCol ? String(a[anCfg.isrcCol]||"").trim().toUpperCase() : "";
-    const name= String(a[anCfg.nameCol]||"").trim();
-    const artist = String(a[anCfg.artistCol]||"").trim();
-    if(!name) continue;
-    out.push({
-      a, s:null, _mode:"fallback", _score:1,
-      id, isrc, name, artist, remixer:"",
-      artistIds: FORCED_ARTIST_IDS.slice(), // 強制フィルタ
-      flags: { // 地域列があれば拾う
-        uk: anCfg.uk ? !!String(a[anCfg.uk]).trim() : false,
-        us: anCfg.us ? !!String(a[anCfg.us]).trim() : false,
-        eu: anCfg.eu ? !!String(a[anCfg.eu]).trim() : false,
-        wo: anCfg.wo ? !!String(a[anCfg.wo]).trim() : true
-      }
-    });
-  }
-  return out;
-}
-
-/*** URI解決（アーティストID強制／多段検索、進捗対応） ***/
-const _resolveCache = new Map();
-const _topTracksCache = new Map(); // artistId|market -> tracks[]
-
+/*** Spotify検索（アーティストIDで厳密フィルタ） ***/
+const _resolveCache=new Map(), _topTracksCache=new Map();
 async function fetchTopTracksByArtist(artistId, market){
   const key=`${artistId}|${market}`; if(_topTracksCache.has(key)) return _topTracksCache.get(key);
   const r = await spFetch(`/v1/artists/${artistId}/top-tracks?market=${market}`,"GET");
@@ -391,18 +284,18 @@ async function fetchTopTracksByArtist(artistId, market){
 function isrcVariants(isrcRaw){ const s=String(isrcRaw||"").trim(); if(!s) return []; const up=s.toUpperCase(); const nohy=up.replace(/-/g,""); const hy=up.includes("-")? up : up.replace(/^(.{2})(.{3})(.{2})(.{5})$/,"$1-$2-$3-$4"); return Array.from(new Set([up,nohy,hy])); }
 function topArtistName(artistStr){ const s=String(artistStr||""); const m=s.split(/,|;|&| with | feat\.? | featuring | ft\.? /i); return (m[0]||"").trim(); }
 function makeQueries(item){
-  const queries=[]; const full=String(item.name||"").trim(); const base=full.split(/\s+-\s+/)[0]||full; const art=topArtistName(item.artist||""); const rem=String(item.remixer||"").trim();
+  const queries=[]; const full=String(item.name||"").trim(); const base=full.split(/\s+-\s+/)[0]||full; const art=topArtistName(item.artist||"");
   if(item.isrc){ for(const v of isrcVariants(item.isrc)) queries.push({q:`isrc:${v}`,type:"isrc"}); }
   if(art){ queries.push({q:`track:"${base}" artist:"${art}"`,type:"field"}); if(full!==base) queries.push({q:`track:"${full}" artist:"${art}"`,type:"field"}); }
-  if(rem){ queries.push({q:`"${base}" "${rem}" remix`,type:"free"}); if(full!==base) queries.push({q:`"${full}" "${rem}"`,type:"free"}); }
   queries.push({q:`"${base}" ${art||""}`.trim(),type:"free"}); if(full!==base) queries.push({q:`"${full}" ${art||""}`.trim(),type:"free"});
   const seen=new Set(); return queries.filter(x=>!seen.has(x.q)&&seen.add(x.q));
 }
+function tokensForTitle(s){ return tokensTitle(s); }
 function scoreCandidate(item, cand){
   const candTitle = `${cand.name}${cand.version? " - "+cand.version:""}`;
-  const candToks = tokensTitle(candTitle);
-  const itemToks = tokensTitle(item.name);
-  const baseToks = tokensTitle(item.name.split(/\s+-\s+/)[0]||item.name);
+  const candToks = tokensForTitle(candTitle);
+  const itemToks = tokensForTitle(item.name);
+  const baseToks = tokensForTitle(item.name.split(/\s+-\s+/)[0]||item.name);
   const t1=jaccard(itemToks,candToks), t2=jaccard(baseToks,candToks);
   const titleScore=Math.max(t1,t2);
   const vi=canonVersion(item.name), vc=canonVersion(candTitle);
@@ -432,7 +325,7 @@ async function resolveUriOne(item){
       }catch{}
     }
   }
-  // 2) アーティストTop Tracks（市場横断）
+  // 2) アーティスト Top Tracks（市場横断）
   for(const mk of markets){
     for(const aid of artistIds){
       try{
@@ -492,91 +385,53 @@ async function replacePlaylist(pid, uris, onTick){
 }
 function extractPlaylistId(s){ s=String(s||""); let m=s.match(/playlist\/([A-Za-z0-9]{22})/); if(m) return m[1]; m=s.match(/^([A-Za-z0-9]{22})$/); if(m) return m[1]; return ""; }
 
-/*** 解析（認証不要） → _pending に保持。突合0件ならFALLBACKへ ***/
+/*** メイン（分析だけ→スコア→抽出→URI解決→上書き） ***/
 async function runAnalysis(){
   try{
-    clearLog();
-    progress(8,"ソース列検出…");
-    const srcCols = pickSourceColumns(sourceRows);
-    progress(15,"ソース索引作成…");
-    const srcIdx  = buildSourceIndex(srcCols);
-    progress(22,"分析列検出…");
-    const anCols  = pickAnalyticColumns(analyticsRows, srcIdx.titles);
+    clearLog(); log("🎧 分析ファイルだけで Spotify 検索モード");
+    progress(10,"列検出…");
+    const anCols = pickAnalyticColumns(analyticsRows);
+    log(`📝 検出: id=${anCols.idCol||"-"}, isrc=${anCols.isrcCol||"-"}, title=${anCols.nameCol||"-"}, artist=${anCols.artistCol||"-"}`);
 
-    progress(30,"突合（Exact→Fuzzy）開始…");
-    const {rows: matched, thr, diag} = autoMatch(srcIdx, anCols, (i,total)=>subProgress(i,total,30,55,"突合中"));
-    progress(55,"突合完了");
-    log(`🔎 診断: exact=${diag.exact}, fuzzy=${diag.fuzzy}, 未一致=${diag.none}, 採用=${matched.length}/${analyticsRows.length}, しきい値=${thr.toFixed(2)}`);
-
+    progress(25,"スコア計算…");
+    const scored = computeScores(analyticsRows, anCols);
     const finalN=+$("finalN").value||130;
+    const topRows = scored.slice(0, Math.max(finalN,130)).map(x=>x.a);
 
-    if(matched.length>0){
-      // 通常フロー（突合成功）
-      progress(58,"検索用フィールド整形…");
-      for(const r of matched){
-        r.id     = srcCols.idCol     ? extractTrackId(r.s[srcCols.idCol]) : "";
-        r.isrc   = srcCols.isrcCol   ? String(r.s[srcCols.isrcCol]||"").toUpperCase() : "";
-        const t  = String(r.s[srcCols.nameCol]||"").trim();
-        const v  = String(r.s[srcCols.verCol] ||"").trim();
-        r.name   = (!v || /original\s*mix/i.test(v)) ? t : `${t} - ${v}`;
-        r.artist = String(r.s[srcCols.artistCol]||"");
-        r.remixer= String(r.s[srcCols.remixCol]||"");
-        const srcAid = srcCols.artistIdCol ? extractArtistIds(r.s[srcCols.artistIdCol]) : [];
-        r.artistIds = Array.from(new Set([...(srcAid||[]), ...FORCED_ARTIST_IDS]));
-        r.flags={uk:false,us:false,eu:false,wo:true};
-      }
-      progress(65,"スコア計算…");
-      const scored=computeScores(matched, anCols);
-      const top=scored.slice(0,Math.max(finalN,130));
-      progress(72,"エディション抽出…");
-      const layout=(list,maxN)=>{ const out=[]; for(const it of list){ if(out.length>=maxN) break; const r=(it.remixer||"").toLowerCase(); if(out.length>0 && r && (out[out.length-1].remixer||"").toLowerCase()===r) continue; out.push(it);} for(const it of list){ if(out.length>=maxN) break; if(out.includes(it)) continue; out.push(it);} return out; };
-      const edUK=layout(top,finalN), edUS=layout(top,finalN), edEU=layout(top,finalN), edWO=layout(top,finalN);
-      _pending = { edUK, edUS, edEU, edWO, finalN, mode:"match" };
-      progress(75,"解析完了。接続を待機…");
-    }else{
-      // 🔁 FALLBACK：Spotify検索モード
-      log("🧭 マッチ0件 → Spotify検索モードへ切替");
-      progress(58,"分析行から候補を生成…");
-      const items = buildItemsFromAnalyticsOnly(anCols);
-      if(!items.length){ progress(100,"失敗"); log("❌ 分析から候補を生成できませんでした。"); _pending=null; return; }
+    progress(40,"候補生成…");
+    const items = buildItemsFromAnalyticsOnly(anCols)
+      .filter(it => topRows.includes(it.a))
+      .map(it => ({...it, name: it.name})); // そのまま
 
-      // スコア（分析メトリクスがあれば利用）
-      const fakeRows = items.map(x=>({a:x.a, score:0})); // computeScores は rows[i].a を参照
-      const scoredA = computeScores(fakeRows, anCols).map((r,i)=>({item:items[i], score:r.score}));
-      scoredA.sort((x,y)=> y.score-x.score);
-      const topItems = scoredA.slice(0,Math.max(finalN,130)).map(o=>o.item);
+    if(!items.length){ progress(100,"失敗"); log("❌ 候補0件。列検出を確認してください。"); return; }
 
-      // エディション分配（地域フラグがあれば利用、なければ全てWORLD扱いで同一）
-      progress(72,"エディション抽出（FALLBACK）…");
-      const layout=(list,maxN)=>{ const out=[]; for(const it of list){ if(out.length>=maxN) break; const r=(it.remixer||"").toLowerCase(); if(out.length>0 && r && (out[out.length-1].remixer||"").toLowerCase()===r) continue; out.push(it);} for(const it of list){ if(out.length>=maxN) break; if(out.includes(it)) continue; out.push(it);} return out; };
-      const edUK=layout(topItems.filter(x=>x.flags.uk||x.flags.wo),finalN);
-      const edUS=layout(topItems.filter(x=>x.flags.us||x.flags.wo),finalN);
-      const edEU=layout(topItems.filter(x=>x.flags.eu||x.flags.wo),finalN);
-      const edWO=layout(topItems.filter(x=>x.flags.wo||x.flags.uk||x.flags.us||x.flags.eu),finalN);
-      _pending = { edUK, edUS, edEU, edWO, finalN, mode:"fallback" };
-      progress(75,"FALLBACK準備完了。接続を待機…");
-    }
+    progress(55,"エディション抽出…");
+    const layout=(list,maxN)=>{ const out=[]; for(const it of list){ if(out.length>=maxN) break; const r=(it.remixer||"").toLowerCase(); if(out.length>0 && r && (out[out.length-1].remixer||"").toLowerCase()===r) continue; out.push(it);} for(const it of list){ if(out.length>=maxN) break; if(out.includes(it)) continue; out.push(it);} return out; };
+    const edUK=layout(items.filter(x=>x.flags.uk||x.flags.wo), finalN);
+    const edUS=layout(items.filter(x=>x.flags.us||x.flags.wo), finalN);
+    const edEU=layout(items.filter(x=>x.flags.eu||x.flags.wo), finalN);
+    const edWO=layout(items.filter(x=>x.flags.wo||x.flags.uk||x.flags.us||x.flags.eu), finalN);
 
+    _pending = { edUK, edUS, edEU, edWO, finalN };
+    progress(60,"解析完了。接続を待機…");
     if(isAuthed()) await resolveAndWrite();
     else           log("🔑 接続待ち：『Spotifyにサインイン』または『接続チェック』で続行。");
   }catch(e){ progress(100,"エラー"); log("💥 ERROR(runAnalysis): "+e.message); console.error(e); }
 }
 
-/*** 解決＆上書き（認証必要） ***/
 async function resolveAndWrite(){
   try{
     if(!_pending){ log("ℹ️ 続行データがありません。ファイルを読み込み直してください。"); return; }
     if(!isAuthed()) { log("🔒 未接続。先にサインインしてください。"); return; }
+    const {edUK, edUS, edEU, edWO, finalN} = _pending;
 
-    const {edUK, edUS, edEU, edWO, finalN, mode} = _pending;
-
-    // URI解決の進捗（78-94%帯を配分）
-    progress(78,`URI解決 (${mode==="fallback"?"Spotify検索モード":"通常"}) : UK…`);
-    const uriUK=await toUrisResolved(edUK,(i,total)=>subProgress(i,total,78,84,"URI解決: UK"));
-    progress(84,"URI解決: US…");
-    const uriUS=await toUrisResolved(edUS,(i,total)=>subProgress(i,total,84,88,"URI解決: US"));
-    progress(88,"URI解決: EU…");
-    const uriEU=await toUrisResolved(edEU,(i,total)=>subProgress(i,total,88,92,"URI解決: EU"));
+    // URI解決（60-94%）
+    progress(62,"URI解決: UK…");
+    const uriUK=await toUrisResolved(edUK,(i,total)=>subProgress(i,total,62,78,"URI解決: UK"));
+    progress(78,"URI解決: US…");
+    const uriUS=await toUrisResolved(edUS,(i,total)=>subProgress(i,total,78,86,"URI解決: US"));
+    progress(86,"URI解決: EU…");
+    const uriEU=await toUrisResolved(edEU,(i,total)=>subProgress(i,total,86,92,"URI解決: EU"));
     progress(92,"URI解決: WORLD…");
     const uriWO=await toUrisResolved(edWO,(i,total)=>subProgress(i,total,92,94,"URI解決: WORLD"));
 
@@ -584,15 +439,13 @@ async function resolveAndWrite(){
     const target=finalN*4;
     const rate= total / Math.max(1,target);
     log(`📈 解決率: ${(rate*100).toFixed(1)}%  (${total}/${target})`);
-    if(rate<0.40){ // FALLBACKはやや緩めの閾値
-      progress(100,"解決率不足で停止"); log("⛔ 解決率が低いため中断。タイトル/ISRC/アーティスト表記の見直し推奨。"); return;
-    }
+    if(rate<0.40){ progress(100,"解決率不足で停止"); log("⛔ 解決率が低い。タイトル/ISRC/表記の見直し推奨。"); return; }
 
+    // 上書き（94-100%）
     const pidUK=extractPlaylistId($("plUK").value), pidUS=extractPlaylistId($("plUS").value),
           pidEU=extractPlaylistId($("plEU").value), pidWO=extractPlaylistId($("plWORLD").value);
     if(!(pidUK&&pidUS&&pidEU&&pidWO)) throw new Error("プレイリストURL/IDが不正です。");
 
-    // 書き込み進捗（94-100%配分）
     progress(94,"上書き: UK…");
     await replacePlaylist(pidUK,uriUK,(i,t)=>subProgress(i,t,94,96,"上書き: UK"));
     progress(96,"上書き: US…");
@@ -609,12 +462,10 @@ async function resolveAndWrite(){
 }
 
 /*** 監視＆イベント ***/
-function maybeAutoGo(){ if(!AUTO_RUN) return; if(isAuthed() && filesReady() && !_pending) runAnalysis(); }
 $("btnConnect").onclick=startAuth;
 $("btnReset").onclick=()=>{ Object.values(LS).forEach(k=>localStorage.removeItem(k)); setStatus(); log("🧽 ローカルトークン削除"); };
 $("btnCheck").onclick=async()=>{ try{ await refreshTokenIfNeeded(); const me=await spFetch("/v1/me","GET"); $("status").textContent=`接続中（${me.display_name||me.id}）`; log("✅ API確認 OK"); if(_pending) await resolveAndWrite(); }catch(e){ log("⚠️ 接続エラー: "+e.message);} };
-$("fileSource").addEventListener("change",loadFiles);
-$("fileAnalytics").addEventListener("change",loadFiles);
-setStatus(); log("Ready. 1) サインイン → 2) 2ファイル選択 →（全自動＆進捗表示／突合0ならSpotify検索）→ 上書き");
+$("fileAnalytics").addEventListener("change",loadFile);
+setStatus(); log("Ready. 1) サインイン → 2) 分析XLSX/CSVを選択 →（中身からSpotify検索）→ 上書き");
 </script>
 </body></html>
