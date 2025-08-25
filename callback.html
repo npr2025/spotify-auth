@@ -6,72 +6,75 @@
 <title>Spotify Auth Callback</title>
 <style>
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:900px;margin:36px auto;padding:0 12px}
-  #log{background:#0b1220;color:#cfe3ff;padding:12px;border-radius:8px;white-space:pre-wrap;max-height:420px;overflow:auto;margin-top:12px}
+  #log{background:#0b1220;color:#cfe3ff;padding:12px;border-radius:8px;white-space:pre-wrap;max-height:460px;overflow:auto;margin-top:12px}
   a.btn,button{display:inline-block;margin:6px 8px 0 0;padding:9px 12px;border:1px solid #bbb;border-radius:8px;background:#fff;text-decoration:none;cursor:pointer}
 </style>
 </head>
 <body>
 <h1>Spotify Auth Callback</h1>
 <p id="status">Waiting for code…</p>
-<p>
-  <a href="auth.html" class="btn">アプリへ戻る</a>
-</p>
+<p><a href="auth.html" class="btn">アプリへ戻る</a></p>
 <pre id="log"></pre>
 <script>
-/*** 固定：auth.html と完全一致させる ***/
-const CLIENT_ID    = "YOUR_SPOTIFY_CLIENT_ID";              // ← 同じ値に
-const REDIRECT_URI = "https://your-domain.example/callback.html"; // ← 同じ値に
+/*** ←←← auth.html と完全一致に ***/
+const CLIENT_ID_RAW    = "1fd6350fcf4945a0b3ddffa2d5730d4e";
+const REDIRECT_URI_RAW = "https://npr2025.github.io/spotify-auth/callback.html";
+/*** サニタイズ ***/
+const zws=/[\u200B-\u200D\uFEFF]/g;
+const CLIENT_ID   = CLIENT_ID_RAW.replace(zws,"").trim();
+const REDIRECT_URI= REDIRECT_URI_RAW.replace(zws,"").trim();
 
 const LS = { acc:"sp_access_token", ref:"sp_refresh_token", exp:"sp_token_exp", ver:"sp_code_verifier" };
-const log = (s)=>{ const el=document.getElementById("log"); el.textContent += (el.textContent? "\n": "") + s; el.scrollTop = el.scrollHeight; };
+const log=(s)=>{ const el=document.getElementById("log"); el.textContent+=(el.textContent?"\n":"")+s; el.scrollTop=el.scrollHeight; };
 
 (async ()=>{
-  const params = new URLSearchParams(location.search);
-  const code = params.get("code");
-  const err  = params.get("error");
-  if(err){ document.getElementById("status").textContent = "Error: "+err; log("error="+err); return; }
+  const params=new URLSearchParams(location.search);
+  const code=params.get("code"); const err=params.get("error");
+  if(err){ document.getElementById("status").textContent="Error: "+err; log("error="+err); return; }
   if(!code){ log("code not found"); return; }
 
-  document.getElementById("status").textContent = "Exchanging code…";
-  const code_verifier = localStorage.getItem(LS.ver);
-  if(!code_verifier){ log("code_verifier missing"); return; }
+  const code_verifier=localStorage.getItem(LS.ver);
+  if(!code_verifier){ document.getElementById("status").textContent="Missing code_verifier"; log("code_verifier missing"); return; }
 
-  const body = new URLSearchParams({
-    grant_type: "authorization_code",
+  // 可視デバッグ
+  log(`🔎 Tokenリクエスト直前ダイアグ
+  CLIENT_ID(len=${CLIENT_ID.length}): ${CLIENT_ID? CLIENT_ID.slice(0,6)+"…"+CLIENT_ID.slice(-6):"(empty)"}
+  REDIRECT_URI: ${REDIRECT_URI}
+  code(len=${code.length}), code_verifier(len=${code_verifier.length})`);
+
+  const body=new URLSearchParams({
+    grant_type:"authorization_code",
     code,
-    redirect_uri: REDIRECT_URI,      // ← auth.html で投げたのと完全一致
+    redirect_uri: REDIRECT_URI,   // auth.html と完全一致
     client_id: CLIENT_ID,
     code_verifier
   });
 
   try{
-    const res = await fetch("https://accounts.spotify.com/api/token",{
-      method:"POST",
-      headers:{ "Content-Type":"application/x-www-form-urlencoded" },
-      body
+    const res=await fetch("https://accounts.spotify.com/api/token",{
+      method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded" }, body
     });
-    const txt = await res.text();
-    let j; try{ j = JSON.parse(txt); }catch{ j = {raw:txt}; }
+    const txt=await res.text(); let j; try{ j=JSON.parse(txt); }catch{ j={raw:txt}; }
 
     if(!res.ok){
+      document.getElementById("status").textContent="Failed";
       if((j.error||"").includes("invalid_client")){
-        document.getElementById("status").textContent="Failed (INVALID_CLIENT)";
-        log("❌ INVALID_CLIENT: CLIENT_ID / REDIRECT_URI を Dashboard と完全一致に。末尾 /callback.html・http/https・ポート番号まで確認。");
-      }else{
-        document.getElementById("status").textContent="Failed";
+        log("❌ INVALID_CLIENT → CLIENT_ID が誤り/一致していない可能性大。");
+        log("  ・auth.html と callback.html の CLIENT_ID が同一か");
+        log("  ・REDIRECT_URI が Allowed Redirect URIs と完全一致か（ドメイン/パス/ポート/https）");
+        log("  ・CLIENT_ID に空白/改行/ゼロ幅が混入していないか（本ビルドは自動除去済み）");
       }
-      log("Token error: "+JSON.stringify(j));
+      log("Token error payload: "+JSON.stringify(j));
       return;
     }
 
+    // success
     localStorage.setItem(LS.acc, j.access_token);
     localStorage.setItem(LS.ref, j.refresh_token||"");
     localStorage.setItem(LS.exp, String(Date.now()+ j.expires_in*1000));
-    document.getElementById("status").textContent = "Signed in.";
-    log("✅ authorized. You can close this tab.");
-  }catch(e){
-    log("💥 "+e.message);
-  }
+    document.getElementById("status").textContent="Signed in.";
+    log("✅ authorized. このタブは閉じてOK。");
+  }catch(e){ log("💥 "+e.message); }
 })();
 </script>
 </body>
