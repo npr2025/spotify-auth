@@ -73,7 +73,7 @@ small.hint{color:#666}
     <label><input id="appendDate" type="checkbox" checked> 新規名に日付（YYYY-MM-DD）</label>
   </div>
   <div>
-    <label><input id="fastMode" type="checkbox" checked> 高速モード（deep最小：JP/US/GB・30アルバム×3曲・早期終了）</label>
+    <label><input id="fastMode" type="checkbox" checked> 高速モード（検索マーケット最小化／早期終了）</label>
   </div>
   <div>
     <label><input id="doUpdate" type="checkbox" checked> 既存4リストを上書き</label>
@@ -157,6 +157,7 @@ async function refreshTokenIfNeeded(){
   if(j.refresh_token) localStorage.setItem(LS.ref,j.refresh_token);
 }
 async function spFetch(path,method="GET",body=null){
+  // 単純レート制御（直列）。429時はRetry-Afterに従って待機
   await refreshTokenIfNeeded();
   const gap=+($("gap").value||1100); await sleep(gap);
   for(let a=0;a<5;a++){
@@ -408,20 +409,9 @@ async function buildExtraFromArtists(artistIds,label){
 }
 const _artistNameCache=new Map();
 async function getArtistName(aid){ if(_artistNameCache.has(aid)) return _artistNameCache.get(aid); const r=await spFetch("/v1/artists/"+aid,"GET"); const n=(r&&r.name)||""; _artistNameCache.set(aid,n); return n; }
-async function searchArtistTracksByName(artistName,market,maxPages){
-  let out=[], limit=50;
-  for(let p=0;p<maxPages;p++){
-    const q=`artist:"${artistName}"`;
-    const r=await spFetch(`/v1/search?q=${encodeURIComponent(q)}&type=track&limit=${limit}&offset=${p*limit}&market=${market}`,"GET");
-    const items=(r&&r.tracks&&r.tracks.items)||[]; out=out.concat(items);
-    if(items.length<limit) break;
-  }
-  return out;
-}
 async function buildExtraFromArtistsDeep(artistIds,label,targetCount,currentCount){
   const fast = $("fastMode") && $("fastMode").checked;
-  const mkts = fast ? ["JP","US","GB"]
-                    : ["JP","US","GB","DE","SE","CA","AU","NL","FR","BR","MX","IT","ES"];
+  const mkts = fast ? ["JP","US","GB"] : ["JP","US","GB","DE","SE","CA","AU","NL","FR","BR","MX","IT","ES"];
   const MAX_ALBUMS = fast ? 30 : 120;
   const MAX_TRACKS_PER_ALBUM = fast ? 3 : 10;
 
@@ -445,7 +435,7 @@ async function buildExtraFromArtistsDeep(artistIds,label,targetCount,currentCoun
 }
 async function buildExtraFromSearchArtist(artistIds,label,targetCount,currentCount){
   const fast = $("fastMode") && $("fastMode").checked;
-  const mkts = fast ? ["JP","US","GB"] : ["JP","US","GB","DE","SE","CA","AU","NL","FR","BR","MX","IT","ES"];
+  const mkts = fast ? ["from_token","US","GB","JP"] : ["from_token","US","GB","JP","DE","SE","CA","AU","NL","FR","BR","MX","IT","ES"];
   const MAX_PAGES = fast ? 4 : 12;
   let out=[];
   for(const aid of artistIds){
@@ -504,15 +494,17 @@ async function buildCandidatePoolV2(primaryItems, srcCols, anCols, finalN){
   return pool.slice(0, Math.max(targetSoft, needHard));
 }
 
-/* ====== URI解決（TDCS以外は却下） ====== */
+/* ====== URI解決：高速＆ハング防止版 ====== */
+const _isrcCache=new Map(); // ISRCバリアント→URI
+const _nameCache=new Map(); // "base|artist" → URI
 const isrcVariants=(s)=>{ s=String(s||"").trim(); if(!s) return []; const up=s.toUpperCase(); const no=up.replace(/-/g,""); const hy=up.indexOf("-")>=0?up:up.replace(/^(.{2})(.{3})(.{2})(.{5})$/,"$1-$2-$3-$4"); const set={},arr=[]; [up,no,hy].forEach(v=>{if(!set[v]){set[v]=1;arr.push(v);}}); return arr; }
 const topArtistName=(a)=>{const s=String(a||""); const m=s.split(/,|;|&| with | feat\.? | featuring | ft\.? /i); return (m[0]||"").trim();}
 function makeQueries(it){
   const q=[], full=String(it.name||"").trim(), base=(full.split(/\s+-\s+/)[0]||full), art=topArtistName(it.artist||"");
   if(it.isrc){ for(const v of isrcVariants(it.isrc)) q.push({q:"isrc:"+v,type:"isrc"}); }
   if(art){ q.push({q:`track:"${base}" artist:"${art}"`,type:"field"}); if(full!==base) q.push({q:`track:"${full}" artist:"${art}"`,type:"field"}); }
-  q.push({q:`"${base}" ${art||""}`,type:"free"}); if(full!==base) q.push({q:`"${full}" ${art||""}`,type:"free"});
-  const seen={}, out=[]; for(const x of q){ if(!seen[x.q]){seen[x.q]=1; out.push(x);} } return out;
+  q.push({q:`"${base}" ${art||""}`,type:"free"});
+  return q;
 }
 async function searchOnce(q,m){ const r=await spFetch(`/v1/search?q=${encodeURIComponent(q)}&type=track&limit=10&market=${m}`,"GET"); return (r&&r.tracks&&r.tracks.items)?r.tracks.items:[]; }
 function scoreCandidate(item,cand){
@@ -525,46 +517,48 @@ function scoreCandidate(item,cand){
   return 0.80*title+0.20*ver;
 }
 async function resolveUriOneStrict(it){
-  const aids=FORCED_ARTIST_IDS; const must=true;
-  const mkts=["from_token","JP","US","GB","DE","SE","CA","AU","NL","FR","BR","MX","IT","ES"];
+  const aids=FORCED_ARTIST_IDS;
+  const fast = $("fastMode") && $("fastMode").checked;
+  const mkts = fast ? ["from_token","US","GB","JP"] : ["from_token","US","GB","JP","DE","SE","CA","AU","NL","FR","BR","MX","IT","ES"];
+  const MAX_QUERIES = fast ? 4 : 8;
+  const TIMEOUT_MS = fast ? 7000 : 12000;
 
-  // 直接ID → TDCS検証
-  if(it.id && it.id.length===22){
-    try{
-      const tr=await spFetch(`/v1/tracks/${it.id}?market=${mkts[0]}`,"GET");
-      const ok = tr && tr.artists && tr.artists.some(a=>aids.includes(a.id));
-      if(ok) return "spotify:track:"+it.id;
-    }catch(_){}
-  }
+  // 0) IDがあれば即採用（TDCSチェックは後段の /v1/tracks 一括で）
+  if(it.id && it.id.length===22) return "spotify:track:"+it.id;
 
+  // 1) ISRCキャッシュ
   if(it.isrc){
     for(const v of isrcVariants(it.isrc)){
-      try{
-        const r=await spFetch(`/v1/search?q=${encodeURIComponent("isrc:"+v)}&type=track&limit=10&market=${mkts[0]}`,"GET");
-        const items=(r&&r.tracks&&r.tracks.items)?r.tracks.items:[]; let cand=null;
-        for(const t of items){
-          let ok=!must;
-          if(!ok && t && t.artists){ for(const a of t.artists){ if(aids.includes(a.id)){ ok=true; break; } } }
-        if(ok){ cand=t; break; }
-        }
-        if(cand&&cand.id) return "spotify:track:"+cand.id;
-      }catch(_){}
+      if(_isrcCache.has(v)) return _isrcCache.get(v);
     }
   }
-  const qs=makeQueries(it); let best=null;
-  for(const q of qs){
+  // 2) タイトルキャッシュ
+  const full=String(it.name||"").trim(), base=(full.split(/\s+-\s+/)[0]||full), art=topArtistName(it.artist||"");
+  const keyNM=(base+"|"+art).toLowerCase();
+  if(_nameCache.has(keyNM)) return _nameCache.get(keyNM);
+
+  // 3) 検索（タイムアウト付き）
+  const qs=makeQueries(it).slice(0,MAX_QUERIES);
+  let best=null; const start=Date.now();
+  outer: for(const q of qs){
     for(const m of mkts){
+      if(Date.now()-start>TIMEOUT_MS){ log("⏱️ URIタイムアウト: "+(it.name||"")); break outer; }
       let items=[]; try{ items=await searchOnce(q.q,m); }catch(_){}
-      const filtered=items.filter(t=> !must || (t&&t.artists&&t.artists.some(a=>aids.includes(a.id))));
+      const filtered=items.filter(t=> t&&t.artists&&t.artists.some(a=>aids.includes(a.id)));
       for(const t of filtered){
         const sc=(q.type==="isrc")?1.0:scoreCandidate(it,t);
         if(!best||sc>best.sc) best={sc,cand:t};
       }
-      if(best && best.sc>=0.80) break;
+      if(best && best.sc>=0.85) break outer;
     }
-    if(best && best.sc>=0.80) break;
   }
-  if(best && best.cand && best.cand.id && best.sc>=0.62) return "spotify:track:"+best.cand.id;
+  if(best && best.cand && best.cand.id){
+    const uri="spotify:track:"+best.cand.id;
+    // キャッシュ登録
+    if(it.isrc){ for(const v of isrcVariants(it.isrc)) _isrcCache.set(v,uri); }
+    _nameCache.set(keyNM,uri);
+    return uri;
+  }
   return "";
 }
 async function toUrisResolved(items,onTick){
@@ -572,6 +566,7 @@ async function toUrisResolved(items,onTick){
   for(let i=0;i<items.length;i++){
     const u=await resolveUriOneStrict(items[i]); if(u){aligned[i]=u; ok++;}
     if(onTick) onTick(i+1,total,ok);
+    if(((i+1)%25)===0) log(`🔗 URI解決 進捗: ${i+1}/${total}（成功${ok}）`);
   }
   log("🔗 URI解決: "+ok+"/"+total);
   return {aligned};
@@ -591,11 +586,15 @@ async function fetchTrackDetailsByUris(uris){
 const baseTitle=(s)=>{s=String(s||""); const m=s.split(/\s+-\s+/); return (m[0]||"").trim();}
 function dedupeByRecording(items,alignedUris,tracksMap){
   const seenUri={}, seenIsrc={}, seenBase={}, outItems=[], outUris=[];
-  let dropU=0,dropI=0,dropB=0;
+  let dropU=0,dropI=0,dropB=0, dropNotTDCS=0;
   for(let i=0;i<alignedUris.length;i++){
     const u=alignedUris[i]; if(!u) continue;
-    if(seenUri[u]){dropU++; continue;}
     const tr=tracksMap.get(u);
+    // TDCSフィルタ（ここで弾く）
+    const okTDCS = tr && tr.artists && tr.artists.some(a=>FORCED_ARTIST_IDS.includes(a.id));
+    if(!okTDCS){ dropNotTDCS++; continue; }
+
+    if(seenUri[u]){dropU++; continue;}
     const isrc=(tr&&tr.external_ids&&tr.external_ids.isrc)?String(tr.external_ids.isrc).toUpperCase():"";
     if(isrc && seenIsrc[isrc]){dropI++; continue;}
     const base = tr ? (norm(baseTitle(tr.name))+"｜"+((tr.artists&&tr.artists[0]&&tr.artists[0].id)||""))
@@ -604,7 +603,7 @@ function dedupeByRecording(items,alignedUris,tracksMap){
     seenUri[u]=1; if(isrc) seenIsrc[isrc]=1; seenBase[base]=1;
     outItems.push(items[i]); outUris.push(u);
   }
-  log(`🧽 レコーディング重複除去: -URI:${dropU} -ISRC:${dropI} -Base:${dropB}`);
+  log(`🧽 レコーディング重複除去: -URI:${dropU} -ISRC:${dropI} -Base:${dropB} -非TDCS:${dropNotTDCS}`);
   return {items:outItems, uris:outUris};
 }
 
@@ -707,7 +706,7 @@ const extractPlaylistId=(s)=>{s=String(s||""); let m=s.match(/playlist\/([A-Za-z
 async function replacePlaylist(pid,uris){
   const chunks=[]; for(let i=0;i<uris.length;i+=100) chunks.push(uris.slice(i,i+100));
   if(!chunks.length) chunks.push([]);
-  await spFetch("/v1/playlists/"+pid+"/tracks","PUT",{uris:chunks[0]}); log("🧹 置換: "+chunks[0].length}件");
+  await spFetch("/v1/playlists/"+pid+"/tracks","PUT",{uris:chunks[0]}); log("🧹 置換: "+chunks[0].length+"件");
   for(let k=1;k<chunks.length;k++){ await spFetch(`/v1/playlists/${pid}/tracks`,"POST",{uris:chunks[k]}); log("➕ 追加: "+chunks[k].length+"件"); }
 }
 async function createPlaylistAndFill(name,desc,isPublic,uris){
@@ -759,15 +758,15 @@ async function runAnalysis(){
     const finalN=+($("finalN").value||130);
     const pool=await buildCandidatePoolV2(items,srcCols,anCols,finalN);
 
-    progress(64,"URI解決（目標 4×"+finalN+"）…");
+    progress(64,"URI解決（高速キャッシュ）…");
     const res=await toUrisResolved(pool,(i,t,ok)=>progress(64+(8*(i/t)),"URI解決 ("+i+"/"+t+")"));
 
-    progress(72,"曲詳細→録音ユニーク…");
+    progress(72,"曲詳細→録音ユニーク（TDCS以外は除外）…");
     const trackMap=await fetchTrackDetailsByUris(res.aligned.filter(Boolean));
     const usable=pool.map((it,idx)=>Object.assign({},it,{uri:res.aligned[idx]})).filter(x=>x.uri);
     let dedRec=dedupeByRecording(usable, usable.map(x=>x.uri), trackMap);
 
-    /* === 追加補充パッチ：520未満なら自動で search→discog を追加収集→再解決 === */
+    /* === 不足時の自動追加補充 === */
     const needTotal = finalN*4; // 520
     if (dedRec.uris.length < needTotal) {
       const still = needTotal - dedRec.uris.length;
@@ -862,7 +861,7 @@ async function resolveAndWrite(packs){
       log("🆕 新規:\n  UK   → https://open.spotify.com/playlist/"+pU+"\n  US   → https://open.spotify.com/playlist/"+pS+"\n  EU   → https://open.spotify.com/playlist/"+pE+"\n  WORLD→ https://open.spotify.com/playlist/"+pW);
     }
 
-    progress(100,"完了"); log("✅ 完了（TDCS限定／深掘り補充→4×130／相互非重複／バランス分配）");
+    progress(100,"完了"); log("✅ 完了（TDCS限定／高速URI解決→4×130／相互非重複／バランス分配）");
     _pending=null;
   }catch(e){ progress(100,"エラー"); log("💥 ERROR(resolveAndWrite): "+e.message); console.error(e); }
 }
@@ -875,6 +874,6 @@ $("fileSource").addEventListener("change",()=>{ if($("fileAnalytics").files.leng
 $("fileAnalytics").addEventListener("change",()=>{ if($("fileAnalytics").files.length) loadFiles(); });
 $("btnExportXlsx").onclick=exportXlsx; $("btnExportCsv").onclick=exportCsv;
 setStatus();
-log("Ready. 読込→突合→TDCS補充(analytics/top/new/search/discog 早期終了)→URI解決(厳格TDCS)→録音ユニーク→分配→曲順→上書き/新規→CSV/XLSX。");
+log("Ready. 読込→突合→TDCS補充(analytics/top/new/search/discog)→高速URI解決(ID即採用/キャッシュ/制限付検索)→録音ユニーク(TDCSのみ)→分配→曲順→上書き/新規→CSV/XLSX。");
 </script>
 </body></html>
