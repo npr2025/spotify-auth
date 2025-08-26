@@ -1,25 +1,43 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spotify Auth (PKCE)</title>
+<style>
+  body{font-family:system-ui;max-width:640px;margin:40px auto;padding:0 16px}
+  code{background:#f3f4f6;padding:2px 4px;border-radius:4px}
+</style>
+</head>
+<body>
+<h1>Spotify 認可</h1>
+<p>「サインイン」を押すとSpotifyの許可画面に移動します。</p>
+<button id="btnGo" type="button">サインイン</button>
+<pre id="log"></pre>
 <script>
+const log=(s)=>{const el=document.getElementById("log"); el.textContent+=(el.textContent?"\n":"")+s;}
 const zws=/[\u200B-\u200D\uFEFF]/g;
 const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e".replace(zws,"").trim();
 const REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html".replace(zws,"").trim();
 const SCOPES="playlist-modify-public playlist-modify-private ugc-image-upload";
 
 async function startAuth(){
-  // 1) PKCE verifier
+  // PKCE verifier
   let verifier=""; const u8=new Uint8Array(64);
-  crypto.getRandomValues(u8); for(let i=0;i<u8.length;i++) verifier+=String.fromCharCode(97+(u8[i]%26));
+  crypto.getRandomValues(u8);
+  for(let i=0;i<u8.length;i++) verifier+=String.fromCharCode(97+(u8[i]%26));
   localStorage.setItem("sp_code_verifier", verifier);
 
-  // 2) code_challenge
+  // challenge
   const hash=new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
   let b=""; for(const x of hash) b+=String.fromCharCode(x);
   const challenge=btoa(b).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
 
-  // 3) state に verifier をエンコードして埋め込む（fallback用）
-  const state = "v."+btoa(verifier).replace(/=+$/,"").replace(/\+/g,"-").replace(/\//g,"_");
+  // state（別オリジン対策で verifier を埋め込む）
+  const state="v."+btoa(verifier).replace(/=+$/,"").replace(/\+/g,"-").replace(/\//g,"_");
   localStorage.setItem("sp_auth_state", state);
 
-  // 4) 送信
+  // authorize
   const u=new URL("https://accounts.spotify.com/authorize");
   u.searchParams.set("response_type","code");
   u.searchParams.set("client_id",CLIENT_ID);
@@ -27,9 +45,10 @@ async function startAuth(){
   u.searchParams.set("code_challenge_method","S256");
   u.searchParams.set("code_challenge",challenge);
   u.searchParams.set("scope",SCOPES);
-  u.searchParams.set("state",state);  // ★ 追加
+  u.searchParams.set("state",state);
   location.href=u.toString();
 }
-
 document.getElementById("btnGo").onclick=startAuth;
 </script>
+</body>
+</html>
