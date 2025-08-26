@@ -6,7 +6,7 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TDCS Editions Builder — サインイン修正版</title>
+<title>TDCS Editions Builder — Safe Mode</title>
 <style>
   :root{--bg:#0b1220;--fg:#cfe3ff}
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:960px;margin:32px auto;padding:0 12px}
@@ -17,16 +17,18 @@
   button:disabled{opacity:.5;cursor:not-allowed}
   input[type="text"]{width:100%;max-width:720px;padding:6px 8px;border:1px solid #ccc;border-radius:6px}
   #log{white-space:pre-wrap;background:var(--bg);color:var(--fg);padding:12px;border-radius:8px;min-height:220px}
-  a.fallback{display:none;margin-left:8px}
+  a.fallback{display:inline-block;margin-left:8px}
+  small code{background:#f3f4f6;padding:1px 4px;border-radius:4px}
 </style>
 </head>
 <body>
-<h1>TDCS Editions Builder — サインイン修正版</h1>
+<h1>TDCS Editions Builder — Safe Mode</h1>
 <p id="status">未接続</p>
 
 <div>
   <button id="btnConnect" data-action="connect" type="button">Spotifyにサインイン</button>
-  <a id="linkConnect" class="fallback" href="./auth.html">← ボタンが動かない時はここから</a>
+  <!-- ★ デフォルトは“見える”直行リンク。JSが動いたら自動で隠す -->
+  <a id="linkConnect" class="fallback" href="/spotify-auth/auth.html">← ボタンが動かない/JS壊れてる時はここから</a>
   <button id="btnCheck" type="button">接続チェック</button>
   <button id="btnReset" type="button">初期化（保存トークン削除）</button>
 </div>
@@ -39,7 +41,7 @@
   <label>REDIRECT_URI
     <input type="text" value="https://npr2025.github.io/spotify-auth/callback.html" disabled>
   </label>
-  <small>※ Developer Dashboard の Redirect URIs に <code>https://npr2025.github.io/spotify-auth/callback.html</code> を 1文字違わず登録。</small>
+  <small>※ Spotify Developer Dashboard → Redirect URIs に <code>https://npr2025.github.io/spotify-auth/callback.html</code> を<strong>完全一致</strong>登録。</small>
 </fieldset>
 
 <fieldset>
@@ -48,6 +50,15 @@
 </fieldset>
 
 <script>
+/* ====== 即時：致命エラーを必ず画面に出す ====== */
+(function hardenConsole(){
+  const logEl = ()=>document.getElementById('log');
+  const add = (s)=>{ const el=logEl(); if(!el) return; el.textContent += (el.textContent?'\n':'') + s; el.scrollTop = el.scrollHeight; };
+  window.addEventListener('error', e=> add('🛑 JS Error: '+ (e.message||e)));
+  window.addEventListener('unhandledrejection', e=> add('🛑 Promise Rejection: '+ (e.reason && (e.reason.message||e.reason))));
+  add('🧪 Self-check: logger armed');
+})();
+
 /* =========================
    共有定数
 ========================= */
@@ -63,18 +74,15 @@ const LS={ acc:"sp_access_token", ref:"sp_refresh_token", exp:"sp_token_exp", ve
 const $=(id)=>document.getElementById(id);
 const log=(s)=>{ const el=$("log"); el.textContent+=(el.textContent?"\n":"")+s; el.scrollTop=el.scrollHeight; };
 const isAuthed=()=> !!localStorage.getItem(LS.acc) && Date.now() < (+localStorage.getItem(LS.exp)||0) - 5000;
-function setStatus(){
-  $("status").textContent = isAuthed()? "接続中（OK）" : "未接続";
-}
+function setStatus(){ $("status").textContent = isAuthed()? "接続中（OK）" : "未接続"; }
 
 /* =========================
    PKCE 認可（state フォールバック付き）
 ========================= */
 async function startAuth(){
-  // 1) PKCE verifier 生成
+  // 1) PKCE verifier
   let verifier=""; const u8=new Uint8Array(64);
-  crypto.getRandomValues(u8);
-  for(let i=0;i<u8.length;i++) verifier+=String.fromCharCode(97+(u8[i]%26));
+  crypto.getRandomValues(u8); for(let i=0;i<u8.length;i++) verifier+=String.fromCharCode(97+(u8[i]%26));
   localStorage.setItem(LS.ver, verifier);
 
   // 2) code_challenge
@@ -82,11 +90,11 @@ async function startAuth(){
   let b=""; for(const x of hash) b+=String.fromCharCode(x);
   const challenge=btoa(b).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
 
-  // 3) state に verifier を格納（別オリジン開始対策）
+  // 3) state（別オリジン開始対策）
   const state="v."+btoa(verifier).replace(/=+$/,"").replace(/\+/g,"-").replace(/\//g,"_");
   localStorage.setItem(LS.state, state);
 
-  // 4) Authorize に飛ばす
+  // 4) Authorizeへ
   const u=new URL("https://accounts.spotify.com/authorize");
   u.searchParams.set("response_type","code");
   u.searchParams.set("client_id",CLIENT_ID);
@@ -95,6 +103,8 @@ async function startAuth(){
   u.searchParams.set("code_challenge",challenge);
   u.searchParams.set("scope",SCOPES);
   u.searchParams.set("state",state);
+
+  log("→ authorize へ遷移: "+u.toString());
   location.href = u.toString();
 }
 
@@ -105,13 +115,8 @@ async function refreshTokenIfNeeded(){
   const exp=+(localStorage.getItem(LS.exp)||0);
   if(Date.now()<exp-5000) return;
   const rt=localStorage.getItem(LS.ref); if(!rt) return;
-  const body=new URLSearchParams();
-  body.set("grant_type","refresh_token");
-  body.set("refresh_token",rt);
-  body.set("client_id",CLIENT_ID);
-  const r=await fetch("https://accounts.spotify.com/api/token",{
-    method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body
-  });
+  const body=new URLSearchParams({grant_type:"refresh_token",refresh_token:rt,client_id:CLIENT_ID});
+  const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
   if(!r.ok){ log("⚠️ refresh失敗: "+r.status); return; }
   const j=await r.json();
   localStorage.setItem(LS.acc,j.access_token);
@@ -135,28 +140,39 @@ async function spFetch(path,method="GET",body=null){
 (function(){
   function showFallback(reason){
     try{
-      $("linkConnect").style.display='inline-block';
+      const a=$("linkConnect"); if(a) a.style.display='inline-block';
       log("⚠️ Authボタン失敗: "+(reason && (reason.message||reason)));
     }catch(_){}
   }
   async function goAuth(ev){
-    if(ev && typeof ev.preventDefault==="function") ev.preventDefault();
+    if(ev && ev.preventDefault) ev.preventDefault();
     try{
       if(typeof startAuth==="function") return startAuth();
     }catch(err){
-      console.error(err); showFallback(err);
-      location.href="./auth.html"; return;
+      console.error(err); showFallback(err); location.href="/spotify-auth/auth.html"; return;
     }
-    // 未定義・拾えない場合は即フォールバック
     showFallback("handler-not-found");
-    location.href="./auth.html";
+    location.href="/spotify-auth/auth.html";
   }
-  // クリック委譲（id でも data-action でも拾う）
   document.addEventListener("click",(ev)=>{
     const t = ev.target.closest('#btnConnect,[data-action="connect"]');
-    if(!t) return;
-    goAuth(ev);
+    if(!t) return; goAuth(ev);
   }, true);
+})();
+
+/* =========================
+   起動完了サイン & UI
+========================= */
+(function ready(){
+  // JS起動OKなら直行リンクを隠す（JS壊れている時だけ見える設計）
+  const a=$("linkConnect"); if(a) a.style.display='none';
+  setStatus();
+  log("✅ JS起動OK");
+  log("info: origin="+location.origin+" path="+location.pathname);
+  if(new URLSearchParams(location.search).get("authed")==="1"){
+    log("↩︎ 認可復帰。接続チェック中…");
+    $("btnCheck").click();
+  }
 })();
 
 /* =========================
@@ -174,11 +190,6 @@ $("btnReset").onclick = ()=>{
   Object.values(LS).forEach(k=>localStorage.removeItem(k));
   setStatus(); log("🧽 ローカルトークン削除");
 };
-setStatus();
-if(new URLSearchParams(location.search).get("authed")==="1"){
-  log("↩︎ 認可復帰。接続チェック中…");
-  $("btnCheck").click();
-}
 </script>
 </body>
 </html>
