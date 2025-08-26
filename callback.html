@@ -13,9 +13,9 @@ a.btn{display:inline-block;margin:6px 8px 0 0;padding:9px 12px;border:1px solid 
 <body>
 <h1>Spotify Auth Callback</h1>
 <p id="status">Waiting…</p>
-<p><a href="auth.html?v=2025-08-26-compat-pool" class="btn">アプリへ戻る</a></p>
+<p><a href="auth.html?v=2025-08-26-editions-diverse" class="btn">アプリへ戻る</a></p>
 <pre id="log">Booting…</pre>
-<script type="text/javascript">
+<script>
 (function(){
   var CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e";
   var REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
@@ -23,7 +23,6 @@ a.btn{display:inline-block;margin:6px 8px 0 0;padding:9px 12px;border:1px solid 
   var log=function(s){var el=document.getElementById("log");el.textContent+=(el.textContent?"\n":"")+s;el.scrollTop=el.scrollHeight;};
   window.onerror=function(m,src,lin,col,err){log("💥 ScriptError: "+m+" @"+lin+":"+col);};
   window.addEventListener("unhandledrejection",function(e){log("💥 PromiseRejection: "+(e.reason&&e.reason.message?e.reason.message:String(e.reason)));});
-
   (async function(){
     try{
       var p=new URLSearchParams(location.search);
