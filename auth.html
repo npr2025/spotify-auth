@@ -528,14 +528,13 @@ async function resolveUriOneStrict(it){
   const aids=FORCED_ARTIST_IDS; const must=true;
   const mkts=["from_token","JP","US","GB","DE","SE","CA","AU","NL","FR","BR","MX","IT","ES"];
 
-  // 直接IDでも、TDCSを必ず検証（※修正ポイント）
+  // 直接ID → TDCS検証
   if(it.id && it.id.length===22){
     try{
       const tr=await spFetch(`/v1/tracks/${it.id}?market=${mkts[0]}`,"GET");
       const ok = tr && tr.artists && tr.artists.some(a=>aids.includes(a.id));
       if(ok) return "spotify:track:"+it.id;
     }catch(_){}
-    // NGなら通常検索にフォールバック
   }
 
   if(it.isrc){
@@ -546,7 +545,7 @@ async function resolveUriOneStrict(it){
         for(const t of items){
           let ok=!must;
           if(!ok && t && t.artists){ for(const a of t.artists){ if(aids.includes(a.id)){ ok=true; break; } } }
-          if(ok){ cand=t; break; }
+        if(ok){ cand=t; break; }
         }
         if(cand&&cand.id) return "spotify:track:"+cand.id;
       }catch(_){}
@@ -708,7 +707,7 @@ const extractPlaylistId=(s)=>{s=String(s||""); let m=s.match(/playlist\/([A-Za-z
 async function replacePlaylist(pid,uris){
   const chunks=[]; for(let i=0;i<uris.length;i+=100) chunks.push(uris.slice(i,i+100));
   if(!chunks.length) chunks.push([]);
-  await spFetch("/v1/playlists/"+pid+"/tracks","PUT",{uris:chunks[0]}); log("🧹 置換: "+chunks[0].length+"件");
+  await spFetch("/v1/playlists/"+pid+"/tracks","PUT",{uris:chunks[0]}); log("🧹 置換: "+chunks[0].length}件");
   for(let k=1;k<chunks.length;k++){ await spFetch(`/v1/playlists/${pid}/tracks`,"POST",{uris:chunks[k]}); log("➕ 追加: "+chunks[k].length+"件"); }
 }
 async function createPlaylistAndFill(name,desc,isPublic,uris){
@@ -766,7 +765,50 @@ async function runAnalysis(){
     progress(72,"曲詳細→録音ユニーク…");
     const trackMap=await fetchTrackDetailsByUris(res.aligned.filter(Boolean));
     const usable=pool.map((it,idx)=>Object.assign({},it,{uri:res.aligned[idx]})).filter(x=>x.uri);
-    const dedRec=dedupeByRecording(usable, usable.map(x=>x.uri), trackMap);
+    let dedRec=dedupeByRecording(usable, usable.map(x=>x.uri), trackMap);
+
+    /* === 追加補充パッチ：520未満なら自動で search→discog を追加収集→再解決 === */
+    const needTotal = finalN*4; // 520
+    if (dedRec.uris.length < needTotal) {
+      const still = needTotal - dedRec.uris.length;
+      log(`🔁 追加補充: 520まであと ${still} 曲 — search→discog の順で増やします`);
+      progress(73, `追加収集: search (${still}想定)`);
+
+      const artistIds = await gatherArtistIds();
+
+      // search で底上げ
+      const extraS = await buildExtraFromSearchArtist(artistIds, "search+", needTotal, dedRec.uris.length);
+      const extraPool1 = dedupeByMeta(extraS);
+      const res1 = await toUrisResolved(extraPool1, (i,t)=>progress(73+(2*(i/t)),"追加: search URI解決 ("+i+"/"+t+")"));
+      const map1 = await fetchTrackDetailsByUris(res1.aligned.filter(Boolean));
+      const usable1 = extraPool1.map((it,i)=>Object.assign({},it,{uri:res1.aligned[i]})).filter(x=>x.uri);
+
+      const joined1 = {
+        items: dedRec.items.concat(usable1),
+        uris:  dedRec.uris.concat(usable1.map(x=>x.uri))
+      };
+      let merged = dedupeByRecording(joined1.items, joined1.uris, map1);
+
+      // それでも不足なら discog 追加
+      if (merged.uris.length < needTotal) {
+        const still2 = needTotal - merged.uris.length;
+        progress(74, `追加収集: discog (${still2}想定)`);
+        const extraD = await buildExtraFromArtistsDeep(artistIds, "discog+", needTotal, merged.uris.length);
+        const extraPool2 = dedupeByMeta(extraD);
+        const res2 = await toUrisResolved(extraPool2, (i,t)=>progress(74+(2*(i/t)),"追加: discog URI解決 ("+i+"/"+t+")"));
+        const mapAll = await fetchTrackDetailsByUris(res2.aligned.filter(Boolean));
+        const usable2 = extraPool2.map((it,i)=>Object.assign({},it,{uri:res2.aligned[i]})).filter(x=>x.uri);
+
+        const joined2 = {
+          items: merged.items.concat(usable2),
+          uris:  merged.uris.concat(usable2.map(x=>x.uri))
+        };
+        merged = dedupeByRecording(joined2.items, joined2.uris, mapAll);
+      }
+      dedRec = merged;
+      log(`📈 追加後ユニーク: ${dedRec.uris.length} 曲`);
+    }
+    /* === 追加補充ここまで === */
 
     progress(78,"Audio Features 取得…");
     const feats=await fetchAudioFeaturesByUris(dedRec.uris);
