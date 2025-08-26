@@ -2,48 +2,53 @@
 <html lang="ja"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spotify OAuth Callback</title>
+<title>Spotify PKCE Callback</title>
 <style>
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;margin:24px}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;padding:24px}
 pre{white-space:pre-wrap;background:#0b1220;color:#cfe3ff;padding:12px;border-radius:8px}
 </style>
 </head>
 <body>
-<h1>Spotify 認証処理</h1>
-<pre id="log">処理中…</pre>
+<h1>Spotify 認可リダイレクト</h1>
+<pre id="log">Exchanging code…</pre>
 <script>
-const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier"};
-const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e";
-const log=(s)=>{const el=document.getElementById("log"); el.textContent+=(el.textContent?"\n":"")+s; }
 (async()=>{
+  const log=(s)=>{const el=document.getElementById('log'); el.textContent+=(el.textContent?"\n":"")+s;}
   try{
-    const u=new URL(location.href);
-    const code=u.searchParams.get("code");
-    const err=u.searchParams.get("error");
-    if(err){ log("エラー: "+err); throw new Error(err); }
-    if(!code){ log("codeが見つかりません"); throw new Error("no code"); }
-    const ver=localStorage.getItem(LS.ver);
-    if(!ver){ log("code_verifierがありません"); throw new Error("no verifier"); }
+    const params=new URLSearchParams(location.search);
+    const code=params.get("code"); const err=params.get("error");
+    if(err){ log("💥 error="+err); throw new Error(err); }
+    if(!code){ log("💥 code が見つかりません"); return; }
+
+    const v=localStorage.getItem("sp_code_verifier");
+    if(!v){ log("💥 code_verifier がありません（発行元と同一オリジンで開いてください）"); return; }
+
     const body=new URLSearchParams();
     body.set("grant_type","authorization_code");
     body.set("code",code);
+    body.set("client_id","1fd6350fcf4945a0b3ddffa2d5730d4e");
     body.set("redirect_uri","https://npr2025.github.io/spotify-auth/callback.html");
-    body.set("client_id",CLIENT_ID);
-    body.set("code_verifier",ver);
+    body.set("code_verifier",v);
+
     const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
-    if(!r.ok){ const t=await r.text(); log("トークン交換失敗: "+r.status+" "+t.slice(0,200)); throw new Error("token exchange failed"); }
     const j=await r.json();
-    localStorage.setItem(LS.acc,j.access_token);
-    if(j.refresh_token) localStorage.setItem(LS.ref,j.refresh_token);
-    localStorage.setItem(LS.exp,String(Date.now()+ (j.expires_in||3600)*1000));
-    log("✅ 認証OK。ビルダーに戻ります。");
-    // 戻る先（同ドメイン上のビルダー）
-    const back = (localStorage.getItem("tdcs_builder_back")||"");
-    const dest = back || (location.origin.replace(/\/$/,"")+"/");
-    setTimeout(()=>{ location.href = dest; }, 800);
+    if(!r.ok){ log("💥 token error: "+(j&&j.error||r.status)); return; }
+
+    localStorage.setItem("sp_access_token",j.access_token);
+    localStorage.setItem("sp_token_exp", String(Date.now() + (j.expires_in||3600)*1000));
+    if(j.refresh_token) localStorage.setItem("sp_refresh_token", j.refresh_token);
+
+    log("✅ 取得OK。元の画面に戻ります…");
+    setTimeout(()=>{
+      try{
+        const back=sessionStorage.getItem("sp_back");
+        if(back){ location.href=back; }
+        else if (document.referrer){ location.href=document.referrer; }
+        else { location.href="/"; }
+      }catch(_){ location.href="/"; }
+    },400);
   }catch(e){
-    console.error(e);
-    log("⚠️ 失敗: "+(e.message||e));
+    log("Exception: "+(e.message||e));
   }
 })();
 </script>
