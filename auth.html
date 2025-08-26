@@ -84,7 +84,7 @@ small.hint{color:#666}
   <legend>ファイル</legend>
   <label>ソースCSV（任意）<input id="fileSource" type="file" accept=".csv"></label>
   <label>分析（Excel .xlsx / CSV）<input id="fileAnalytics" type="file" accept=".xlsx,.csv"></label>
-  <small class="hint">列は自動検出。Exact→Fuzzy→Spotify検索→（TDCSの）Top/新譜で自動補充。</small>
+  <small class="hint">列は自動検出。Exact→Fuzzy→Spotify検索→（TDCSの）Top/新譜/ディスコグ全件で自動補充。</small>
 </fieldset>
 
 <fieldset>
@@ -336,7 +336,7 @@ small.hint{color:#666}
       name: (!v||/original\s*mix/i.test(v))?t:(t+" - "+v),
       artist: String(srcCols.artistCol? m.s[srcCols.artistCol] : (m.a[anCols.artistCol]||"")),
       remixer: String(srcCols.remixCol? m.s[srcCols.remixCol] : ""),
-      artistIds: FORCED_ARTIST_IDS.slice(0), // ★TDCS固定
+      artistIds: FORCED_ARTIST_IDS.slice(0), // TDCS固定
       flags:{ uk:anCols.uk?truthy(m.a[anCols.uk]):false, us:anCols.us?truthy(m.a[anCols.us]):false, eu:anCols.eu?truthy(m.a[anCols.eu]):false, wo:anCols.wo?truthy(m.a[anCols.wo]):false },
       score:m.score, _mode:m._mode, _score:m._score, a:m.a, s:m.s
     };
@@ -377,22 +377,36 @@ small.hint{color:#666}
     log("🧹 重複除去（候補）: 入"+list.length+"→残"+out.length+" [ID:"+dropId+",ISRC:"+dropIsrc+",Key:"+dropKey+"]");
     return out;
   }
-  async function gatherArtistIds(){ return FORCED_ARTIST_IDS.slice(0); } // ★固定
+
+  async function gatherArtistIds(){ return FORCED_ARTIST_IDS.slice(0); } // 固定
+
   async function fetchTopTracksByArtist(aid,market){
     var r=await spFetch("/v1/artists/"+aid+"/top-tracks?market="+market,"GET");
     return (r&&r.tracks)||[];
   }
-  async function fetchArtistAlbums(aid,market){
-    var out=[], groups=["single","appears_on","album"];
-    for(var g=0;g<groups.length;g++){
-      var r=await spFetch("/v1/artists/"+aid+"/albums?include_groups="+groups[g]+"&limit=20&market="+market,"GET");
-      if(r&&r.items) out=out.concat(r.items);
+
+  async function fetchAllArtistAlbums(aid, market){
+    let out=[], seen=new Set(), groups="album,single,appears_on,compilation";
+    let offset=0, limit=50;
+    while(true){
+      const r = await spFetch(`/v1/artists/${aid}/albums?include_groups=${groups}&limit=${limit}&offset=${offset}&market=${market}`, "GET");
+      const arr = (r&&r.items)||[];
+      for(const al of arr){ if(!seen.has(al.id)){ seen.add(al.id); out.push(al); } }
+      if(arr.length < limit) break;
+      offset += limit;
     }
     return out;
   }
-  async function fetchAlbumTracks(albumId,market){
-    var r=await spFetch("/v1/albums/"+albumId+"?market="+market,"GET");
-    return (r&&r.tracks&&r.tracks.items)||[];
+  async function fetchAllAlbumTracks(albumId, market){
+    let out=[], offset=0, limit=50;
+    while(true){
+      const r = await spFetch(`/v1/albums/${albumId}/tracks?limit=${limit}&offset=${offset}&market=${market}`, "GET");
+      const arr = (r&&r.items)||[];
+      out = out.concat(arr);
+      if(arr.length < limit) break;
+      offset += limit;
+    }
+    return out;
   }
   function itemFromTrackObj(t,aid){
     return { id:t.id||"", isrc:"", name:t.name||"", artist:(t.artists&&t.artists[0]&&t.artists[0].name)||"", remixer:"", artistIds:aid?[aid]:[], flags:{wo:true}, score:0.0001, _mode:"seed" };
@@ -404,9 +418,10 @@ small.hint{color:#666}
         try{
           var ts=await fetchTopTracksByArtist(artistIds[a],mkts[m]);
           for(var i=0;i<ts.length;i++) out.push(itemFromTrackObj(ts[i],artistIds[a]));
-          var al=await fetchArtistAlbums(artistIds[a],mkts[m]);
-          for(var j=0;j<Math.min(6,al.length);j++){
-            var tr=await fetchAlbumTracks(al[j].id,mkts[m]);
+          var al=await spFetch(`/v1/artists/${artistIds[a]}/albums?include_groups=single,album&limit=20&market=${mkts[m]}`,"GET");
+          var albums=(al&&al.items)||[];
+          for(var j=0;j<Math.min(6,albums.length);j++){
+            var tr=await fetchAllAlbumTracks(albums[j].id,mkts[m]);
             for(var k=0;k<Math.min(6,tr.length);k++) out.push(itemFromTrackObj(tr[k],artistIds[a]));
           }
         }catch(e){}
@@ -415,22 +430,102 @@ small.hint{color:#666}
     log("➕ 補充("+label+"): +"+out.length);
     return out;
   }
-  async function buildCandidatePoolV2(primaryItems, srcCols, anCols, finalN){
-    var pool=dedupeByMeta(primaryItems);
-    var target=Math.max(finalN*4+200, finalN*5);
-    log("📦 候補プール開始: "+pool.length+" / 目標 "+target);
+  async function buildExtraFromArtistsDeep(artistIds,label){
+    const mkts = ["JP","US","GB","DE","SE","CA","AU","NL","FR","BR","MX","IT","ES"];
+    let out=[];
+    for(const aid of artistIds){
+      for(const m of mkts){
+        try{
+          const top = await fetchTopTracksByArtist(aid,m);
+          out.push(...top.map(t=>itemFromTrackObj(t,aid)));
+          const albums = await fetchAllArtistAlbums(aid,m);
+          for(const al of albums){
+            const tr = await fetchAllAlbumTracks(al.id,m);
+            for(const t of tr){ out.push(itemFromTrackObj(t,aid)); }
+          }
+        }catch(e){}
+      }
+    }
+    log(`➕ 補充(${label} deep): +${out.length}`);
+    return out;
+  }
 
-    if(pool.length < target){
-      var extraA=buildItemsFromAnalyticsOnly(anCols).sort((a,b)=>(b.score||0)-(a.score||0));
-      pool=dedupeByMeta(pool.concat(extraA)); log("➕ 補充(analytics only): "+pool.length);
+  /* ====== アーティスト名検索（大量ページング） ====== */
+  const _artistNameCache=new Map();
+  async function getArtistName(aid){
+    if(_artistNameCache.has(aid)) return _artistNameCache.get(aid);
+    const r=await spFetch("/v1/artists/"+aid,"GET");
+    const n=(r&&r.name)||"";
+    _artistNameCache.set(aid,n);
+    return n;
+  }
+  async function searchArtistTracksByName(artistName,market,maxPages){
+    let out=[], limit=50;
+    for(let p=0;p<maxPages;p++){
+      const q=`artist:"${artistName}"`;
+      const r=await spFetch(`/v1/search?q=${encodeURIComponent(q)}&type=track&limit=${limit}&offset=${p*limit}&market=${market}`,"GET");
+      const items=(r&&r.tracks&&r.tracks.items)||[];
+      out=out.concat(items);
+      if(items.length<limit) break;
     }
-    if(pool.length < target){
-      var artistIds=await gatherArtistIds(); // ★["55fv..."]のみ
+    return out;
+  }
+  async function buildExtraFromSearchArtist(artistIds,label){
+    const mkts=["JP","US","GB","DE","SE","CA","AU","NL","FR","BR","MX","IT","ES"];
+    let out=[];
+    for(const aid of artistIds){
+      const name=await getArtistName(aid);
+      for(const m of mkts){
+        try{
+          const found = await searchArtistTracksByName(name,m,12); // 最大 12ページ=600件/market
+          for(const t of found){
+            // TDCS を含むものだけ採用
+            let ok=false;
+            if(t && t.artists){ for(const a of t.artists){ if(a.id===aid){ok=true;break;} } }
+            if(ok) out.push(itemFromTrackObj(t,aid));
+          }
+        }catch(e){}
+      }
+    }
+    log(`➕ 補充(search): +${out.length}`);
+    return out;
+  }
+
+  async function buildCandidatePoolV2(primaryItems, srcCols, anCols, finalN){
+    let pool = dedupeByMeta(primaryItems);
+    const targetSoft = finalN*4 + 80;
+
+    log(`📦 候補プール開始: ${pool.length} / 目標 ${targetSoft}`);
+
+    if(pool.length < targetSoft){
+      const extraA = buildItemsFromAnalyticsOnly(anCols).sort((a,b)=>(b.score||0)-(a.score||0));
+      pool = dedupeByMeta(pool.concat(extraA));
+      log(`➕ 補充(analytics only): ${pool.length}`);
+    }
+
+    if(pool.length < targetSoft){
+      const artistIds = await gatherArtistIds();
       log("🧲 収集ArtistID: "+artistIds.length);
-      var extraB=await buildExtraFromArtists(artistIds,"top+new");
-      pool=dedupeByMeta(pool.concat(extraB)); log("➕ 補充(top/new): "+pool.length);
+      const extraB = await buildExtraFromArtists(artistIds,"top+new");
+      pool = dedupeByMeta(pool.concat(extraB));
+      log(`➕ 補充(top/new): ${pool.length}`);
     }
-    return pool.slice(0,target);
+
+    if(pool.length < finalN*4){
+      const artistIds = await gatherArtistIds();
+      const extraC = await buildExtraFromArtistsDeep(artistIds,"discog");
+      pool = dedupeByMeta(pool.concat(extraC));
+      log(`➕ 補充(discog): ${pool.length}`);
+    }
+
+    if(pool.length < finalN*4){
+      const artistIds = await gatherArtistIds();
+      const extraD = await buildExtraFromSearchArtist(artistIds,"search");
+      pool = dedupeByMeta(pool.concat(extraD));
+      log(`➕ 補充(search merged): ${pool.length}`);
+    }
+
+    return pool.slice(0, Math.max(targetSoft, finalN*4));
   }
 
   /* ====== URI解決（必ずTDCSを含む候補のみ採用） ====== */
@@ -458,16 +553,14 @@ small.hint{color:#666}
   }
   async function resolveUriOneStrict(it){
     if(it.id && it.id.length===22) return "spotify:track:"+it.id;
-
-    // ★TDCSを必ず含むものに限定
     var aids=FORCED_ARTIST_IDS, must=true;
-    var mkts=["from_token","JP","US","GB","DE","SE"];
+    var mkts=["from_token","JP","US","GB","DE","SE","CA","AU","NL","FR","BR","MX","IT","ES"];
 
     if(it.isrc){
       var vars=isrcVariants(it.isrc);
       for(var vi=0;vi<vars.length;vi++){
         try{
-          var r=await spFetch("/v1/search?q="+encodeURIComponent("isrc:"+vars[vi])+"&type=track&limit=5&market="+mkts[0],"GET");
+          var r=await spFetch("/v1/search?q="+encodeURIComponent("isrc:"+vars[vi])+"&type=track&limit=10&market="+mkts[0],"GET");
           var items=(r&&r.tracks&&r.tracks.items)?r.tracks.items:[]; var cand=null;
           for(var ci=0;ci<items.length;ci++){
             var t=items[ci], ok=!must;
@@ -654,7 +747,7 @@ small.hint{color:#666}
     var chunks=[]; for(var i=0;i<uris.length;i+=100) chunks.push(uris.slice(i,i+100));
     if(!chunks.length) chunks.push([]);
     await spFetch("/v1/playlists/"+pid+"/tracks","PUT",{uris:chunks[0]}); log("🧹 置換: "+chunks[0].length+"件");
-    for(var k=1;k<chunks.length;k++){ await spFetch("/v1/playlists/"+pid+"/tracks","POST",{uris:chunks[k]}); log("➕ 追加: "+chunks[k].length+"件"); }
+    for(var k=1;k<chunks.length;k++){ await spFetch(`/v1/playlists/${pid}/tracks`,"POST",{uris:chunks[k]}); log("➕ 追加: "+chunks[k].length+"件"); }
   }
   async function createPlaylistAndFill(name,desc,isPublic,uris){
     var me=await getMe();
@@ -773,7 +866,7 @@ small.hint{color:#666}
         log("🆕 新規:\n  UK   → https://open.spotify.com/playlist/"+pU+"\n  US   → https://open.spotify.com/playlist/"+pS+"\n  EU   → https://open.spotify.com/playlist/"+pE+"\n  WORLD→ https://open.spotify.com/playlist/"+pW);
       }
 
-      progress(100,"完了"); log("✅ 完了（TDCS限定／不足自動補充→4×130達成／相互非重複／バランス分配）");
+      progress(100,"完了"); log("✅ 完了（TDCS限定／深掘り補充→4×130／相互非重複／バランス分配）");
       _pending=null;
     }catch(e){progress(100,"エラー");log("💥 ERROR(resolveAndWrite): "+e.message); console.error(e);}
   }
@@ -788,7 +881,7 @@ small.hint{color:#666}
   $("btnExportCsv").onclick=exportCsv;
 
   setStatus();
-  log("Ready. 読込→突合→TDCS補充→URI解決→録音ユニーク→分配(均衡/非重複)→曲順→上書き/新規→CSV/XLSX。");
+  log("Ready. 読込→突合→TDCS補充(analytics/top/new/discog/search)→URI解決→録音ユニーク→分配→曲順→上書き/新規→CSV/XLSX。");
 })();
 </script>
 </body></html>
