@@ -1,55 +1,44 @@
 <!doctype html>
 <html lang="ja"><head>
 <meta charset="utf-8">
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Spotify Callback</title>
-<style>
-body{font-family:system-ui;max-width:720px;margin:40px auto;padding:0 16px}
-pre{white-space:pre-wrap;background:#0b1220;color:#cfe3ff;padding:12px;border-radius:8px}
-</style>
+<style>body{font-family:system-ui;max-width:680px;margin:40px auto;padding:0 16px} code{background:#f3f4f6;padding:2px 4px;border-radius:4px}</style>
 </head>
 <body>
-<h1>Spotify 認可リダイレクト</h1>
-<p id="msg">処理中…</p>
-<pre id="log"></pre>
+<h2>認可コード受信中…</h2>
+<pre id="log">Waiting…</pre>
 <script>
-const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier"};
-const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e";
-const REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
-function log(s){const el=document.getElementById("log");el.textContent+=(el.textContent?"\n":"")+s;}
-(async()=>{
+const log=(s)=>{const el=document.getElementById("log"); el.textContent+=(el.textContent?"\n":"")+s;};
+(async ()=>{
   try{
-    const p=new URLSearchParams(location.search);
-    const code=(p.get("code")||"").trim();
-    const err=p.get("error");
-    if(err){ document.getElementById("msg").textContent="エラー: "+err; log("error="+err); return; }
-    if(!code){ document.getElementById("msg").textContent="エラー: codeなし"; return; }
-    const verifier=localStorage.getItem(LS.ver)||"";
-    if(!verifier){ document.getElementById("msg").textContent="エラー: code_verifierなし"; return; }
-
+    const params=new URLSearchParams(location.search);
+    const code=params.get("code"); const err=params.get("error");
+    if(err){ log("error: "+err); throw new Error(err); }
+    if(!code){ log("error: code=なし"); throw new Error("no_code"); }
+    const zws=/[\u200B-\u200D\uFEFF]/g;
+    const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e".replace(zws,"").trim();
+    const REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html".replace(zws,"").trim();
+    const verifier=localStorage.getItem("sp_code_verifier");
+    if(!verifier){ log("error: code_verifier なし"); throw new Error("no_verifier"); }
+    log("交換中…");
     const body=new URLSearchParams();
     body.set("grant_type","authorization_code");
     body.set("code",code);
     body.set("redirect_uri",REDIRECT_URI);
     body.set("client_id",CLIENT_ID);
     body.set("code_verifier",verifier);
-
     const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
     const t=await r.text();
-    if(!r.ok){ document.getElementById("msg").textContent="INVALID_CLIENT などエラー"; log("status="+r.status+"\n"+t); return; }
+    if(!r.ok){ log("token error: "+r.status+" "+t.slice(0,200)); throw new Error("token_fail"); }
     const j=JSON.parse(t);
-    localStorage.setItem(LS.acc,j.access_token);
-    localStorage.setItem(LS.exp,String(Date.now()+j.expires_in*1000));
-    if(j.refresh_token) localStorage.setItem(LS.ref,j.refresh_token);
-    document.getElementById("msg").textContent="OK。ビルダーに戻ります…";
-    // index.html に戻る
-    const base=location.origin+location.pathname.replace(/\/callback\.html$/,"/");
-    setTimeout(()=>location.href=base+"index.html?nocache="+Date.now(),600);
+    localStorage.setItem("sp_access_token",j.access_token);
+    localStorage.setItem("sp_token_exp", String(Date.now()+j.expires_in*1000));
+    if(j.refresh_token) localStorage.setItem("sp_refresh_token", j.refresh_token);
+    log("OK! redirect…");
+    location.replace("./index.html?authed=1");
   }catch(e){
-    document.getElementById("msg").textContent="例外エラー";
-    log(String(e&&e.message||e));
+    log("callback error: "+(e.message||e));
   }
 })();
 </script>
