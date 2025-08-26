@@ -13,7 +13,9 @@
 <h2>認可コード受信中…</h2>
 <pre id="log">Waiting…</pre>
 <script>
-const log=(s)=>{const el=document.getElementById("log"); el.textContent+=(el.textContent?"\n":"")+s;};
+const log=(s)=>{const el=document.getElementById("log"); el.textContent+=(el.textContent?"\n":"")+s; el.scrollTop=el.scrollHeight; };
+window.addEventListener('error', e=> log('🛑 JS Error: '+(e.message||e)));
+window.addEventListener('unhandledrejection', e=> log('🛑 Promise: '+(e.reason && (e.reason.message||e.reason))));
 (async ()=>{
   try{
     const p=new URLSearchParams(location.search);
@@ -25,10 +27,7 @@ const log=(s)=>{const el=document.getElementById("log"); el.textContent+=(el.tex
     const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e".replace(zws,"").trim();
     const REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html".replace(zws,"").trim();
 
-    // 通常は localStorage から
     let verifier=localStorage.getItem("sp_code_verifier");
-
-    // 無い場合は state から復元（v.<base64url>）
     if((!verifier || verifier.length<32) && state.startsWith("v.")){
       try{
         const b64=state.slice(2).replace(/-/g,"+").replace(/_/g,"/");
@@ -55,7 +54,6 @@ const log=(s)=>{const el=document.getElementById("log"); el.textContent+=(el.tex
     const t=await r.text();
     if(!r.ok){
       log("token error: "+r.status+" "+t.slice(0,200));
-      // INVALID_CLIENT なら Client ID/Redirect URI の不一致が濃厚
       throw new Error("token_fail");
     }
     const j=JSON.parse(t);
