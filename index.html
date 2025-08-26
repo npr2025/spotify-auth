@@ -4,7 +4,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TDCS Editions Builder — 4×130 / 相互非重複（from_token無・403耐性・TDCS限定）</title>
+<title>TDCS Editions Builder — 4×130/相互非重複（from_token無/403耐性/TDCS限定）</title>
 <style>
 :root{--bg:#0b1220;--fg:#cfe3ff}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1180px;margin:32px auto;padding:0 12px}
@@ -40,7 +40,7 @@ small.hint{color:#666}
   <legend>固定</legend>
   <div class="grid2">
     <label>CLIENT_ID <input type="text" value="1fd6350fcf4945a0b3ddffa2d5730d4e" disabled></label>
-    <label>REDIRECT_URI <input type="text" value="https://npr2025.github.io/spotify-auth/callback.html" disabled></label>
+    <label>REDIRECT_URI <input id="redirectView" type="text" value="" disabled></label>
   </div>
 </fieldset>
 
@@ -57,41 +57,19 @@ small.hint{color:#666}
     <label>各エディション出力数 <input id="finalN" type="number" value="130"></label>
     <label>人気の重み（SaveRate側）<input id="wPopularity" type="number" step="0.01" value="0.55"></label>
   </div>
-
-  <!-- ★ プリセットは auto を追加。エリアごとに自動決定可能 -->
   <div class="grid3">
     <label>UKプリセット
-      <select id="presetUK">
-        <option value="auto" selected>auto</option>
-        <option value="waves">waves</option>
-        <option value="rise">rise</option>
-        <option value="drop">drop</option>
-        <option value="dj">dj</option>
-      </select>
+      <select id="presetUK"><option selected>waves</option><option>rise</option><option>drop</option><option>dj</option></select>
     </label>
     <label>USプリセット
-      <select id="presetUS">
-        <option value="auto" selected>auto</option>
-        <option value="waves">waves</option>
-        <option value="rise">rise</option>
-        <option value="drop">drop</option>
-        <option value="dj">dj</option>
-      </select>
+      <select id="presetUS"><option selected>rise</option><option>waves</option><option>drop</option><option>dj</option></select>
     </label>
     <label>EUプリセット
-      <select id="presetEU">
-        <option value="auto" selected>auto</option>
-        <option value="waves">waves</option>
-        <option value="rise">rise</option>
-        <option value="drop">drop</option>
-        <option value="dj">dj</option>
-      </select>
+      <select id="presetEU"><option selected>waves</option><option>rise</option><option>drop</option><option>dj</option></select>
     </label>
   </div>
 
-  <label>主要マーケット（優先順・カンマ区切り）
-    <input id="markets" type="text" value="AU,NZ,US,GB,ES,NL">
-  </label>
+  <label>主要マーケット（優先順・カンマ区切り）<input id="markets" type="text" value="AU,NZ,US,GB,ES,NL"></label>
   <small class="hint">例: AU,NZ,US,GB,ES,NL（左ほど優先）。未入力時の既定もこれ。</small>
 
   <div class="grid3">
@@ -99,19 +77,16 @@ small.hint{color:#666}
     <label>同アーティスト最小間隔（曲）<input id="gapArtist" type="number" value="4"></label>
     <label><input id="appendDate" type="checkbox" checked> 新規名に日付（YYYY-MM-DD）</label>
   </div>
-
   <div>
     <label><input id="fastMode" type="checkbox" checked> 高速モード（検索マーケット最小化／早期終了）</label>
-  </div>
-  <div>
-    <label><input id="allowCrossDup" type="checkbox"> エディション間の相互非重複をオフ（各バージョンで被りOK）</label>
+    <label><input id="allowDupAcross" type="checkbox" checked> エディション間の重複を許可（同じ曲を複数版で使用可）</label>
   </div>
   <div>
     <label><input id="doUpdate" type="checkbox" checked> 既存4リストを上書き</label>
     <label><input id="doCreate" type="checkbox" checked> 同内容で新規4リストも作成（公開）</label>
     <label>新規リスト名の接頭辞 <input id="newPrefix" type="text" value="TDCS Editions"></label>
   </div>
-  <small class="hint">※4エディション間の非重複を外す場合は上のチェックをON。録音判定はURI/ISRC/ベース曲名＋先頭アーティストID。TDCS（The Darrow Chem Syndicate）のみ採用。</small>
+  <small class="hint">※重複許可ONなら、UK/US/EU/WORLD 間で同じ録音を再利用します。TDCS（The Darrow Chem Syndicate）のみ採用。</small>
 </fieldset>
 
 <fieldset>
@@ -138,19 +113,20 @@ small.hint{color:#666}
 </div>
 
 <script>
-/* ====== 例外 ====== */
+/* ===== 例外 ===== */
 window.onerror=(m,src,lin,col,err)=>{ const el=document.getElementById("log"); el.textContent+=(el.textContent?"\n":"")+"💥 ScriptError: "+m+" @"+lin+":"+col; console.error(err||m); };
 window.addEventListener("unhandledrejection",(e)=>{ const el=document.getElementById("log"); el.textContent+=(el.textContent?"\n":"")+"💥 PromiseRejection: "+(e.reason&&e.reason.message?e.reason.message:String(e.reason)); console.error(e.reason); });
 
-/* ====== 固定 ====== */
+/* ===== 固定 ===== */
 const FORCED_ARTIST_IDS=["55fvQ5I2IZUfcFT2DV02T3"]; // TDCS
 const zws=/[\u200B-\u200D\uFEFF]/g;
 const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e".replace(zws,"").trim();
-const REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html".replace(zws,"").trim();
+const REDIRECT_URI = new URL('callback.html', location.origin + location.pathname.replace(/\/index\.html?$/,'').replace(/\/$/,'/') + '/').toString();
+document.getElementById('redirectView').value = REDIRECT_URI;
 const SCOPES="playlist-modify-public playlist-modify-private ugc-image-upload";
 const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier"};
 
-/* ====== DOM/UTIL ====== */
+/* ===== DOM/UTIL ===== */
 const $=(id)=>document.getElementById(id);
 const log=(s)=>{const el=$("log"); el.textContent+=(el.textContent?"\n":"")+s; el.scrollTop=el.scrollHeight;}
 const progress=(p,msg)=>{ $("progWrap").classList.remove("hidden"); $("progBar").style.width=Math.max(0,Math.min(100,p))+"%"; if(msg) $("progLine").textContent=Math.round(p)+"% — "+msg; }
@@ -159,14 +135,12 @@ const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
 const num=(x)=>{const s=String(x==null?0:x).replace(/[ %,，]/g,""); const v=parseFloat(s); return isFinite(v)?v:0;}
 const round4=(x)=> (typeof x==="number"&&isFinite(x))?Math.round(x*10000)/10000:"";
 
-/* ====== Auth ====== */
+/* ===== Auth ===== */
 const isAuthed=()=> !!localStorage.getItem(LS.acc) && Date.now() < (+localStorage.getItem(LS.exp)||0)-5000;
 function setStatus(){ $("status").textContent=isAuthed()?"接続中（OK）":"未接続"; if(isAuthed() && _pending) resolveAndWrite(_pending); }
 async function startAuth(){
   let v=""; const u8=new Uint8Array(64); crypto.getRandomValues(u8); for(let i=0;i<u8.length;i++) v+=String.fromCharCode(97+(u8[i]%26));
   localStorage.setItem(LS.ver,v);
-  // 戻り先
-  try{ sessionStorage.setItem("sp_back", location.href); }catch(_) {}
   const h=new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v)));
   let b=""; for(const x of h) b+=String.fromCharCode(x);
   const ch=btoa(b).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
@@ -209,7 +183,7 @@ async function spFetch(path,method="GET",body=null){
 }
 let _me=null; async function getMe(){ if(_me) return _me; _me=await spFetch("/v1/me","GET"); return _me; }
 
-/* ====== マーケット ====== */
+/* ===== マーケット ===== */
 function getMarkets(){
   const raw=($("markets")?.value||"").toUpperCase();
   const arr=raw.split(",").map(s=>s.trim()).filter(Boolean);
@@ -217,21 +191,7 @@ function getMarkets(){
   return Array.from(new Set(out));
 }
 
-/* ====== プリセット自動判定 ====== */
-function presetAutoFor(edName){
-  const mkts=getMarkets(); const has=(...cs)=>cs.some(c=>mkts.includes(c));
-  if(edName==="US"){ if(has("US","CA","AU","NZ")) return "rise"; return "waves"; }
-  if(edName==="UK"){ if(has("GB","IE")) return "waves"; if(has("US","CA")) return "rise"; return "waves"; }
-  if(edName==="EU"){ if(has("DE","SE")) return "drop"; if(has("ES","NL","FR","IT","PT","BE")) return "waves"; return "waves"; }
-  if(edName==="WORLD"){ if(has("AU","NZ")) return "rise"; return "dj"; }
-  return "waves";
-}
-function effectivePreset(selectId, edName){
-  const v=(document.getElementById(selectId)?.value)||"auto";
-  return v==="auto"?presetAutoFor(edName):v;
-}
-
-/* ====== ファイル ====== */
+/* ===== ファイル ===== */
 let sourceRows=[], analyticsRows=[];
 function readCSV(file){return new Promise((res,rej)=>Papa.parse(file,{header:true,skipEmptyLines:true,complete:r=>res(r.data),error:rej}));}
 async function readXLSX_allSheets(file){
@@ -248,7 +208,7 @@ async function loadFiles(){
   progress(8,"読み込み完了"); await runAnalysis();
 }
 
-/* ====== 正規化・列推定 ====== */
+/* ===== 正規化・列推定 ===== */
 const ISRC_RE=/^[A-Z]{2}-?[A-Z0-9]{3}-?\d{2}-?\d{5}$/i;
 const NFKC=(s)=>String(s||"").normalize("NFKC");
 const rmMarks=(s)=>NFKC(s).normalize("NFD").replace(/[\u0300-\u036f]/g,"");
@@ -278,7 +238,7 @@ function extractArtistIds(raw){
   return ids;
 }
 function columns(rows){const s={},out=[]; for(let i=0;i<Math.min(400,rows.length);i++){ for(const k of Object.keys(rows[i])) if(!s[k]){s[k]=1; out.push(k);} } return out;}
-function pickByName(cols,pref){ const L=cols.map(c=>[c,rmMarks(c).toLowerCase()]); for(const p of pref){const n=rmMarks(p).toLowerCase(); const hit=L.find(([,m])=>m===n||m.includes(n)); if(hit) return hit[0];} return ""; }
+function pickByName(cols,pref){ const L=cols.map(c=>[c,norm(c)]); for(const p of pref){const n=norm(p); const hit=L.find(([,m])=>m===n||m.includes(n)); if(hit) return hit[0];} return ""; }
 function bestColOrEmpty(cols,scorer,min=0.15){let best=null,bs=-1; for(const c of cols){const sc=scorer(c); if(sc>bs){bs=sc; best=c;}} return (bs>=min)?best:"";}
 function pickSourceColumns(rows){
   const cols=columns(rows);
@@ -308,7 +268,7 @@ function pickAnalyticColumns(rows){
     uk:pickByName(cols,["uk","available_uk","英国"]), us:pickByName(cols,["us","available_us","米国","アメリカ"]), eu:pickByName(cols,["eu","available_eu","欧州","ヨーロッパ"]), wo:pickByName(cols,["world","available_world","global","全世界"]) };
 }
 
-/* ====== 突合 ====== */
+/* ===== 突合・候補整形 ===== */
 function buildSourceIndex(cfg){
   if(!sourceRows.length) return {idxExact:new Map(),blob:[]};
   const idxExact=new Map(), blob=[]; let hasAid=0;
@@ -406,7 +366,7 @@ function buildItemsFromAnalyticsOnly(anCols){
   return out;
 }
 
-/* ====== TDCS判定 ====== */
+/* ===== TDCS判定 ===== */
 function _hasTDCSOnArtists(arr){
   if(!Array.isArray(arr)) return false;
   return arr.some(a=>{
@@ -423,7 +383,7 @@ function hasTDCSTrackObj(t){
       || /darrow\s*chem\s*syndicate|\bTDCS\b/i.test(t.name||"");
 }
 
-/* ====== 収集（TDCSのみ） ====== */
+/* ===== 収集（TDCSのみ） ===== */
 const keyOf=(it)=>{ const title=String(it.name||""); const artist=String(it.artist||""); const v=canonVersion(title); const base=(title.split(/\s+-\s+/)[0]||title); return norm(base+"|"+v.kinds.sort().join("+")+"|"+artist); }
 function dedupeByMeta(list){
   const seen={}, seenId={}, seenIsrc={}, out=[]; let dropU=0,dropI=0,dropK=0;
@@ -553,7 +513,7 @@ async function buildCandidatePool(primaryItems,anCols,finalN){
   return pool.slice(0, Math.max(targetSoft, needHard));
 }
 
-/* ====== URI解決（TDCSのみ採用） ====== */
+/* ===== URI解決（TDCS限定） ===== */
 const _isrcCache=new Map(); const _nameCache=new Map();
 const isrcVariants=(s)=>{ s=String(s||"").trim(); if(!s) return []; const up=s.toUpperCase(); const no=up.replace(/-/g,""); const hy=up.indexOf("-")>=0?up:up.replace(/^(.{2})(.{3})(.{2})(.{5})$/,"$1-$2-$3-$4"); const set={},arr=[]; [up,no,hy].forEach(v=>{if(!set[v]){set[v]=1;arr.push(v);}}); return arr; }
 const topArtistName=(a)=>{const s=String(a||""); const m=s.split(/,|;|&| with | feat\.? | featuring | ft\.? /i); return (m[0]||"").trim();}
@@ -561,11 +521,10 @@ function makeQueries(it){
   const q=[], full=String(it.name||"").trim(), base=(full.split(/\s+-\s+/)[0]||full), art=topArtistName(it.artist||"");
   if(it.isrc){ for(const v of isrcVariants(it.isrc)) q.push({q:"isrc:"+v,type:"isrc"}); }
   if(art){ q.push({q:`track:"${base}" artist:"${art}"`,type:"field"}); if(full!==base) q.push({q:`track:"${full}" artist:"${art}"`,type:"field"}); }
-  q.push({q:`"${base}" ${art||""}`,type:"free"});
-  q.push({q:base,type:"free"}); if(full!==base) q.push({q:full,type:"free"});
+  q.push({q:`"${base}" ${art||""}`,type:"free"}); q.push({q:base,type:"free"}); if(full!==base) q.push({q:full,type:"free"});
   return q;
 }
-async function searchOnce(q,m){ const r=await spFetch(`/v1/search?q=${encodeURIComponent(q)}&type=track&limit=10&offset=0&market=${m}`,"GET"); return (r&&r.tracks&&r.tracks.items)?r.tracks.items:[]; }
+async function searchOnce(q,m){ const r=await spFetch(`/v1/search?q=${encodeURIComponent(q)}&type=track&limit=10&market=${m}`,"GET"); return (r&&r.tracks&&r.tracks.items)?r.tracks.items:[]; }
 function scoreCandidate(item,cand){
   const ct=cand.name+(cand.version?(" - "+cand.version):"");
   const t1=setJaccard(tokensTitle(item.name),tokensTitle(ct));
@@ -597,7 +556,7 @@ async function resolveUriOneStrict(it){
       let items=[]; try{ items=await searchOnce(q.q,m) }catch(_){}
       for(const t of items){
         if(!hasTDCSTrackObj(t)) continue; // TDCSのみ
-        const sc = scoreCandidate(it,t) + 0.18;
+        const sc = scoreCandidate(it,t) + 0.18; // TDCSボーナス
         if(!best || sc>best.sc) best={sc,cand:t};
         if(sc>=0.88) break outer;
       }
@@ -621,7 +580,7 @@ async function toUrisResolved(items,onTick){
   return {aligned};
 }
 
-/* ====== 詳細・録音ユニーク ====== */
+/* ===== 詳細・録音ユニーク ===== */
 async function fetchTrackDetailsByUris(uris){
   const ids=[], map=new Map();
   for(const u of uris){ if(u) ids.push(u.replace("spotify:track:","")); }
@@ -643,7 +602,9 @@ function dedupeByRecording(items,alignedUris,tracksMap,strictMarket){
     const okTDCS = hasTDCSTrackObj(tr);
     if(!okTDCS){ dropNotTDCS++; continue; }
     let okMarket=true;
-    if(tr && Array.isArray(tr.available_markets) && mkts.length){ okMarket = mkts.some(m=>tr.available_markets.includes(m)); }
+    if(tr && Array.isArray(tr.available_markets) && mkts.length){
+      okMarket = mkts.some(m=>tr.available_markets.includes(m));
+    }
     if(strictMarket && !okMarket){ dropNoMarket++; continue; }
     if(seenUri[u]){dropU++; continue;}
     const isrc=(tr&&tr.external_ids&&tr.external_ids.isrc)?String(tr.external_ids.isrc).toUpperCase():"";
@@ -658,7 +619,7 @@ function dedupeByRecording(items,alignedUris,tracksMap,strictMarket){
   return {items:outItems, uris:outUris};
 }
 
-/* ====== 特徴量・順序 ====== */
+/* ===== 特徴量・順序 ===== */
 async function fetchAudioFeaturesByUris(uris){
   const ids=[], feats=new Map(); for(const u of uris){ if(u) ids.push(u.replace("spotify:track:","")); }
   for(let i=0;i<ids.length;i+=100){
@@ -705,12 +666,12 @@ function orderFlow(items,featMap,preset,gapA,gapR,seed){
   return seq;
 }
 
-/* ====== 分配 ====== */
+/* ===== 分配（重複許可対応） ===== */
 const edCfg=()=>[
-  {name:"UK",    pref:"uk", fallback:["wo","us","eu"], preset: effectivePreset("presetUK","UK"), gapA:+($("gapArtist").value||4), gapR:+($("gapRemixer").value||3), seed:"UK"},
-  {name:"US",    pref:"us", fallback:["wo","uk","eu"], preset: effectivePreset("presetUS","US"), gapA:+($("gapArtist").value||4), gapR:+($("gapRemixer").value||3), seed:"US"},
-  {name:"EU",    pref:"eu", fallback:["wo","uk","us"], preset: effectivePreset("presetEU","EU"), gapA:+($("gapArtist").value||4), gapR:+($("gapRemixer").value||3), seed:"EU"},
-  {name:"WORLD", pref:"wo", fallback:["uk","us","eu"], preset:"dj", gapA:+($("gapArtist").value||4), gapR:+($("gapRemixer").value||3), seed:"WORLD"}
+  {name:"UK",    pref:"uk", fallback:["wo","us","eu"], preset:($("presetUK").value||"waves"), gapA:+($("gapArtist").value||4), gapR:+($("gapRemixer").value||3), seed:"UK"},
+  {name:"US",    pref:"us", fallback:["wo","uk","eu"], preset:($("presetUS").value||"rise"),  gapA:+($("gapArtist").value||4), gapR:+($("gapRemixer").value||3), seed:"US"},
+  {name:"EU",    pref:"eu", fallback:["wo","uk","us"], preset:($("presetEU").value||"waves"), gapA:+($("gapArtist").value||4), gapR:+($("gapRemixer").value||3), seed:"EU"},
+  {name:"WORLD", pref:"wo", fallback:["uk","us","eu"], preset:"dj",                            gapA:+($("gapArtist").value||4), gapR:+($("gapRemixer").value||3), seed:"WORLD"}
 ];
 function edScoreBias(item,feat,edName){
   const base=item.score||0, e=(feat&&feat.energy)||0, v=(feat&&feat.valence)||0;
@@ -720,15 +681,16 @@ function edScoreBias(item,feat,edName){
   if(edName==="WORLD")return base + 0.05*(1-Math.abs(e-0.6));
   return base;
 }
-function buildEditionSetsRoundRobin(candidates, feats, finalN){
-  const allowDupAcross = !!($("allowCrossDup") && $("allowCrossDup").checked);
-  const usedGlobal=new Set();
+function buildEditionSetsRoundRobin(candidates, feats, finalN, allowDupAcross){
+  let used=new Set();
+  const isUsed=(uri)=> allowDupAcross ? false : used.has(uri);
+  const markUsed=(uri)=>{ if(!allowDupAcross) used.add(uri); };
   const packs={UK:[],US:[],EU:[],WORLD:[]};
   const cfgs=edCfg();
   const poolFor=(ed)=>{
-    const pref=candidates.filter(x=> (!usedGlobal.has(x.uri) || allowDupAcross) && x.flags && x.flags[ed.pref]);
-    const fb=candidates.filter(x=> (!usedGlobal.has(x.uri) || allowDupAcross) && x.flags && ed.fallback.some(k=>x.flags[k]));
-    const rest=candidates.filter(x=> (!usedGlobal.has(x.uri) || allowDupAcross) && (!x.flags || (!x.flags.uk&&!x.flags.us&&!x.flags.eu&&!x.flags.wo)));
+    const pref=candidates.filter(x=>!isUsed(x.uri) && x.flags && x.flags[ed.pref]);
+    const fb=candidates.filter(x=> !isUsed(x.uri) && x.flags && ed.fallback.some(k=>x.flags[k]));
+    const rest=candidates.filter(x=>!isUsed(x.uri) && (!x.flags || (!x.flags.uk&&!x.flags.us&&!x.flags.eu&&!x.flags.wo)));
     const pool=pref.concat(fb).concat(rest);
     pool.sort((a,b)=> (edScoreBias(b,feats.get(b.uri)||{},ed.name))-(edScoreBias(a,feats.get(a.uri)||{},ed.name)));
     return pool;
@@ -740,21 +702,21 @@ function buildEditionSetsRoundRobin(candidates, feats, finalN){
     for(const ed of cfgs){
       if(filled[ed.name] >= finalN) continue;
       let q=queues[ed.name], pick=null;
-      for(let i=0;i<q.length;i++){ const cand=q[i]; if(allowDupAcross || !usedGlobal.has(cand.uri)){ pick=q.splice(i,1)[0]; break; } }
+      for(let i=0;i<q.length;i++){ if(!isUsed(q[i].uri)){ pick=q.splice(i,1)[0]; break; } }
       if(!pick){ queues[ed.name]=poolFor(ed); q=queues[ed.name];
-        for(let i=0;i<q.length;i++){ const cand=q[i]; if(allowDupAcross || !usedGlobal.has(cand.uri)){ pick=q.splice(i,1)[0]; break; } }
+        for(let i=0;i<q.length;i++){ if(!isUsed(q[i].uri)){ pick=q.splice(i,1)[0]; break; } }
       }
-      if(pick){ packs[ed.name].push(pick); if(!allowDupAcross) usedGlobal.add(pick.uri); filled[ed.name]++; }
+      if(pick){ packs[ed.name].push(pick); markUsed(pick.uri); filled[ed.name]++; }
     }
     done = (filled.UK>=finalN) + (filled.US>=finalN) + (filled.EU>=finalN) + (filled.WORLD>=finalN);
     if(Object.values(filled).reduce((a,b)=>a+b,0) >= finalN*4) break;
     if(queues.UK.length+queues.US.length+queues.EU.length+queues.WORLD.length===0) break;
   }
-  log("⚖️ 分配: UK="+packs.UK.length+", US="+packs.US.length+", EU="+packs.EU.length+", WORLD="+packs.WORLD.length+(allowDupAcross?"（相互重複許可）":""));
+  log("⚖️ 分配: UK="+packs.UK.length+", US="+packs.US.length+", EU="+packs.EU.length+", WORLD="+packs.WORLD.length+(allowDupAcross?"（重複許可）":""));
   return packs;
 }
 
-/* ====== 書き込み & エクスポート ====== */
+/* ===== 書き込み & エクスポート ===== */
 const extractPlaylistId=(s)=>{s=String(s||""); let m=s.match(/playlist\/([A-Za-z0-9]{22})/); if(m) return m[1]; m=s.match(/^([A-Za-z0-9]{22})$/); if(m) return m[1]; return ""; }
 async function replacePlaylist(pid,uris){
   const chunks=[]; for(let i=0;i<uris.length;i+=100) chunks.push(uris.slice(i,i+100));
@@ -784,7 +746,7 @@ function exportCsv(){
   const blob=new Blob([rows.join("\r\n")],{type:"text/csv;charset=utf-8"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="editions_"+new Date().toISOString().slice(0,10)+".csv"; document.body.appendChild(a); a.click(); a.remove();
 }
 
-/* ====== メイン ====== */
+/* ===== メイン ===== */
 let _pending=null;
 async function runAnalysis(){
   try{
@@ -818,10 +780,9 @@ async function runAnalysis(){
     const usable=pool.map((it,idx)=>Object.assign({},it,{uri:res.aligned[idx]})).filter(x=>x.uri);
     let dedRec=dedupeByRecording(usable, usable.map(x=>x.uri), trackMap, /*strictMarket*/ false);
 
-    // 必要数まで自動追加
     const needTotal = finalN*4;
     if (dedRec.uris.length < needTotal) {
-      log(`🔁 追加補充: ${needTotal}まであと ${needTotal - dedRec.uris.length} 曲 — search→discog の順`);
+      log(`🔁 追加補充: ${needTotal}まであと ${needTotal - dedRec.uris.length} 曲 — search→discog`);
       const artistIds = await gatherArtistIds();
 
       progress(73,"追加: search");
@@ -830,8 +791,7 @@ async function runAnalysis(){
       const res1 = await toUrisResolved(extraPool1, (i,t)=>progress(73+(2*(i/t)),"追加: search URI解決 ("+i+"/"+t+")"));
       const map1 = await fetchTrackDetailsByUris(res1.aligned.filter(Boolean));
       const usable1 = extraPool1.map((it,i)=>Object.assign({},it,{uri:res1.aligned[i]})).filter(x=>x.uri);
-      let merged={ items: dedRec.items.concat(usable1), uris: dedRec.uris.concat(usable1.map(x=>x.uri)) };
-      merged = dedupeByRecording(merged.items, merged.uris, map1, /*strictMarket*/ false);
+      let merged = dedupeByRecording({items:dedRec.items.concat(usable1), uris:dedRec.uris.concat(usable1.map(x=>x.uri))}.items, {items:dedRec.items.concat(usable1), uris:dedRec.uris.concat(usable1.map(x=>x.uri))}.uris, map1, false);
 
       if (merged.uris.length < needTotal) {
         progress(74,"追加: discog");
@@ -841,20 +801,20 @@ async function runAnalysis(){
         const mapAll = await fetchTrackDetailsByUris(res2.aligned.filter(Boolean));
         const usable2 = extraPool2.map((it,i)=>Object.assign({},it,{uri:res2.aligned[i]})).filter(x=>x.uri);
         const joined2 = { items: merged.items.concat(usable2), uris: merged.uris.concat(usable2.map(x=>x.uri)) };
-        dedRec = dedupeByRecording(joined2.items, joined2.uris, mapAll, /*strictMarket*/ false);
+        dedRec = dedupeByRecording(joined2.items, joined2.uris, mapAll, false);
       } else {
         dedRec = merged;
       }
       log(`📈 追加後ユニーク: ${dedRec.uris.length} 曲`);
     }
 
-    // 充分集まったら最後に市場厳密
-    const strictTry = dedupeByRecording(dedRec.items, dedRec.uris, trackMap, /*strictMarket*/ true);
+    // 市場厳密は十分集まってから
+    const strictTry = dedupeByRecording(dedRec.items, dedRec.uris, trackMap, true);
     if (strictTry.uris.length >= needTotal) {
       dedRec = strictTry;
       log(`🌍 市場一致後ユニーク: ${dedRec.uris.length} 曲（strict適用）`);
     } else {
-      log(`🌍 市場一致は保留: まずは曲数優先（${strictTry.uris.length}/${needTotal}）`);
+      log(`🌍 市場一致は保留: 曲数優先（${strictTry.uris.length}/${needTotal}）`);
     }
 
     progress(78,"Audio Features 取得…");
@@ -863,12 +823,12 @@ async function runAnalysis(){
     catch(e){ log("⚠️ audio-features 取得スキップ: "+(e.message||e)); feats=new Map(); }
 
     progress(84,"エディション分配（均衡）…");
-    const packs=buildEditionSetsRoundRobin(dedRec.items.map((it,i)=>Object.assign({},it,{uri:dedRec.uris[i]})), feats, finalN);
+    const packs=buildEditionSetsRoundRobin(dedRec.items.map((it,i)=>Object.assign({},it,{uri:dedRec.uris[i]})), feats, finalN, $("allowDupAcross").checked);
 
     progress(88,"曲順最適化…");
-    const seqUK=orderFlow(packs.UK,feats,effectivePreset("presetUK","UK"),+($("gapArtist").value||4),+($("gapRemixer").value||3),"UK|"+new Date().toISOString().slice(0,10));
-    const seqUS=orderFlow(packs.US,feats,effectivePreset("presetUS","US"),+($("gapArtist").value||4),+($("gapRemixer").value||3),"US|"+new Date().toISOString().slice(0,10));
-    const seqEU=orderFlow(packs.EU,feats,effectivePreset("presetEU","EU"),+($("gapArtist").value||4),+($("gapRemixer").value||3),"EU|"+new Date().toISOString().slice(0,10));
+    const seqUK=orderFlow(packs.UK,feats,($("presetUK").value||"waves"),+($("gapArtist").value||4),+($("gapRemixer").value||3),"UK|"+new Date().toISOString().slice(0,10));
+    const seqUS=orderFlow(packs.US,feats,($("presetUS").value||"rise"), +($("gapArtist").value||4),+($("gapRemixer").value||3),"US|"+new Date().toISOString().slice(0,10));
+    const seqEU=orderFlow(packs.EU,feats,($("presetEU").value||"waves"),+($("gapArtist").value||4),+($("gapRemixer").value||3),"EU|"+new Date().toISOString().slice(0,10));
     const seqWO=orderFlow(packs.WORLD,feats,"dj",+($("gapArtist").value||4),+($("gapRemixer").value||3),"WORLD|"+new Date().toISOString().slice(0,10));
 
     function pack(items,edName){
@@ -893,7 +853,7 @@ async function resolveAndWrite(packs){
     if(!packs) packs=_pending; if(!packs){log("ℹ️ 続行データなし");return;}
     const toUris=(list)=>list.map(x=>x.uri);
     const all=[].concat(packs.UK,packs.US,packs.EU,packs.WORLD), uniq=new Set(); let dup=0; for(const x of all){ if(uniq.has(x.uri)) dup++; else uniq.add(x.uri); }
-    log("🔒 相互重複: "+dup+" 件（0が正常。『相互非重複オフ』ONなら参考値）");
+    log("🔒 相互重複チェック: "+dup+" 件（重複許可ONでも参考表示）");
 
     const pidUK=extractPlaylistId($("plUK").value), pidUS=extractPlaylistId($("plUS").value), pidEU=extractPlaylistId($("plEU").value), pidWO=extractPlaylistId($("plWORLD").value);
 
@@ -915,12 +875,12 @@ async function resolveAndWrite(packs){
       log("🆕 新規:\n  UK   → https://open.spotify.com/playlist/"+pU+"\n  US   → https://open.spotify.com/playlist/"+pS+"\n  EU   → https://open.spotify.com/playlist/"+pE+"\n  WORLD→ https://open.spotify.com/playlist/"+pW);
     }
 
-    progress(100,"完了"); log("✅ 完了（TDCS限定／AU-NZ-US-GB-ES-NL優先／4×130／相互非重複※切替可／バランス分配）");
+    progress(100,"完了"); log("✅ 完了（TDCS限定／AU-NZ-US-GB-ES-NL優先／4×130／重複許可対応／バランス分配）");
     _pending=null;
   }catch(e){ progress(100,"エラー"); log("💥 ERROR(resolveAndWrite): "+e.message); console.error(e); }
 }
 
-/* ====== イベント ====== */
+/* ===== イベント ===== */
 $("btnConnect").onclick=startAuth;
 $("btnReset").onclick=()=>{ for(const k in LS) localStorage.removeItem(LS[k]); setStatus(); log("🧽 ローカルトークン削除"); };
 $("btnCheck").onclick=async()=>{ try{ await refreshTokenIfNeeded(); const me=await spFetch("/v1/me","GET"); $("status").textContent="接続中（"+(me.display_name||me.id)+")"; log("✅ API確認 OK"); if(_pending) await resolveAndWrite(_pending); }catch(e){ log("⚠️ 接続エラー: "+e.message); } };
@@ -928,6 +888,6 @@ $("fileSource").addEventListener("change",()=>{ if($("fileAnalytics").files.leng
 $("fileAnalytics").addEventListener("change",()=>{ if($("fileAnalytics").files.length) loadFiles(); });
 $("btnExportXlsx").onclick=exportXlsx; $("btnExportCsv").onclick=exportCsv;
 setStatus();
-log("Ready. 読込→突合→TDCS補充(analytics/top/new/search/discog)→AU/NZ/US/GB/ES/NL優先のURI解決→録音ユニーク(市場は最後に厳密)→分配(相互非重複は切替)→曲順→上書き/新規→CSV/XLSX。");
+log("Ready. 読込→突合→TDCS補充(analytics/top/new/search/discog)→AU/NZ/US/GB/ES/NL優先のURI解決→録音ユニーク→分配(重複許可対応)→曲順→上書き/新規→CSV/XLSX。");
 </script>
 </body></html>
