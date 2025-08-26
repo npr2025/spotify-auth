@@ -2,99 +2,40 @@
 <html lang="ja"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spotify Auth (PKCE) — TDCS Builder</title>
+<title>TDCS Editions — Auth Kick</title>
 <style>
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;margin:24px}
-button{padding:9px 12px;border:1px solid #bbb;border-radius:8px;background:#fff;cursor:pointer;margin-right:8px}
-pre{white-space:pre-wrap;background:#0b1220;color:#cfe3ff;padding:12px;border-radius:8px}
-small{color:#666}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:680px;margin:40px auto;padding:0 14px}
+button{padding:10px 14px}
+code{background:#f3f5f8;padding:2px 6px;border-radius:4px}
 </style>
 </head>
 <body>
-<h1>Spotify Auth (PKCE)</h1>
-<p>自動でSpotifyの認可画面へ遷移します。うまく動かないときは下のボタンから実行してください。</p>
-<div>
-  <button id="btnStart">サインインへ</button>
-  <button id="btnClear">トークン削除</button>
-</div>
-<small>クエリ: <code>?back=&lt;戻り先URL&gt;&amp;callback=&lt;callback.htmlのURL&gt;&amp;client_id=&lt;任意&gt;&amp;scope=&lt;任意&gt;&amp;manual=1</code></small>
-<pre id="log">準備中…</pre>
-
+<h1>Spotify 認可を開始します</h1>
+<p>自動で遷移しない場合は <button id="go">ここをクリック</button>。</p>
+<p>Redirect URI: <code id="redir"></code></p>
 <script>
-/* ====== 同一キー（index.html / callback.htmlと一致） ====== */
-const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier"};
-const DEFAULT_CLIENT_ID = "1fd6350fcf4945a0b3ddffa2d5730d4e";
-const DEFAULT_CALLBACK  = "https://npr2025.github.io/spotify-auth/callback.html";
-const DEFAULT_SCOPES    = "playlist-modify-public playlist-modify-private ugc-image-upload";
+const zws=/[\u200B-\u200D\uFEFF]/g;
+const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e".replace(zws,"").trim();
+const SCOPES="playlist-modify-public playlist-modify-private ugc-image-upload";
+const LS={ver:"sp_code_verifier"};
+const REDIRECT_URI = new URL('callback.html', location.origin + location.pathname.replace(/\/auth\.html?$/,'').replace(/\/$/,'/') + '/').toString();
+document.getElementById('redir').textContent = REDIRECT_URI;
 
-const log=(s)=>{ const el=document.getElementById("log"); el.textContent+=(el.textContent?"\n":"")+s; }
-
-/* ====== PKCE ====== */
-async function makeVerifierAndChallenge(){
-  // 64文字の小文字英字ベリファイア
-  let v=""; const u8=new Uint8Array(64); crypto.getRandomValues(u8);
-  for(let i=0;i<u8.length;i++) v+=String.fromCharCode(97+(u8[i]%26));
-  const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v));
-  const b=new Uint8Array(digest); let bin=""; for(const x of b) bin+=String.fromCharCode(x);
-  const ch=btoa(bin).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
-  return {verifier:v, challenge:ch};
-}
-
-function saveBack(back){
-  if(back){ localStorage.setItem("tdcs_builder_back", back); return back; }
-  if(document.referrer){ localStorage.setItem("tdcs_builder_back", document.referrer); return document.referrer; }
-  const guess = location.origin + "/"; localStorage.setItem("tdcs_builder_back", guess); return guess;
-}
-
-async function startAuth(opts={}){
-  const clientId   = opts.clientId   || DEFAULT_CLIENT_ID;
-  const callback   = opts.callback   || DEFAULT_CALLBACK;
-  const scopes     = opts.scopes     || DEFAULT_SCOPES;
-
-  const {verifier, challenge}=await makeVerifierAndChallenge();
-  localStorage.setItem(LS.ver, verifier);
-
+async function startAuth(){
+  // PKCE
+  let v=""; const u8=new Uint8Array(64); crypto.getRandomValues(u8); for(let i=0;i<u8.length;i++) v+=String.fromCharCode(97+(u8[i]%26));
+  localStorage.setItem(LS.ver,v);
+  const h=new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v)));
+  let b=""; for(const x of h) b+=String.fromCharCode(x);
+  const ch=btoa(b).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
   const u=new URL("https://accounts.spotify.com/authorize");
-  u.searchParams.set("response_type","code");
-  u.searchParams.set("client_id", clientId);
-  u.searchParams.set("redirect_uri", callback);
-  u.searchParams.set("code_challenge_method","S256");
-  u.searchParams.set("code_challenge", challenge);
-  u.searchParams.set("scope", scopes);
-
-  log("➡️ redirect: "+u.toString());
-  location.href = u.toString();
+  u.searchParams.set("response_type","code"); u.searchParams.set("client_id",CLIENT_ID);
+  u.searchParams.set("redirect_uri",REDIRECT_URI);
+  u.searchParams.set("code_challenge_method","S256"); u.searchParams.set("code_challenge",ch);
+  u.searchParams.set("scope",SCOPES);
+  location.href=u.toString();
 }
-
-/* ====== 便利操作 ====== */
-function clearTokens(){
-  for(const k of [LS.acc,LS.ref,LS.exp,LS.ver]) localStorage.removeItem(k);
-  log("🧽 ローカルトークン削除");
-}
-
-/* ====== 起動処理 ====== */
-(function boot(){
-  const p = new URL(location.href).searchParams;
-  const back     = p.get("back");
-  const clientId = p.get("client_id") || DEFAULT_CLIENT_ID;
-  const callback = p.get("callback")  || DEFAULT_CALLBACK;
-  const scopes   = p.get("scope")     || DEFAULT_SCOPES;
-  const manual   = p.get("manual")==="1";
-
-  const savedBack = saveBack(back);
-  log("back → "+savedBack);
-  log("callback → "+callback);
-
-  document.getElementById("btnStart").onclick=()=>startAuth({clientId, callback, scopes});
-  document.getElementById("btnClear").onclick=clearTokens;
-
-  if(!manual){
-    // 自動開始（失敗してもボタンで再実行可能）
-    startAuth({clientId, callback, scopes}).catch(e=>log("⚠️ startAuth失敗: "+(e.message||e)));
-  }else{
-    log("⏸ 自動リダイレクト無効（manual=1）。「サインインへ」を押してください。");
-  }
-})();
+document.getElementById('go').onclick=startAuth;
+startAuth();
 </script>
-</body>
-</html>
+</body></html>
