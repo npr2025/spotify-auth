@@ -13,7 +13,7 @@ a.btn{display:inline-block;margin:6px 8px 0 0;padding:9px 12px;border:1px solid 
 <body>
 <h1>Spotify Auth Callback</h1>
 <p id="status">Waiting…</p>
-<p><a href="auth.html?v=2025-08-26-editions-diverse" class="btn">アプリへ戻る</a></p>
+<p><a href="auth.html?v=fix-2025-08-26" class="btn">アプリへ戻る</a></p>
 <pre id="log">Booting…</pre>
 <script>
 (function(){
@@ -21,9 +21,11 @@ a.btn{display:inline-block;margin:6px 8px 0 0;padding:9px 12px;border:1px solid 
   var REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
   var LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier"};
   var log=function(s){var el=document.getElementById("log");el.textContent+=(el.textContent?"\n":"")+s;el.scrollTop=el.scrollHeight;};
-  window.onerror=function(m,src,lin,col,err){log("💥 ScriptError: "+m+" @"+lin+":"+col);};
-  window.addEventListener("unhandledrejection",function(e){log("💥 PromiseRejection: "+(e.reason&&e.reason.message?e.reason.message:String(e.reason)));});
+  window.onerror=function(m,src,lin,col,err){log("💥 ScriptError: "+m+" @"+lin+":"+col);console.error(err||m);};
+  window.addEventListener("unhandledrejection",function(e){log("💥 PromiseRejection: "+(e.reason&&e.reason.message?e.reason.message:String(e.reason)));console.error(e.reason);});
+
   (async function(){
+    log("🔧 JS起動OK");
     try{
       var p=new URLSearchParams(location.search);
       var code=p.get("code"), err=p.get("error");
@@ -45,7 +47,7 @@ a.btn{display:inline-block;margin:6px 8px 0 0;padding:9px 12px;border:1px solid 
       localStorage.setItem(LS.exp,String(Date.now()+j.expires_in*1000));
       document.getElementById("status").textContent="Signed in.";
       log("✅ authorized. このタブは閉じてもOK。");
-    }catch(e){log("💥 "+e.message);}
+    }catch(e){log("💥 "+e.message);console.error(e);}
   })();
 })();
 </script>
