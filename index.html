@@ -4,7 +4,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TDCS Editions Builder — 4×130/相互非重複（from_token無/403耐性/TDCS限定）</title>
+<title>TDCS Editions Builder — 4×130 / 被りOK満数化（from_token無/403耐性/TDCS限定）</title>
 <style>
 :root{--bg:#0b1220;--fg:#cfe3ff}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1180px;margin:32px auto;padding:0 12px}
@@ -18,7 +18,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 small.hint{color:#666}
-#log{white-space:pre-wrap;background:var(--bg);color:var(--fg);padding:12px;border-radius:8px;min-height:280px}
+#log{white-space:pre-wrap;background:var(--bg);color:var(--fg);padding:12px;border-radius:8px;min-height:280px;max-height:540px;overflow:auto}
 #progWrap{position:relative;height:12px;background:#e6eaf2;border-radius:6px;overflow:hidden;margin:6px 0}
 #progBar{height:100%;width:0%;background:#4a90e2;transition:width .2s ease}
 #progLine{font-variant-numeric:tabular-nums;margin:4px 0 0 0;color:#333}
@@ -28,7 +28,7 @@ small.hint{color:#666}
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
-<h1>TDCS Editions Builder — 自動補充で 4×130（相互非重複／バランス分配）</h1>
+<h1>TDCS Editions Builder — 自動補充で 4×130（被りOK／バランス分配）</h1>
 <p id="status">未接続</p>
 <div>
   <button id="btnConnect">Spotifyにサインイン</button>
@@ -68,22 +68,33 @@ small.hint{color:#666}
       <select id="presetEU"><option selected>waves</option><option>rise</option><option>drop</option><option>dj</option></select>
     </label>
   </div>
-  <label>主要マーケット（優先順・カンマ区切り）<input id="markets" type="text" value="AU,NZ,US,GB,ES,NL"></label>
+
+  <label>主要マーケット（優先順・カンマ区切り）
+    <input id="markets" type="text" value="AU,NZ,US,GB,ES,NL">
+  </label>
   <small class="hint">例: AU,NZ,US,GB,ES,NL（左ほど優先）。未入力時の既定もこれ。</small>
+
   <div class="grid3">
     <label>同リミキサー最小間隔（曲）<input id="gapRemixer" type="number" value="3"></label>
     <label>同アーティスト最小間隔（曲）<input id="gapArtist" type="number" value="4"></label>
     <label><input id="appendDate" type="checkbox" checked> 新規名に日付（YYYY-MM-DD）</label>
   </div>
+
   <div>
     <label><input id="fastMode" type="checkbox" checked> 高速モード（検索マーケット最小化／早期終了）</label>
   </div>
+
+  <div>
+    <label><input id="allowCrossDupes" type="checkbox" checked> エディション間の相互非重複をオフ（＝各バージョンで被りOK）</label>
+    <label><input id="allowRepeatFill"  type="checkbox" checked> 不足時は版内リピートで満数化（直前曲は避ける）</label>
+  </div>
+
   <div>
     <label><input id="doUpdate" type="checkbox" checked> 既存4リストを上書き</label>
     <label><input id="doCreate" type="checkbox" checked> 同内容で新規4リストも作成（公開）</label>
     <label>新規リスト名の接頭辞 <input id="newPrefix" type="text" value="TDCS Editions"></label>
   </div>
-  <small class="hint">※4エディション間で相互に重複なし。同じ録音（URI/ISRC/ベース曲名＋先頭アーティストID）は1回のみ。TDCS（The Darrow Chem Syndicate）以外は除外。</small>
+  <small class="hint">※同じ録音（URI/ISRC/ベース曲名＋先頭アーティストID）は候補プール内ではユニーク化。ただし**版内リピート**は満数化のために許可（直前同一は回避）。TDCS（The Darrow Chem Syndicate）以外は除外。</small>
 </fieldset>
 
 <fieldset>
@@ -115,7 +126,7 @@ window.onerror=(m,src,lin,col,err)=>{ const el=document.getElementById("log"); e
 window.addEventListener("unhandledrejection",(e)=>{ const el=document.getElementById("log"); el.textContent+=(el.textContent?"\n":"")+"💥 PromiseRejection: "+(e.reason&&e.reason.message?e.reason.message:String(e.reason)); console.error(e.reason); });
 
 /* ====== 固定 ====== */
-const FORCED_ARTIST_IDS=["55fvQ5I2IZUfcFT2DV02T3"]; // TDCS
+const FORCED_ARTIST_IDS=["55fvQ5I2IZUfcFT2DV02T3"]; // The Darrow Chem Syndicate
 const zws=/[\u200B-\u200D\uFEFF]/g;
 const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e".replace(zws,"").trim();
 const REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html".replace(zws,"").trim();
@@ -135,6 +146,7 @@ const round4=(x)=> (typeof x==="number"&&isFinite(x))?Math.round(x*10000)/10000:
 const isAuthed=()=> !!localStorage.getItem(LS.acc) && Date.now() < (+localStorage.getItem(LS.exp)||0)-5000;
 function setStatus(){ $("status").textContent=isAuthed()?"接続中（OK）":"未接続"; if(isAuthed() && _pending) resolveAndWrite(_pending); }
 async function startAuth(){
+  // PKCE
   let v=""; const u8=new Uint8Array(64); crypto.getRandomValues(u8); for(let i=0;i<u8.length;i++) v+=String.fromCharCode(97+(u8[i]%26));
   localStorage.setItem(LS.ver,v);
   const h=new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v)));
@@ -264,7 +276,24 @@ function pickAnalyticColumns(rows){
     uk:pickByName(cols,["uk","available_uk","英国"]), us:pickByName(cols,["us","available_us","米国","アメリカ"]), eu:pickByName(cols,["eu","available_eu","欧州","ヨーロッパ"]), wo:pickByName(cols,["world","available_world","global","全世界"]) };
 }
 
-/* ====== 突合 ====== */
+/* ====== TDCS判定 ====== */
+function _hasTDCSOnArtists(arr){
+  if(!Array.isArray(arr)) return false;
+  return arr.some(a=>{
+    const n=(a&&a.name)||"";
+    return (a&&FORCED_ARTIST_IDS.includes(a.id))
+        || /darrow\s*chem\s*syndicate/i.test(n)
+        || /\bTDCS\b/i.test(n);
+  });
+}
+function hasTDCSTrackObj(t){
+  if(!t) return false;
+  return _hasTDCSOnArtists(t.artists)
+      || _hasTDCSOnArtists(t.album && t.album.artists)
+      || /darrow\s*chem\s*syndicate|\bTDCS\b/i.test(t.name||"");
+}
+
+/* ====== 突合・スコア ====== */
 function buildSourceIndex(cfg){
   if(!sourceRows.length) return {idxExact:new Map(),blob:[]};
   const idxExact=new Map(), blob=[]; let hasAid=0;
@@ -360,23 +389,6 @@ function buildItemsFromAnalyticsOnly(anCols){
       flags:{wo:true,uk:false,us:false,eu:false}, score:0.0001, _mode:"fallback", _score:1, a, s:null});
   }
   return out;
-}
-
-/* ====== TDCS判定（強化版） ====== */
-function _hasTDCSOnArtists(arr){
-  if(!Array.isArray(arr)) return false;
-  return arr.some(a=>{
-    const n=(a&&a.name)||"";
-    return (a&&FORCED_ARTIST_IDS.includes(a.id))
-        || /darrow\s*chem\s*syndicate/i.test(n)
-        || /\bTDCS\b/i.test(n);
-  });
-}
-function hasTDCSTrackObj(t){
-  if(!t) return false;
-  return _hasTDCSOnArtists(t.artists)
-      || _hasTDCSOnArtists(t.album && t.album.artists)
-      || /darrow\s*chem\s*syndicate|\bTDCS\b/i.test(t.name||"");
 }
 
 /* ====== 収集（TDCSのみ） ====== */
@@ -509,7 +521,7 @@ async function buildCandidatePool(primaryItems,anCols,finalN){
   return pool.slice(0, Math.max(targetSoft, needHard));
 }
 
-/* ====== URI解決（TDCS以外は採用しない） ====== */
+/* ====== URI解決（TDCS限定） ====== */
 const _isrcCache=new Map(); const _nameCache=new Map();
 const isrcVariants=(s)=>{ s=String(s||"").trim(); if(!s) return []; const up=s.toUpperCase(); const no=up.replace(/-/g,""); const hy=up.indexOf("-")>=0?up:up.replace(/^(.{2})(.{3})(.{2})(.{5})$/,"$1-$2-$3-$4"); const set={},arr=[]; [up,no,hy].forEach(v=>{if(!set[v]){set[v]=1;arr.push(v);}}); return arr; }
 const topArtistName=(a)=>{const s=String(a||""); const m=s.split(/,|;|&| with | feat\.? | featuring | ft\.? /i); return (m[0]||"").trim();}
@@ -607,7 +619,7 @@ function dedupeByRecording(items,alignedUris,tracksMap,strictMarket){
     const isrc=(tr&&tr.external_ids&&tr.external_ids.isrc)?String(tr.external_ids.isrc).toUpperCase():"";
     if(isrc && seenIsrc[isrc]){dropI++; continue;}
     const base = tr ? (norm(baseTitle(tr.name))+"｜"+((tr.artists&&tr.artists[0]&&tr.artists[0].id)||""))
-                    : (norm(baseTitle(items[i]&&items[i].name))+"｜"+norm(String(items[i]&&items[i].artist||"").split(/[,;&]/)[0]||""));
+                    : (norm(baseTitle(items[i]&&items[i].name))+"｜"+(items[i]&&items[i].artist||""));
     if(seenBase[base]){dropB++; continue;}
     seenUri[u]=1; if(isrc) seenIsrc[isrc]=1; seenBase[base]=1;
     outItems.push(items[i]); outUris.push(u);
@@ -642,6 +654,7 @@ function orderFlow(items,featMap,preset,gapA,gapR,seed){
   const rnd=lcg(seed||"ed");
   let pool=items.slice(0).sort((a,b)=>(b.score||0)-(a.score||0));
   const skip=Math.min(3,Math.floor(rnd()*5)); if(pool.length>skip) pool=pool.slice(skip).concat(pool.slice(0,skip));
+  if(pool.length===0) return [];
   const seq=[pool.shift()]; const lastSeen={remixer:{},artist:{}};
   const mark=(it,i)=>{ lastSeen.remixer[String(it.remixer||"").toLowerCase()]=i; lastSeen.artist[String(it.artist||"").toLowerCase()]=i; }
   mark(seq[0],0);
@@ -663,7 +676,7 @@ function orderFlow(items,featMap,preset,gapA,gapR,seed){
   return seq;
 }
 
-/* ====== 分配 ====== */
+/* ====== 分配（相互非重複オプション） ====== */
 const edCfg=()=>[
   {name:"UK",    pref:"uk", fallback:["wo","us","eu"], preset:($("presetUK").value||"waves"), gapA:+($("gapArtist").value||4), gapR:+($("gapRemixer").value||3), seed:"UK"},
   {name:"US",    pref:"us", fallback:["wo","uk","eu"], preset:($("presetUS").value||"rise"),  gapA:+($("gapArtist").value||4), gapR:+($("gapRemixer").value||3), seed:"US"},
@@ -679,12 +692,13 @@ function edScoreBias(item,feat,edName){
   return base;
 }
 function buildEditionSetsRoundRobin(candidates, feats, finalN){
-  const used=new Set(), packs={UK:[],US:[],EU:[],WORLD:[]};
+  const allowCrossDupes = $("allowCrossDupes").checked;
+  const usedGlobal=new Set(), packs={UK:[],US:[],EU:[],WORLD:[]};
   const cfgs=edCfg();
   const poolFor=(ed)=>{
-    const pref=candidates.filter(x=>!used.has(x.uri) && x.flags && x.flags[ed.pref]);
-    const fb=candidates.filter(x=> !used.has(x.uri) && x.flags && ed.fallback.some(k=>x.flags[k]));
-    const rest=candidates.filter(x=>!used.has(x.uri) && (!x.flags || (!x.flags.uk&&!x.flags.us&&!x.flags.eu&&!x.flags.wo)));
+    const pref=candidates.filter(x=> (allowCrossDupes || !usedGlobal.has(x.uri)) && x.flags && x.flags[ed.pref]);
+    const fb=candidates.filter(x=> (allowCrossDupes || !usedGlobal.has(x.uri)) && x.flags && ed.fallback.some(k=>x.flags[k]));
+    const rest=candidates.filter(x=> (allowCrossDupes || !usedGlobal.has(x.uri)) && (!x.flags || (!x.flags.uk&&!x.flags.us&&!x.flags.eu&&!x.flags.wo)));
     const pool=pref.concat(fb).concat(rest);
     pool.sort((a,b)=> (edScoreBias(b,feats.get(b.uri)||{},ed.name))-(edScoreBias(a,feats.get(a.uri)||{},ed.name)));
     return pool;
@@ -696,17 +710,54 @@ function buildEditionSetsRoundRobin(candidates, feats, finalN){
     for(const ed of cfgs){
       if(filled[ed.name] >= finalN) continue;
       let q=queues[ed.name], pick=null;
-      for(let i=0;i<q.length;i++){ if(!used.has(q[i].uri)){ pick=q.splice(i,1)[0]; break; } }
+      for(let i=0;i<q.length;i++){ const x=q[i]; if(allowCrossDupes || !usedGlobal.has(x.uri)){ pick=q.splice(i,1)[0]; break; } }
       if(!pick){ queues[ed.name]=poolFor(ed); q=queues[ed.name];
-        for(let i=0;i<q.length;i++){ if(!used.has(q[i].uri)){ pick=q.splice(i,1)[0]; break; } }
+        for(let i=0;i<q.length;i++){ const x=q[i]; if(allowCrossDupes || !usedGlobal.has(x.uri)){ pick=q.splice(i,1)[0]; break; } }
       }
-      if(pick){ packs[ed.name].push(pick); used.add(pick.uri); filled[ed.name]++; }
+      if(pick){ packs[ed.name].push(pick); if(!allowCrossDupes) usedGlobal.add(pick.uri); filled[ed.name]++; }
     }
     done = (filled.UK>=finalN) + (filled.US>=finalN) + (filled.EU>=finalN) + (filled.WORLD>=finalN);
     if(Object.values(filled).reduce((a,b)=>a+b,0) >= finalN*4) break;
     if(queues.UK.length+queues.US.length+queues.EU.length+queues.WORLD.length===0) break;
   }
-  log("⚖️ 分配: UK="+packs.UK.length+", US="+packs.US.length+", EU="+packs.EU.length+", WORLD="+packs.WORLD.length);
+  log("⚖️ 分配(初期): UK="+packs.UK.length+", US="+packs.US.length+", EU="+packs.EU.length+", WORLD="+packs.WORLD.length);
+  return packs;
+}
+
+/* ====== 不足穴埋め（版内リピート可） ====== */
+function topUpWithRepeats(packs, candidates, feats, finalN){
+  const allowRepeatFill = $("allowRepeatFill").checked;
+  if(!allowRepeatFill) return packs;
+
+  const eds=["UK","US","EU","WORLD"];
+  for(const ed of eds){
+    const need = finalN - packs[ed].length;
+    if(need<=0) continue;
+
+    // 補充プール：まずその版に入った曲、次に全候補（順序バイアス適用）
+    const biasSort=(arr)=>arr.slice(0).sort((a,b)=>
+      (edScoreBias(b,feats.get(b.uri)||{},ed))-(edScoreBias(a,feats.get(a.uri)||{},ed)));
+    const seeds = packs[ed].length ? biasSort(packs[ed]) : biasSort(candidates.filter(x=>!!x.uri));
+
+    if(seeds.length===0){ log(`⚠️ ${ed}: シード0 → 補充不能`); continue; }
+
+    // 直前同一URI回避しつつ回転
+    let k=0;
+    while(packs[ed].length < finalN){
+      const cand = seeds[k % seeds.length];
+      const last = packs[ed][packs[ed].length-1];
+      if(!last || last.uri !== cand.uri){
+        packs[ed].push(cand);
+      }else{
+        // 直前と同一なら次候補
+        k++;
+        continue;
+      }
+      k++;
+      if(k>100000){ log(`⚠️ ${ed}: 補充ループガード`); break; }
+    }
+    log(`➕ 補填(リピート): ${ed} → ${packs[ed].length}/${finalN}`);
+  }
   return packs;
 }
 
@@ -769,7 +820,7 @@ async function runAnalysis(){
     progress(64,"URI解決（TDCS限定・回数制限）…");
     const res=await toUrisResolved(pool,(i,t,ok)=>progress(64+(8*(i/t)),"URI解決 ("+i+"/"+t+")"));
 
-    progress(72,"曲詳細→録音ユニーク（まず市場緩め）…");
+    progress(72,"曲詳細→録音ユニーク（市場ゆるめ）…");
     const trackMap=await fetchTrackDetailsByUris(res.aligned.filter(Boolean));
     const usable=pool.map((it,idx)=>Object.assign({},it,{uri:res.aligned[idx]})).filter(x=>x.uri);
     let dedRec=dedupeByRecording(usable, usable.map(x=>x.uri), trackMap, /*strictMarket*/ false);
@@ -803,7 +854,7 @@ async function runAnalysis(){
       log(`📈 追加後ユニーク: ${dedRec.uris.length} 曲`);
     }
 
-    // 充分集まったら最終段階で市場を厳密適用
+    // 十分集まっていれば最終段で市場厳密化
     const strictTry = dedupeByRecording(dedRec.items, dedRec.uris, trackMap, /*strictMarket*/ true);
     if (strictTry.uris.length >= needTotal) {
       dedRec = strictTry;
@@ -813,12 +864,13 @@ async function runAnalysis(){
     }
 
     progress(78,"Audio Features 取得…");
-    let feats;
-    try{ feats=await fetchAudioFeaturesByUris(dedRec.uris); }
-    catch(e){ log("⚠️ audio-features 取得スキップ: "+(e.message||e)); feats=new Map(); }
+    let feats; try{ feats=await fetchAudioFeaturesByUris(dedRec.uris); }catch(e){ log("⚠️ audio-features 取得スキップ: "+(e.message||e)); feats=new Map(); }
 
-    progress(84,"エディション分配（均衡）…");
-    const packs=buildEditionSetsRoundRobin(dedRec.items.map((it,i)=>Object.assign({},it,{uri:dedRec.uris[i]})), feats, finalN);
+    progress(84,"エディション分配（初期）…");
+    let packs=buildEditionSetsRoundRobin(dedRec.items.map((it,i)=>Object.assign({},it,{uri:dedRec.uris[i]})), feats, finalN);
+
+    // 不足は必ず埋める（版内リピート可）
+    packs = topUpWithRepeats(packs, dedRec.items.map((it,i)=>Object.assign({},it,{uri:dedRec.uris[i]})), feats, finalN);
 
     progress(88,"曲順最適化…");
     const seqUK=orderFlow(packs.UK,feats,($("presetUK").value||"waves"),+($("gapArtist").value||4),+($("gapRemixer").value||3),"UK|"+new Date().toISOString().slice(0,10));
@@ -847,8 +899,12 @@ async function resolveAndWrite(packs){
   try{
     if(!packs) packs=_pending; if(!packs){log("ℹ️ 続行データなし");return;}
     const toUris=(list)=>list.map(x=>x.uri);
-    const all=[].concat(packs.UK,packs.US,packs.EU,packs.WORLD), uniq=new Set(); let dup=0; for(const x of all){ if(uniq.has(x.uri)) dup++; else uniq.add(x.uri); }
-    log("🔒 相互重複: "+dup+" 件（0が正常）");
+
+    // 相互重複の計測（許容時は情報のみ）
+    const allowCrossDupes = $("allowCrossDupes").checked;
+    const all=[].concat(packs.UK,packs.US,packs.EU,packs.WORLD), uniq=new Set(); let dup=0;
+    for(const x of all){ if(uniq.has(x.uri)) dup++; else uniq.add(x.uri); }
+    log(`🔒 相互重複: ${dup} 件（${allowCrossDupes?"許容":"0が正常"}）`);
 
     const pidUK=extractPlaylistId($("plUK").value), pidUS=extractPlaylistId($("plUS").value), pidEU=extractPlaylistId($("plEU").value), pidWO=extractPlaylistId($("plWORLD").value);
 
@@ -870,7 +926,7 @@ async function resolveAndWrite(packs){
       log("🆕 新規:\n  UK   → https://open.spotify.com/playlist/"+pU+"\n  US   → https://open.spotify.com/playlist/"+pS+"\n  EU   → https://open.spotify.com/playlist/"+pE+"\n  WORLD→ https://open.spotify.com/playlist/"+pW);
     }
 
-    progress(100,"完了"); log("✅ 完了（TDCS限定／AU-NZ-US-GB-ES-NL優先／4×130／相互非重複／バランス分配）");
+    progress(100,"完了"); log("✅ 完了（TDCS限定／被りOK満数化／AU-NZ-US-GB-ES-NL優先／4×130）");
     _pending=null;
   }catch(e){ progress(100,"エラー"); log("💥 ERROR(resolveAndWrite): "+e.message); console.error(e); }
 }
@@ -883,6 +939,6 @@ $("fileSource").addEventListener("change",()=>{ if($("fileAnalytics").files.leng
 $("fileAnalytics").addEventListener("change",()=>{ if($("fileAnalytics").files.length) loadFiles(); });
 $("btnExportXlsx").onclick=exportXlsx; $("btnExportCsv").onclick=exportCsv;
 setStatus();
-log("Ready. 読込→突合→TDCS補充(analytics/top/new/search/discog)→AU/NZ/US/GB/ES/NL優先のURI解決→録音ユニーク(市場は最後に厳密)→分配→曲順→上書き/新規→CSV/XLSX。");
+log("Ready. 読込→突合→TDCS補充(analytics/top/new/search/discog)→AU/NZ/US/GB/ES/NL優先URI解決→録音ユニーク(市場は最後に厳密)→分配→不足は版内リピートで満数→曲順→上書き/新規→CSV/XLSX。");
 </script>
 </body></html>
