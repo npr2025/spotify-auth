@@ -1,117 +1,45 @@
 <!doctype html>
-<html lang="ja"><head>
+<html lang="ja">
+<head>
 <meta charset="utf-8">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TDCS Editions Builder — ソース限定/TDCS厳格 + バージョン重複OK</title>
+<title>TDCS Editions Builder — サインイン修正版</title>
 <style>
-:root{--bg:#0b1220;--fg:#cfe3ff}
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1180px;margin:32px auto;padding:0 12px}
-h1{margin:0 0 8px}
-fieldset{border:1px solid #ddd;border-radius:10px;padding:14px;margin:14px 0}
-label{display:block;margin:6px 0}
-input[type="text"],input[type="number"],select{width:100%;max-width:760px;padding:6px 8px;border:1px solid #ccc;border-radius:6px}
-input[type="file"]{margin:4px 0}
-button{padding:9px 12px;border:1px solid #bbb;border-radius:8px;background:#fff;cursor:pointer;margin:6px 8px 0 0}
-button:disabled{opacity:.5;cursor:not-allowed}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-small.hint{color:#666}
-#log{white-space:pre-wrap;background:var(--bg);color:var(--fg);padding:12px;border-radius:8px;min-height:280px}
-#progWrap{position:relative;height:12px;background:#e6eaf2;border-radius:6px;overflow:hidden;margin:6px 0}
-#progBar{height:100%;width:0%;background:#4a90e2;transition:width .2s ease}
-#progLine{font-variant-numeric:tabular-nums;margin:4px 0 0 0;color:#333}
-.hidden{display:none}
+  :root{--bg:#0b1220;--fg:#cfe3ff}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:960px;margin:32px auto;padding:0 12px}
+  h1{margin:0 0 8px}
+  fieldset{border:1px solid #ddd;border-radius:10px;padding:14px;margin:14px 0}
+  label{display:block;margin:6px 0}
+  button{padding:9px 12px;border:1px solid #bbb;border-radius:8px;background:#fff;cursor:pointer;margin:6px 8px 0 0}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  input[type="text"]{width:100%;max-width:720px;padding:6px 8px;border:1px solid #ccc;border-radius:6px}
+  #log{white-space:pre-wrap;background:var(--bg);color:var(--fg);padding:12px;border-radius:8px;min-height:220px}
+  a.fallback{display:none;margin-left:8px}
 </style>
-<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
-<h1>TDCS Editions Builder — 自動（ソース限定/TDCS厳格・バージョン重複OK）</h1>
+<h1>TDCS Editions Builder — サインイン修正版</h1>
 <p id="status">未接続</p>
+
 <div>
-  <button id="btnConnect">Spotifyにサインイン</button>
-  <button id="btnReset">初期化（保存トークン削除）</button>
-  <button id="btnCheck">接続チェック</button>
+  <button id="btnConnect" data-action="connect" type="button">Spotifyにサインイン</button>
+  <a id="linkConnect" class="fallback" href="./auth.html">← ボタンが動かない時はここから</a>
+  <button id="btnCheck" type="button">接続チェック</button>
+  <button id="btnReset" type="button">初期化（保存トークン削除）</button>
 </div>
 
 <fieldset>
-  <legend>固定</legend>
-  <div class="grid2">
-    <label>CLIENT_ID <input type="text" value="1fd6350fcf4945a0b3ddffa2d5730d4e" disabled></label>
-    <label>REDIRECT_URI <input type="text" value="https://npr2025.github.io/spotify-auth/callback.html" disabled></label>
-  </div>
-</fieldset>
-
-<fieldset>
-  <legend>設定（4リスト）</legend>
-  <div class="grid2">
-    <label>UK <input id="plUK" type="text" value="https://open.spotify.com/playlist/6wrsoYUr3IagrMW7zlwaIS"></label>
-    <label>US <input id="plUS" type="text" value="https://open.spotify.com/playlist/6pv3J4odtKELYRIwoiZHhe"></label>
-    <label>EU <input id="plEU" type="text" value="https://open.spotify.com/playlist/4VadrmkpMeXK813mkhWGwV"></label>
-    <label>WORLD <input id="plWORLD" type="text" value="https://open.spotify.com/playlist/5y1UWtrBjYjHpReuAsnFMR"></label>
-  </div>
-  <div class="grid3">
-    <label>API間隔(ms) <input id="gap" type="number" value="1100"></label>
-    <label>各エディション出力数 <input id="finalN" type="number" value="130"></label>
-    <label>人気の重み（SaveRate側）<input id="wPopularity" type="number" step="0.01" value="0.55"></label>
-  </div>
-  <div class="grid3">
-    <label>UKプリセット
-      <select id="presetUK"><option>waves</option><option selected>rise</option><option>drop</option><option>dj</option></select>
-    </label>
-    <label>USプリセット
-      <select id="presetUS"><option selected>rise</option><option>waves</option><option>drop</option><option>dj</option></select>
-    </label>
-    <label>EUプリセット
-      <select id="presetEU"><option selected>waves</option><option>rise</option><option>drop</option><option>dj</option></select>
-    </label>
-  </div>
-
-  <label>主要マーケット（優先順・カンマ区切り）<input id="markets" type="text" value="AU,NZ,US,GB,ES,NL"></label>
-  <small class="hint">例: AU,NZ,US,GB,ES,NL（左ほど優先）。</small>
-
-  <div class="grid3">
-    <label>同リミキサー最小間隔（曲）<input id="gapRemixer" type="number" value="2"></label>
-    <label>同アーティスト最小間隔（曲）<input id="gapArtist" type="number" value="3"></label>
-    <label><input id="appendDate" type="checkbox" checked> 新規名に日付（YYYY-MM-DD）</label>
-  </div>
-
-  <div>
-    <label><input id="fastMode" type="checkbox" checked> 高速モード（検索マーケット最小化／早期終了）</label>
-  </div>
-
-  <div>
-    <label><input id="sourceOnly" type="checkbox" checked> ソース外補充を禁止（アップロード行だけ）</label>
-    <label><input id="strictTDCS" type="checkbox" checked> TDCS厳格（artist.id 完全一致のみ）</label>
-  </div>
-
-  <div>
-    <label><input id="allowVersionDup" type="checkbox" checked> バージョン重複を許可（同一ISRC/ベース名でも別扱い）</label>
-    <label><input id="allowCrossDupIfShort" type="checkbox" checked> 不足時はエディション間の重複を許可（URIは各エディション内で一意）</label>
-  </div>
-
-  <div>
-    <label><input id="doUpdate" type="checkbox" checked> 既存4リストを上書き</label>
-    <label><input id="doCreate" type="checkbox"> 同内容で新規4リストも作成（公開）</label>
-    <label>新規リスト名の接頭辞 <input id="newPrefix" type="text" value="TDCS Editions"></label>
-  </div>
-
-  <small class="hint">※エディション内は「同じURIだけ」重複禁止。<br>※バージョン違い（radio/extended/remix等）・ISRC同一・ベース曲名同一でも採用します。</small>
-</fieldset>
-
-<fieldset>
-  <legend>ファイル</legend>
-  <label>ソースCSV（必須）<input id="fileSource" type="file" accept=".csv"></label>
-  <label>分析（Excel .xlsx / CSV）<input id="fileAnalytics" type="file" accept=".xlsx,.csv"></label>
-  <small class="hint">列は自動検出。Exact→Fuzzy→Spotify検索。<b>ソース外補充はオフ固定</b>（この画面では使いません）。</small>
-</fieldset>
-
-<fieldset>
-  <legend>進捗</legend>
-  <div id="progWrap" class="hidden"><div id="progBar"></div></div>
-  <div id="progLine">0% — 待機中</div>
+  <legend>固定（Dashboardと完全一致）</legend>
+  <label>CLIENT_ID
+    <input type="text" value="1fd6350fcf4945a0b3ddffa2d5730d4e" disabled>
+  </label>
+  <label>REDIRECT_URI
+    <input type="text" value="https://npr2025.github.io/spotify-auth/callback.html" disabled>
+  </label>
+  <small>※ Developer Dashboard の Redirect URIs に <code>https://npr2025.github.io/spotify-auth/callback.html</code> を 1文字違わず登録。</small>
 </fieldset>
 
 <fieldset>
@@ -119,119 +47,138 @@ small.hint{color:#666}
   <pre id="log">Booting…</pre>
 </fieldset>
 
-<div>
-  <button id="btnExportXlsx" disabled>エクスポート（XLSX）</button>
-  <button id="btnExportCsv"  disabled>エクスポート（CSV）</button>
-</div>
-
 <script>
-/* ====== 例外 ====== */
-window.onerror=(m,src,lin,col,err)=>{ const el=document.getElementById("log"); el.textContent+=(el.textContent?"\n":"")+"💥 ScriptError: "+m+" @"+lin+":"+col; console.error(err||m); };
-window.addEventListener("unhandledrejection",(e)=>{ const el=document.getElementById("log"); el.textContent+=(el.textContent?"\n":"")+"💥 PromiseRejection: "+(e.reason&&e.reason.message?e.reason.message:String(e.reason)); console.error(e.reason); });
-
-/* ====== 固定 ====== */
-const FORCED_ARTIST_IDS=["55fvQ5I2IZUfcFT2DV02T3"]; // The Darrow Chem Syndicate
+/* =========================
+   共有定数
+========================= */
 const zws=/[\u200B-\u200D\uFEFF]/g;
 const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e".replace(zws,"").trim();
 const REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html".replace(zws,"").trim();
 const SCOPES="playlist-modify-public playlist-modify-private ugc-image-upload";
-const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier"};
+const LS={ acc:"sp_access_token", ref:"sp_refresh_token", exp:"sp_token_exp", ver:"sp_code_verifier", state:"sp_auth_state" };
 
-/* ====== DOM/UTIL ====== */
+/* =========================
+   ログ & ステータス
+========================= */
 const $=(id)=>document.getElementById(id);
-const log=(s)=>{const el=$("log"); el.textContent+=(el.textContent?"\n":"")+s; el.scrollTop=el.scrollHeight;}
-const progress=(p,msg)=>{ $("progWrap").classList.remove("hidden"); $("progBar").style.width=Math.max(0,Math.min(100,p))+"%"; if(msg) $("progLine").textContent=Math.round(p)+"% — "+msg; }
-const subProgress=(i,t,s,e,l)=>{ const f=t?i/t:0; progress(s+(e-s)*f,`${l} (${i}/${t})`); }
-const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
-const num=(x)=>{const s=String(x==null?0:x).replace(/[ %,，]/g,""); const v=parseFloat(s); return isFinite(v)?v:0;}
-const round4=(x)=> (typeof x==="number"&&isFinite(x))?Math.round(x*10000)/10000:"";
-
-/* ====== Auth ====== */
-const isAuthed=()=> !!localStorage.getItem(LS.acc) && Date.now() < (+localStorage.getItem(LS.exp)||0)-5000;
-function setStatus(){ $("status").textContent=isAuthed()?"接続中（OK）":"未接続"; if(isAuthed() && _pending) resolveAndWrite(_pending); }
-async function startAuth(){
-  let v=""; const u8=new Uint8Array(64); crypto.getRandomValues(u8); for(let i=0;i<u8.length;i++) v+=String.fromCharCode(97+(u8[i]%26));
-  localStorage.setItem(LS.ver,v);
-  const h=new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v)));
-  let b=""; for(const x of h) b+=String.fromCharCode(x);
-  const ch=btoa(b).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
-  const u=new URL("https://accounts.spotify.com/authorize");
-  u.searchParams.set("response_type","code"); u.searchParams.set("client_id",CLIENT_ID);
-  u.searchParams.set("redirect_uri",REDIRECT_URI);
-  u.searchParams.set("code_challenge_method","S256"); u.searchParams.set("code_challenge",ch);
-  u.searchParams.set("scope",SCOPES);
-  location.href=u.toString();
+const log=(s)=>{ const el=$("log"); el.textContent+=(el.textContent?"\n":"")+s; el.scrollTop=el.scrollHeight; };
+const isAuthed=()=> !!localStorage.getItem(LS.acc) && Date.now() < (+localStorage.getItem(LS.exp)||0) - 5000;
+function setStatus(){
+  $("status").textContent = isAuthed()? "接続中（OK）" : "未接続";
 }
+
+/* =========================
+   PKCE 認可（state フォールバック付き）
+========================= */
+async function startAuth(){
+  // 1) PKCE verifier 生成
+  let verifier=""; const u8=new Uint8Array(64);
+  crypto.getRandomValues(u8);
+  for(let i=0;i<u8.length;i++) verifier+=String.fromCharCode(97+(u8[i]%26));
+  localStorage.setItem(LS.ver, verifier);
+
+  // 2) code_challenge
+  const hash=new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
+  let b=""; for(const x of hash) b+=String.fromCharCode(x);
+  const challenge=btoa(b).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+
+  // 3) state に verifier を格納（別オリジン開始対策）
+  const state="v."+btoa(verifier).replace(/=+$/,"").replace(/\+/g,"-").replace(/\//g,"_");
+  localStorage.setItem(LS.state, state);
+
+  // 4) Authorize に飛ばす
+  const u=new URL("https://accounts.spotify.com/authorize");
+  u.searchParams.set("response_type","code");
+  u.searchParams.set("client_id",CLIENT_ID);
+  u.searchParams.set("redirect_uri",REDIRECT_URI);
+  u.searchParams.set("code_challenge_method","S256");
+  u.searchParams.set("code_challenge",challenge);
+  u.searchParams.set("scope",SCOPES);
+  u.searchParams.set("state",state);
+  location.href = u.toString();
+}
+
+/* =========================
+   API ヘルパ
+========================= */
 async function refreshTokenIfNeeded(){
   const exp=+(localStorage.getItem(LS.exp)||0);
   if(Date.now()<exp-5000) return;
   const rt=localStorage.getItem(LS.ref); if(!rt) return;
-  const body=new URLSearchParams(); body.set("grant_type","refresh_token"); body.set("refresh_token",rt); body.set("client_id",CLIENT_ID);
-  const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
-  if(!r.ok){ log("⚠️ refresh失敗 "+r.status); return; }
+  const body=new URLSearchParams();
+  body.set("grant_type","refresh_token");
+  body.set("refresh_token",rt);
+  body.set("client_id",CLIENT_ID);
+  const r=await fetch("https://accounts.spotify.com/api/token",{
+    method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body
+  });
+  if(!r.ok){ log("⚠️ refresh失敗: "+r.status); return; }
   const j=await r.json();
-  localStorage.setItem(LS.acc,j.access_token); localStorage.setItem(LS.exp,String(Date.now()+j.expires_in*1000));
+  localStorage.setItem(LS.acc,j.access_token);
+  localStorage.setItem(LS.exp,String(Date.now()+j.expires_in*1000));
   if(j.refresh_token) localStorage.setItem(LS.ref,j.refresh_token);
 }
 async function spFetch(path,method="GET",body=null){
   await refreshTokenIfNeeded();
-  const gap=+($("gap").value||1100); await sleep(gap);
-  for(let a=0;a<5;a++){
-    const init={method,headers:{"Authorization":"Bearer "+localStorage.getItem(LS.acc),"Content-Type":"application/json"}};
-    if(body) init.body=JSON.stringify(body);
-    const r=await fetch("https://api.spotify.com"+path,init);
-    if(r.status===401){ await refreshTokenIfNeeded(); continue; }
-    if(r.status===429){ const ra=+(r.headers.get("Retry-After")||2); log("⏳429→"+ra+"s待機"); await sleep(ra*1000); continue; }
-    if(!r.ok){
-      const t=await r.text();
-      if(r.status===403 && method==="GET"){ log(`⚠️ 403 GET ${path.slice(0,60)} … 続行`); return null; }
-      throw new Error(`Spotify ${r.status}: ${(t||"").slice(0,200)} @ ${path}`);
-    }
-    if(r.status===204) return null;
-    return await r.json();
+  const init={method,headers:{"Authorization":"Bearer "+localStorage.getItem(LS.acc),"Content-Type":"application/json"}};
+  if(body) init.body=JSON.stringify(body);
+  const r=await fetch("https://api.spotify.com"+path,init);
+  if(r.status===204) return null;
+  const t=await r.text();
+  if(!r.ok) throw new Error(`Spotify ${r.status}: ${t.slice(0,160)}`);
+  return t?JSON.parse(t):null;
+}
+
+/* =========================
+   ボタンが効かない環境でも動かす“委譲ハーネス”
+========================= */
+(function(){
+  function showFallback(reason){
+    try{
+      $("linkConnect").style.display='inline-block';
+      log("⚠️ Authボタン失敗: "+(reason && (reason.message||reason)));
+    }catch(_){}
   }
-  throw new Error("Spotify API max retries");
-}
-let _me=null; async function getMe(){ if(_me) return _me; _me=await spFetch("/v1/me","GET"); return _me; }
+  async function goAuth(ev){
+    if(ev && typeof ev.preventDefault==="function") ev.preventDefault();
+    try{
+      if(typeof startAuth==="function") return startAuth();
+    }catch(err){
+      console.error(err); showFallback(err);
+      location.href="./auth.html"; return;
+    }
+    // 未定義・拾えない場合は即フォールバック
+    showFallback("handler-not-found");
+    location.href="./auth.html";
+  }
+  // クリック委譲（id でも data-action でも拾う）
+  document.addEventListener("click",(ev)=>{
+    const t = ev.target.closest('#btnConnect,[data-action="connect"]');
+    if(!t) return;
+    goAuth(ev);
+  }, true);
+})();
 
-/* ====== マーケット ====== */
-function getMarkets(){
-  const raw=($("markets")?.value||"").toUpperCase();
-  const arr=raw.split(",").map(s=>s.trim()).filter(Boolean);
-  const out=arr.length?arr:["AU","NZ","US","GB","ES","NL"];
-  return Array.from(new Set(out));
+/* =========================
+   UI イベント
+========================= */
+$("btnCheck").onclick = async ()=>{
+  try{
+    await refreshTokenIfNeeded();
+    const me=await spFetch("/v1/me","GET");
+    $("status").textContent=`接続中（${me.display_name||me.id}）`;
+    log("✅ API確認 OK");
+  }catch(e){ log("⚠️ 接続エラー: "+(e.message||e)); }
+};
+$("btnReset").onclick = ()=>{
+  Object.values(LS).forEach(k=>localStorage.removeItem(k));
+  setStatus(); log("🧽 ローカルトークン削除");
+};
+setStatus();
+if(new URLSearchParams(location.search).get("authed")==="1"){
+  log("↩︎ 認可復帰。接続チェック中…");
+  $("btnCheck").click();
 }
-
-/* ====== ファイル ====== */
-let sourceRows=[], analyticsRows=[];
-function readCSV(file){return new Promise((res,rej)=>Papa.parse(file,{header:true,skipEmptyLines:true,complete:r=>res(r.data),error:rej}));}
-async function readXLSX_allSheets(file){
-  const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:"array"}); let rows=[],details=[];
-  for(const n of wb.SheetNames){ const js=XLSX.utils.sheet_to_json(wb.Sheets[n],{defval:""}); for(const r of js) r.__sheet=n; rows=rows.concat(js); details.push(n+":"+js.length); }
-  return {rows,details};
-}
-async function loadFiles(){
-  $("log").textContent=""; progress(3,"ファイル読み込み…");
-  if(!$("fileSource").files.length){ log("⚠️ ソースCSVは必須です"); progress(100,"エラー"); return; }
-  sourceRows=await readCSV($("fileSource").files[0]); log("✅ ソース: "+sourceRows.length+" 行");
-  const f=$("fileAnalytics").files[0];
-  if(!f){ log("ℹ️ 分析ファイル未選択（スコアなしでも続行）"); analyticsRows=[]; progress(8,"読み込み完了"); await runAnalysis(); return; }
-  if((f.name||"").toLowerCase().endsWith(".xlsx")){ const r=await readXLSX_allSheets(f); analyticsRows=r.rows; log("✅ 分析: XLSX 合計 "+analyticsRows.length+" 行 ["+r.details.join(", ")+"]"); }
-  else{ analyticsRows=await readCSV(f); log("✅ 分析: CSV "+analyticsRows.length+" 行"); }
-  progress(8,"読み込み完了"); await runAnalysis();
-}
-
-/* ====== 正規化・列推定など（略記：実装は前版と同等） ====== */
-const ISRC_RE=/^[A-Z]{2}-?[A-Z0-9]{3}-?\d{2}-?\d{5}$/i;
-const NFKC=(s)=>String(s||"").normalize("NFKC");
-const rmMarks=(s)=>NFKC(s).normalize("NFD").replace(/[\u0300-\u036f]/g,"");
-const norm=(s)=>rmMarks(s).toLowerCase().replace(/[‐-‒–—−]/g,"-").replace(/[‘’‚‛“”„‟"]/g," ").replace(/[()［］\[\]{}【】]/g," ").replace(/&/g," and ").replace(/\s+/g," ").trim();
-const tokensTitle=(s)=>{s=norm(s).replace(/ - /g," ").replace(/\((.*?)\)/g," $1 ").replace(/\[(.*?)\]/g," $1 "); const arr=s.split(" "); const stop=new Set(["feat","featuring","ft","vs","and","&","the","a","an","mix","remix","edit","version","vip","dub","club","radio","extended","original","instrumental","clean","dirty"]); const set={},out=[]; for(const w of arr){ if(w && !stop.has(w)){ if(!set[w]){set[w]=1;out.push(w);} } } return out; }
-function setJaccard(A,B){let inter=0,sa={},sb={}; A.forEach(x=>sa[x]=1); B.forEach(x=>sb[x]=1); for(const x in sa){ if(sb[x]) inter++; } const ua=Object.keys(sa).length+Object.keys(sb).length-inter; return ua?inter/ua:0; }
-function canonVersion(s){
-  s=norm(s); const pairs=[["original mix","original"],["orig mix","original"],["radio edit","radio"],["extended mix","extended"],["club mix","club"]];
-  pairs.forEach(([a,b])=>s=s.replace(a,b));
-  const kinds=[],seen={}; const add=k=>{if(k&&!seen[k]){kinds.push(k);seen[k]=1;}}
-  if(/original/.test(s))add("original"); if(/radio/.test(s))add("radio"); if(/extended/.test(s))add("extended");
-  if(/instrumental/.test(s))add("instrumental"); if(/acoustic/.test(s))add("acoustic"); if(/vip/.test(s))add("vip");
-  if
+</script>
+</body>
+</html>
