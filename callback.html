@@ -1,53 +1,58 @@
 <!doctype html>
 <html lang="ja"><head>
 <meta charset="utf-8">
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spotify Auth Callback</title>
+<title>Spotify Callback</title>
 <style>
-body{font-family:system-ui;max-width:900px;margin:36px auto;padding:0 12px}
-#log{background:#0b1220;color:#cfe3ff;padding:12px;border-radius:8px;white-space:pre-wrap;max-height:460px;overflow:auto;margin-top:12px}
-a.btn{display:inline-block;margin:6px 8px 0 0;padding:9px 12px;border:1px solid #bbb;border-radius:8px;background:#fff;text-decoration:none}
-</style></head>
+body{font-family:system-ui;max-width:680px;margin:40px auto;padding:0 16px}
+pre{background:#0b1220;color:#cfe3ff;padding:12px;border-radius:8px}
+</style>
+</head>
 <body>
-<h1>Spotify Auth Callback</h1>
-<p id="status">Waiting…</p>
-<p><a href="auth.html?v=fix" class="btn">アプリへ戻る</a></p>
-<pre id="log">Booting…</pre>
+<h1>Spotify 認可リダイレクト</h1>
+<p id="msg">処理中…</p>
+<pre id="log"></pre>
 <script>
-(function(){
-  const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e";
-  const REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
-  const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier"};
-  const log=(s)=>{const el=document.getElementById("log");el.textContent+=(el.textContent?"\n":"")+s;el.scrollTop=el.scrollHeight;};
-  window.onerror=(m,src,lin,col,err)=>{log("💥 ScriptError: "+m+" @"+lin+":"+col);console.error(err||m);};
-  window.addEventListener("unhandledrejection",(e)=>{log("💥 PromiseRejection: "+(e.reason&&e.reason.message?e.reason.message:String(e.reason)));console.error(e.reason);});
-  (async function(){
-    log("🔧 JS起動OK");
-    try{
-      const p=new URLSearchParams(location.search);
-      const code=p.get("code"), err=p.get("error");
-      if(err){document.getElementById("status").textContent="Error: "+err; log("error="+err); return;}
-      if(!code){log("code not found"); return;}
-      const cv=localStorage.getItem(LS.ver);
-      if(!cv){document.getElementById("status").textContent="Missing code_verifier"; return;}
-      const body=new URLSearchParams();
-      body.set("grant_type","authorization_code");
-      body.set("code",code);
-      body.set("redirect_uri",REDIRECT_URI);
-      body.set("client_id",CLIENT_ID);
-      body.set("code_verifier",cv);
-      const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
-      const t=await r.text(); let j=null; try{j=JSON.parse(t);}catch(_){}
-      if(!r.ok){document.getElementById("status").textContent="Failed"; log("Token error: "+t); return;}
-      localStorage.setItem(LS.acc,j.access_token);
-      localStorage.setItem(LS.ref,j.refresh_token||"");
-      localStorage.setItem(LS.exp,String(Date.now()+j.expires_in*1000));
-      document.getElementById("status").textContent="Signed in.";
-      log("✅ authorized. このタブは閉じてもOK。");
-    }catch(e){log("💥 "+e.message);console.error(e);}
-  })();
+const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier"};
+const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e";
+const REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
+const zws=/[\u200B-\u200D\uFEFF]/g;
+function log(s){ const el=document.getElementById("log"); el.textContent+=(el.textContent?"\n":"")+s; }
+(async()=>{
+  try{
+    const params=new URLSearchParams(location.search);
+    const code=(params.get("code")||"").replace(zws,"").trim();
+    const err=params.get("error");
+    if(err){ document.getElementById("msg").textContent="エラー: "+err; log("error="+err); return; }
+    if(!code){ document.getElementById("msg").textContent="エラー: codeなし"; log(location.href); return; }
+    const verifier=localStorage.getItem(LS.ver)||"";
+    if(!verifier){ document.getElementById("msg").textContent="エラー: code_verifierなし"; log("PKCE verifier missing"); return; }
+
+    // トークン交換
+    const body=new URLSearchParams();
+    body.set("grant_type","authorization_code");
+    body.set("code",code);
+    body.set("redirect_uri",REDIRECT_URI);
+    body.set("client_id",CLIENT_ID);
+    body.set("code_verifier",verifier);
+
+    const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
+    const t=await r.text();
+    if(!r.ok){ document.getElementById("msg").textContent="INVALID_CLIENT などエラー"; log("status="+r.status+"\n"+t); return; }
+    const j=JSON.parse(t);
+    localStorage.setItem(LS.acc,j.access_token);
+    localStorage.setItem(LS.exp,String(Date.now()+j.expires_in*1000));
+    if(j.refresh_token) localStorage.setItem(LS.ref,j.refresh_token);
+    document.getElementById("msg").textContent="OK。元の画面に戻ります…";
+
+    // UIへ戻る（auth.html が無ければ index.html へ）
+    const base=location.origin+location.pathname.replace(/\/callback\.html$/,"/");
+    const dest = base + "auth.html";
+    setTimeout(()=>location.href=dest,600);
+  }catch(e){
+    document.getElementById("msg").textContent="例外エラー";
+    log(String(e&&e.message||e));
+  }
 })();
 </script>
 </body></html>
