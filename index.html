@@ -47,27 +47,27 @@ small.hint{color:#666}
     <label>CLIENT_ID <input type="text" id="clientId" value="1fd6350fcf4945a0b3ddffa2d5730d4e"></label>
     <label>REDIRECT_URI <input type="text" id="redir" value="" disabled></label>
   </div>
-  <small class="hint">※ REDIRECT_URI は自動でこのフォルダの <code>callback.html</code> に設定（ページ公開URLに合わせて自動解決）。</small>
+  <small class="hint">※ REDIRECT_URI は自動でこのフォルダの <code>callback.html</code> に設定。</small>
 </fieldset>
 
 <fieldset>
   <legend>モード選択</legend>
-  <label class="inline"><input type="radio" name="mode" id="modeCsv" checked> CSVモード（CSV内の曲だけで組む）</label>
-  <label class="inline"><input type="radio" name="mode" id="modeAuto"> Autoモード（市場調査で選曲／CSV不要）</label>
+  <label class="inline"><input type="radio" name="mode" id="modeCsv" checked> CSVモード（CSV内の曲だけ）</label>
+  <label class="inline"><input type="radio" name="mode" id="modeAuto"> Autoモード（市場調査／CSV不要）</label>
 </fieldset>
 
 <fieldset id="boxCommon">
   <legend>共通設定（4エディション）</legend>
   <div class="grid4">
-    <label>UK プレイリストID/URL <input id="plUK" type="text" placeholder="空なら自動で新規作成"></label>
-    <label>US プレイリストID/URL <input id="plUS" type="text" placeholder="空なら自動で新規作成"></label>
-    <label>EU プレイリストID/URL <input id="plEU" type="text" placeholder="空なら自動で新規作成"></label>
-    <label>WORLD プレイリストID/URL <input id="plWORLD" type="text" placeholder="空なら自動で新規作成"></label>
+    <label>UK プレイリストID/URL <input id="plUK" type="text" placeholder="空なら新規作成"></label>
+    <label>US プレイリストID/URL <input id="plUS" type="text" placeholder="空なら新規作成"></label>
+    <label>EU プレイリストID/URL <input id="plEU" type="text" placeholder="空なら新規作成"></label>
+    <label>WORLD プレイリストID/URL <input id="plWORLD" type="text" placeholder="空なら新規作成"></label>
   </div>
   <div class="grid3">
-    <label>API間隔(ms) <input id="gap" type="number" value="1200"></label>
+    <label>API間隔(ms) <input id="gap" type="number" value="1000"></label>
     <label>各エディション出力数 <input id="finalN" type="number" value="130"></label>
-    <label>主要マーケット（優先順）<input id="markets" type="text" value="AU,NZ,US,GB,ES,NL"></label>
+    <label>主要マーケット（優先順）<input id="markets" type="text" value="ES,US,GB,NZ"></label>
   </div>
   <div class="grid4">
     <label>UKプリセット
@@ -77,17 +77,15 @@ small.hint{color:#666}
       <select id="presetUS"><option>waves</option><option selected>rise</option><option>drop</option><option>dj</option></select>
     </label>
     <label>EUプリセット
-      <select id="presetEU"><option selected>waves</option><option>rise</option><option>drop</option><option>dj</option></select>
+      <select id="presetEU"><option>waves</option><option>rise</option><option selected>drop</option><option>dj</option></select>
     </label>
     <label>WORLDプリセット
       <select id="presetWORLD"><option>waves</option><option>rise</option><option>drop</option><option selected>dj</option></select>
     </label>
   </div>
-
-  <label><input id="strictMarket" type="checkbox"> 市場一致を「優先採用」にする（不足分は手持ち候補から補完）</label>
-  <label><input id="allowCrossDup" type="checkbox" checked> 版間重複を許可（UK/US/EU/WORLDで同一URI可）</label>
-  <label><input id="allowWithinDup" type="checkbox" checked> 版内重複を許可（必ず130曲を満たす）</label>
-
+  <label><input id="strictMarket" type="checkbox" checked> 市場一致を「優先採用」にする（不足分は手持ち候補で補完）</label>
+  <label><input id="allowCrossDup" type="checkbox" checked> 版間重複を許可</label>
+  <label><input id="allowWithinDup" type="checkbox" checked> 版内重複を許可（必ず130曲）</label>
   <div class="grid2">
     <label>新規作成時のベース名 <input id="baseName" type="text" value="TDCS Editions"></label>
     <label>公開可否
@@ -97,26 +95,24 @@ small.hint{color:#666}
 </fieldset>
 
 <fieldset id="boxCsv">
-  <legend>CSVモード設定（このCSVの曲だけで組む）</legend>
+  <legend>CSVモード（このCSVだけで組む）</legend>
   <label>ソースCSV <input id="fileCSV" type="file" accept=".csv"></label>
-  <small class="hint">列は自動検出。優先：track_uri/url/id, isrc, title/version, artist。CSVの順序を基本に並べ、プリセットに合わせて流れ最適化。</small>
+  <small class="hint">列は自動検出：track_uri/url/id, isrc, title/version, artist 優先。</small>
 </fieldset>
 
 <fieldset id="boxAuto" class="hidden">
-  <legend>Autoモード設定（市場調査で選曲／CSV不要）</legend>
-  <label>検索クエリ（1行1クエリ / Spotifyの検索構文）<br>
-    <textarea id="autoQueries" class="mono">label:"Nipponeer Records" remix year:2010-2025
-artist:"The Darrow Chem Syndicate" remix
-remix genre:"breakbeat" year:2016-2025</textarea>
+  <legend>Autoモード（市場調査で選曲／CSV不要）</legend>
+  <label>検索クエリ（1行1クエリ / Spotify検索構文）
+    <textarea id="autoQueries" class="mono">artist:"The Darrow Chem Syndicate" "drum and bass" year:1994-2016 -bootleg -"unofficial" -"DJ Mix" -"Continuous Mix" -podcast -mashup -cover -karaoke
+label:"Nipponeer Records" "drum and bass" year:1994-2016 -bootleg -"unofficial" -"DJ Mix" -"Continuous Mix" -podcast -mashup -cover -karaoke</textarea>
   </label>
   <div class="grid3">
-    <label>1クエリあたり最大取得 <input id="autoLimit" type="number" value="60"></label>
+    <label>1クエリ最大取得 <input id="autoLimit" type="number" value="60"></label>
     <label>全体最大候補数 <input id="autoCap" type="number" value="300"></label>
-    <label>重複除去（IDベース）
+    <label>重複除去
       <select id="autoDedup"><option value="1" selected>する</option><option value="0">しない</option></select>
     </label>
   </div>
-  <small class="hint">※ 検索はSpotify Web APIの <code>type=track</code>。市場一致ON時は一致曲を優先採用し、不足分は候補から補完。</small>
 </fieldset>
 
 <div>
@@ -157,7 +153,7 @@ const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
 const round4=(x)=> (typeof x==="number"&&isFinite(x))?Math.round(x*10000)/10000:"";
 const uniq=(a)=>Array.from(new Set(a));
 
-/* ===== REDIRECT_URI を現在フォルダの callback.html に自動設定 ===== */
+/* ===== REDIRECT_URI 自動設定 ===== */
 (function setDynamicRedirect(){
   const base = location.origin + location.pathname.replace(/index\.html?$/,'');
   const uri = base + "callback.html";
@@ -200,7 +196,7 @@ async function refreshTokenIfNeeded(){
 }
 async function spFetch(path,method="GET",body=null){
   await refreshTokenIfNeeded();
-  const gap=+(val("gap","1200")||1200); await sleep(gap);
+  const gap=+(val("gap","1000")||1000); await sleep(gap);
   for(let a=0;a<5;a++){
     const init={method,headers:{"Authorization":"Bearer "+localStorage.getItem(LS.acc),"Content-Type":"application/json"}};
     if(body) init.body=JSON.stringify(body);
@@ -286,7 +282,7 @@ async function resolveOne(row,cols,markets){
   return "";
 }
 
-/* ===== 詳細/可用性 ===== */
+/* ===== 詳細/可用性・Features ===== */
 async function fetchTrackDetailsByUris(uris){
   const ids=[], map=new Map();
   for(const u of uris){ if(u) ids.push(u.replace("spotify:track:","")); }
@@ -317,7 +313,7 @@ function nextCost(a,b,preset){
   if(preset==="dj")   return 0.45*dTempo+0.35*dKey+0.15*dEner+0.05*dVal;
   if(preset==="rise") return 0.35*dTempo+0.20*dKey+0.35*dEner+0.10*dVal;
   if(preset==="drop") return 0.35*dTempo+0.20*dKey+0.35*dEner+0.10*dVal;
-  return               0.40*dTempo+0.25*dKey+0.25*dEner+0.10*dVal; /* 修正済 */
+  return               0.40*dTempo+0.25*dKey+0.25*dEner+0.10*dVal; /* 0.25*dKey */
 }
 function orderFlow(uris,featMap,preset){
   if(uris.length<=2) return uris.slice(0);
@@ -359,7 +355,7 @@ function makeEditionPacks(allUris, feats){
   return {UK:mkUK, US:mkUS, EU:mkEU, WORLD:mkWO};
 }
 
-/* ===== 書き込み & プレイリスト作成 ===== */
+/* ===== 書込み & プレイリスト作成 ===== */
 const extractPlaylistId=(s)=>{s=String(s||""); let m=s.match(/playlist\/([A-Za-z0-9]{22})/); if(m) return m[1]; m=s.match(/^([A-Za-z0-9]{22})$/); if(m) return m[1]; return ""; }
 async function replacePlaylist(pid,uris){
   const chunks=[]; for(let i=0;i<uris.length;i+=100) chunks.push(uris.slice(i,i+100));
@@ -386,8 +382,7 @@ async function ensureWrite(which, uris){
 
 /* ===== 優先採用ユーティリティ ===== */
 function buildBasePool(list, preferred){
-  const used = new Set();
-  const seq = [];
+  const used = new Set(); const seq = [];
   const pushUnique = (u)=>{ if(u && !used.has(u)){ used.add(u); seq.push(u); } };
   for (const u of preferred) pushUnique(u);
   for (const u of list)      pushUnique(u);
@@ -400,10 +395,10 @@ let _pending=null;
 function getMarkets(){
   const raw=(val("markets","")||"").toUpperCase();
   const arr=raw.split(",").map(s=>s.trim()).filter(Boolean);
-  return arr.length?uniq(arr):["AU","NZ","US","GB","ES","NL"];
+  return arr.length?uniq(arr):["ES","US","GB","NZ"];
 }
 
-/* CSVモード */
+/* CSVモード（CSV選択で自動実行） */
 async function runCsvOnly(){
   progress(8,"CSV検出…");
   const cols=guessCsvColumns(csvRows);
@@ -447,8 +442,6 @@ async function runCsvOnly(){
   const packs=makeEditionPacks(basePool, feats);
 
   progress(86,"曲順最適化（プリセット反映）…");
-  // orderFlow 済み
-
   await exportPrepAndWrite(packs,feats);
 }
 
@@ -467,7 +460,7 @@ async function runAutoOnly(){
     let got=0;
     for(const m of mkts){
       if(got>=perQ) break;
-      const need=Math.min(perQ-got, 100); // 1市場につき最大100試行
+      const need=Math.min(perQ-got, 100);
       const items=await searchMany(q,m,need);
       for(const it of items){
         const u="spotify:track:"+it.id;
@@ -512,7 +505,7 @@ async function runAutoOnly(){
   await exportPrepAndWrite(packs,feats);
 }
 
-/* エクスポート用整形＋書込み */
+/* エクスポート＋書込み */
 let _exportData=null; const enableExportButtons=(on)=>{ $("btnExportXlsx").disabled=!on; $("btnExportCsv").disabled=!on; }
 async function exportPrepAndWrite(packs,feats){
   function packRows(arr,ed){ const out=[]; for(let i=0;i<arr.length;i++){ const f=feats.get(arr[i])||{}; out.push({position:i+1,edition:ed,spotify_uri:arr[i],tempo:round4(f.tempo),energy:round4(f.energy),valence:round4(f.valence),key:(f.key==null?"":f.key),mode:(f.mode==null?"":f.mode)}); } return out; }
@@ -520,44 +513,65 @@ async function exportPrepAndWrite(packs,feats){
   enableExportButtons(true);
 
   if(isAuthed()){
-    progress(90,"書込み…");
-    await ensureWrite("UK",packs.UK);
-    progress(92,"書込み…");
-    await ensureWrite("US",packs.US);
-    progress(94,"書込み…");
-    await ensureWrite("EU",packs.EU);
-    progress(96,"書込み…");
-    await ensureWrite("WORLD",packs.WORLD);
+    progress(90,"書込み…"); await ensureWrite("UK",packs.UK);
+    progress(92,"書込み…"); await ensureWrite("US",packs.US);
+    progress(94,"書込み…"); await ensureWrite("EU",packs.EU);
+    progress(96,"書込み…"); await ensureWrite("WORLD",packs.WORLD);
     log("✅ 書込み完了");
   }else{
     _pending=packs;
     log("🔑 接続待ち：『Spotifyにサインイン』→『接続チェック』");
   }
   progress(100,"完了");
-  log("✅ 完了（CSV/Auto・強制130・市場一致は優先採用・WORLDプリセット対応・新規作成可）");
+  log("✅ 完了（CSV/Auto・強制130・市場一致は優先採用・WORLDプリセット・新規作成可）");
+}
+
+/* 接続後に保留分を書き込む */
+async function resolveAndWrite(packs){
+  try{
+    progress(90,"書込み再開…");
+    await ensureWrite("UK",packs.UK);
+    progress(92,"書込み再開…");
+    await ensureWrite("US",packs.US);
+    progress(94,"書込み再開…");
+    await ensureWrite("EU",packs.EU);
+    progress(96,"書込み再開…");
+    await ensureWrite("WORLD",packs.WORLD);
+    log("✅ 書込み完了");
+    _pending=null;
+  }catch(e){
+    log("💥 ERROR(resolveAndWrite): "+(e.message||e));
+  }
 }
 
 /* ===== イベント ===== */
+/* モードUI切替 */
 $("modeCsv").onchange=()=>{ setHidden("boxCsv",!$("modeCsv").checked); setHidden("boxAuto",$("modeCsv").checked); };
 $("modeAuto").onchange=$("modeCsv").onchange;
+$("modeCsv").onchange();
 
+/* サインイン等 */
 $("btnConnect").onclick=startAuth;
 $("btnReset").onclick=()=>{ for(const k in LS) localStorage.removeItem(LS[k]); _me=null; setStatus(); log("🧽 ローカルトークン削除"); };
 $("btnCheck").onclick=async()=>{ try{ await refreshTokenIfNeeded(); const me=await spFetch("/v1/me","GET"); if(me) {$("status").textContent="接続中（"+(me.display_name||me.id)+")"; log("✅ API確認 OK"); if(_pending) await resolveAndWrite(_pending);} else {$("status").textContent="接続中（OK）";} }catch(e){ log("⚠️ 接続エラー: "+(e.message||e)); } };
 
-$("fileCSV").addEventListener("change",async()=>{
+/* ★ CSV選択で自動実行（あなた指定のハンドラ） */
+$("fileCSV").addEventListener("change", async () => {
   if(!$("modeCsv").checked) return; // Auto時は無視
-  $("log").textContent=""; progress(3,"CSV読み込み…");
+  $("log").textContent="";
+  progress(3,"CSV読み込み…");
   if(!$("fileCSV").files.length){ log("⚠️ CSV未選択"); return; }
-  csvRows=await readCSV($("fileCSV").files[0]); log("✅ CSV: "+csvRows.length+" 行");
+  csvRows = await readCSV($("fileCSV").files[0]);
+  log("✅ CSV: "+csvRows.length+" 行");
   progress(6,"分析開始…");
+  await runCsvOnly();            // ← 自動で走らせる
 });
 
+/* 実行ボタン（Auto用 or CSV再実行用） */
 $("btnRun").onclick=async()=>{
   try{
     $("log").textContent=""; progress(1,"開始…");
-    const isCsv=$("modeCsv").checked;
-    if(isCsv){
+    if($("modeCsv").checked){
       if(!$("fileCSV").files.length){ throw new Error("CSVモードですがCSVが選択されていません"); }
       await runCsvOnly();
     }else{
@@ -568,6 +582,7 @@ $("btnRun").onclick=async()=>{
   }
 };
 
+/* エクスポート */
 $("btnExportXlsx").onclick=()=>{
   if(!_exportData){log("ℹ️ データなし");return;}
   const wb=XLSX.utils.book_new();
@@ -586,6 +601,6 @@ $("btnExportCsv").onclick=()=>{
 };
 
 setStatus();
-log("Ready. CSV→URI解決/Auto検索→市場“優先”→AudioFeatures→プリセット別並び→4×130強制→既存or新規プレイリストに書込み。");
+log("Ready. CSV→自動実行 / Auto検索→市場“優先”→AudioFeatures→プリセット並び→4×130強制→既存or新規プレイリストに書込み。");
 </script>
 </body></html>
