@@ -4,7 +4,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TDCS Editions Builder — BUILD v10.7</title>
+<title>TDCS Editions Builder — BUILD v10.8</title>
 <style>
 :root{--bg:#0b1220;--fg:#cfe3ff}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1180px;margin:32px auto;padding:0 12px}
@@ -35,11 +35,12 @@ a.btn{display:inline-block;padding:9px 12px;border:1px solid #bbb;border-radius:
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
-<h1>TDCS Editions Builder <span class="badge" id="buildBadge">BUILD v10.7</span><span class="badge">Auth-Fix</span><span class="badge">Latest20 pinned</span><span class="badge">Divergence++</span></h1>
+<h1>TDCS Editions Builder <span class="badge" id="buildBadge">BUILD v10.8</span><span class="badge">Auth-Hardening</span><span class="badge">Latest20</span><span class="badge">Divergence++</span></h1>
 <p id="status">未接続</p>
 <div>
-  <button id="btnConnect">Spotifyにサインイン</button>
+  <button id="btnConnect" disabled>Spotifyにサインイン</button>
   <a id="aConnect" class="btn" href="#" target="_self">サインイン(リンク)</a>
+  <a id="aCopy" class="btn" href="#">URLをコピー</a>
   <a id="aHard" class="btn" href="#">ハードリロード</a>
   <button id="btnReset">初期化（保存トークン削除）</button>
   <button id="btnCheck">接続チェック</button>
@@ -158,8 +159,9 @@ a.btn{display:inline-block;padding:9px 12px;border:1px solid #bbb;border-radius:
 </fieldset>
 
 <script>
-const BUILD_ID="v10.7";
+const BUILD_ID="v10.8";
 (function(){const u=new URL(location.href);let ch=false;if(u.searchParams.get("v")!==BUILD_ID){u.searchParams.set("v",BUILD_ID);ch=true}u.searchParams.set("bust",Date.now().toString());const k="boot_"+BUILD_ID;if(ch||!sessionStorage.getItem(k)){sessionStorage.setItem(k,"1");location.replace(u.toString())}})();
+
 const FIXED_REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
 const zws=/[\u200B-\u200D\uFEFF]/g;
 const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier",pend:"csv_auto_pend"};
@@ -178,13 +180,15 @@ window.addEventListener("unhandledrejection",e=>{e.preventDefault();const el=doc
 
 if($("redir")) $("redir").value=FIXED_REDIRECT_URI;
 
+let AUTH_READY_URL=""; let AUTH_READY=false;
+
 const isAuthed=()=> !!localStorage.getItem(LS.acc) && Date.now() < (+localStorage.getItem(LS.exp)||0)-5000;
 function setStatus(){ $("status").textContent=isAuthed()?"接続中（OK）":"未接続"; if(isAuthed() && _pending) resolveAndWrite(_pending); }
 
 function setVerifier(v){
   try{ localStorage.setItem(LS.ver,v); }catch(_){}
   try{ sessionStorage.setItem(LS.ver,v); }catch(_){}
-  try{ const p="/spotify-auth/"; document.cookie=`${LS.ver}=${encodeURIComponent(v)}; Max-Age=900; SameSite=Lax; Path=${p}`; }catch(_){}
+  try{ document.cookie=`${LS.ver}=${encodeURIComponent(v)}; Max-Age=900; SameSite=Lax; Path=/spotify-auth/`; }catch(_){}
 }
 
 function b64url(buf){ let b=""; const u8=new Uint8Array(buf); for(let i=0;i<u8.length;i++) b+=String.fromCharCode(u8[i]); return btoa(b).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); }
@@ -209,17 +213,28 @@ async function buildAuthURL(){
   return u.toString();
 }
 
-async function startAuth(){
+async function prepareAuth(){
   try{
+    AUTH_READY=false; $("btnConnect").disabled=true; $("aConnect").textContent="サインイン(準備中)";
     const url=await buildAuthURL();
-    const a=$("aConnect"); if(a) a.href=url;
-    location.assign(url);
+    AUTH_READY_URL=url; AUTH_READY=true;
+    $("aConnect").href=url; $("aConnect").textContent="サインイン(リンク)";
+    $("btnConnect").disabled=false;
+    const h=$("aHard"); if(h) h.href=`index.html?v=${BUILD_ID}&bust=${Date.now()}`;
   }catch(e){
-    try{ const url=await buildAuthURL(); const a=$("aConnect"); if(a){ a.href=url; a.click(); } else { location.href=url; } }catch(_){}
+    AUTH_READY=false;
+    $("aConnect").href="#"; $("aConnect").textContent="サインイン(失敗)";
+    log("AuthURL生成失敗: "+(e.message||e));
   }
 }
 
-window.addEventListener("pageshow",async()=>{ try{ const url=await buildAuthURL(); const a=$("aConnect"); if(a) a.href=url; const h=$("aHard"); if(h) h.href=`index.html?v=${BUILD_ID}&bust=${Date.now()}` }catch(_){} });
+async function startAuth(){
+  if(!AUTH_READY){ await prepareAuth(); if(!AUTH_READY){ alert("サインイン準備に失敗しました"); return; } }
+  location.assign(AUTH_READY_URL);
+}
+
+window.addEventListener("DOMContentLoaded",prepareAuth);
+window.addEventListener("focus",prepareAuth);
 
 async function refreshTokenIfNeeded(){
   const exp=+(localStorage.getItem(LS.exp)||0);
@@ -406,7 +421,7 @@ function enforceUniqueWithin(seq,pinnedLen,primaryPool,fallbackPool,label="",ban
     if(m.remixer)   cnt.rem.set(m.remixer,(cnt.rem.get(m.remixer)||0)+1);
     if(m.albumId)   cnt.album.set(m.albumId,(cnt.album.get(m.albumId)||0)+1);
     if(m.catalog)   cnt.catalog.set(m.catalog,(cnt.catalog.get(m.catalog)||0)+1);
-    if(m.catNo)     cnt.catno.set(m.catno,(cnt.catno.get(m.catNo)||0)+1); }
+    if(m.catNo)     cnt.catno.set(m.catNo,(cnt.catno.get(m.catNo)||0)+1); }
   for(const u of tail){ if(canPush(u)) push(u); else drop++; }
   const want = Math.floor(tail.length);
   function refill(fromPool){ const src=Array.isArray(fromPool)?fromPool:[]; for(const u of src){ if(uniqTail.length>=want) break; if(!u) continue; if(canPush(u)) push(u); } }
@@ -682,8 +697,9 @@ async function resolveAndWrite(packs){
 $("modeCsv").onchange=()=>{ setHidden("boxCsv",!$("modeCsv").checked); setHidden("boxAuto",$("modeCsv").checked); };
 $("modeAuto").onchange=$("modeCsv").onchange; $("modeCsv").onchange();
 
-$("btnConnect").onclick=startAuth;
-$("aConnect").onclick=async(e)=>{ try{ const url=await buildAuthURL(); $("aConnect").href=url; }catch(_){} };
+$("btnConnect").onclick=()=>{ if(!AUTH_READY) return; $("aConnect").click(); };
+$("aConnect").onclick=async(e)=>{ if(!AUTH_READY){ e.preventDefault(); await prepareAuth(); }};
+$("aCopy").onclick=async(e)=>{ e.preventDefault(); if(!AUTH_READY) await prepareAuth(); try{ await navigator.clipboard.writeText(AUTH_READY_URL||""); alert("コピーしました"); }catch(_){ alert(AUTH_READY_URL||""); } };
 $("aHard").onclick=(e)=>{ e.preventDefault(); location.replace(`index.html?v=${BUILD_ID}&bust=${Date.now()}`); };
 
 $("btnReset").onclick=()=>{ for(const k in LS) localStorage.removeItem(LS[k]); _me=null; setStatus(); log("ローカルトークン削除"); };
@@ -704,27 +720,17 @@ $("btnRun").onclick=async()=>{
   $("log").textContent="";
   progress(1,"開始…");
   if(!isAuthed()){
-    $("status").textContent="未接続（自動サインイン中）";
-    await startAuth();
+    $("status").textContent="未接続（サインインしてください）";
     return;
   }
   const useCsv = $("modeCsv").checked && $("fileCSV").files.length>0;
   try{
-    if(useCsv){
-      await runCsvOnly();
-    }else{
-      $("modeAuto").checked=true;
-      $("modeCsv").onchange();
-      await runAutoOnly();
-    }
-  }catch(e){
-    log("ERROR: "+(e.message||e));
-  }
+    if(useCsv){ await runCsvOnly(); }
+    else{ $("modeAuto").checked=true; $("modeCsv").onchange(); await runAutoOnly(); }
+  }catch(e){ log("ERROR: "+(e.message||e)); }
 };
 
 setStatus();
 document.getElementById("buildBadge").textContent="BUILD "+BUILD_ID;
-(async()=>{ try{ const url=await buildAuthURL(); const a=$("aConnect"); if(a) a.href=url; const h=$("aHard"); if(h) h.href=`index.html?v=${BUILD_ID}&bust=${Date.now()}` }catch(_){}})();
-if(!isAuthed()){ $("status").textContent="未接続（自動サインイン中）"; startAuth(); }
 </script>
 </body></html>
