@@ -2,40 +2,25 @@
 <html lang="ja"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TDCS Editions — Auth Kick</title>
+<title>Spotify サインイン</title>
 <style>
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:680px;margin:40px auto;padding:0 14px}
-button{padding:10px 14px}
-code{background:#f3f5f8;padding:2px 6px;border-radius:4px}
+body{font-family:system-ui;max-width:720px;margin:40px auto;padding:0 14px}
+button{padding:10px 14px;border:1px solid #bbb;border-radius:8px;background:#fff;cursor:pointer}
+input[type="text"]{width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px}
 </style>
 </head>
 <body>
-<h1>Spotify 認可を開始します</h1>
-<p>自動で遷移しない場合は <button id="go">ここをクリック</button>。</p>
-<p>Redirect URI: <code id="redir"></code></p>
+<h1>Spotify サインイン（PKCE）</h1>
+<p>ボタンを押すと <code>index.html</code> のサインイン処理を呼び出します。</p>
+<div>
+  <label>CLIENT_ID <input id="cid" type="text" value="1fd6350fcf4945a0b3ddffa2d5730d4e"></label>
+</div>
+<button id="go">Spotifyにサインイン</button>
 <script>
-const zws=/[\u200B-\u200D\uFEFF]/g;
-const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e".replace(zws,"").trim();
-const SCOPES="playlist-modify-public playlist-modify-private ugc-image-upload";
-const LS={ver:"sp_code_verifier"};
-const REDIRECT_URI = new URL('callback.html', location.origin + location.pathname.replace(/\/auth\.html?$/,'').replace(/\/$/,'/') + '/').toString();
-document.getElementById('redir').textContent = REDIRECT_URI;
-
-async function startAuth(){
-  // PKCE
-  let v=""; const u8=new Uint8Array(64); crypto.getRandomValues(u8); for(let i=0;i<u8.length;i++) v+=String.fromCharCode(97+(u8[i]%26));
-  localStorage.setItem(LS.ver,v);
-  const h=new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v)));
-  let b=""; for(const x of h) b+=String.fromCharCode(x);
-  const ch=btoa(b).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
-  const u=new URL("https://accounts.spotify.com/authorize");
-  u.searchParams.set("response_type","code"); u.searchParams.set("client_id",CLIENT_ID);
-  u.searchParams.set("redirect_uri",REDIRECT_URI);
-  u.searchParams.set("code_challenge_method","S256"); u.searchParams.set("code_challenge",ch);
-  u.searchParams.set("scope",SCOPES);
-  location.href=u.toString();
-}
-document.getElementById('go').onclick=startAuth;
-startAuth();
+document.getElementById("go").onclick=()=>{
+  const id=(document.getElementById("cid").value||"").trim();
+  // シンプルに index.html へ戻る（index側で開始）
+  location.href="index.html";
+};
 </script>
 </body></html>
