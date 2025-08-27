@@ -181,7 +181,7 @@ const subProgress=(i,t,s,e,l)=>{ const f=t?i/t:0; progress(s+(e-s)*f,`${l} (${i}
 const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
 const round4=(x)=> (typeof x==="number"&&isFinite(x))?Math.round(x*10000)/10000:"";
 const uniq=(a)=>Array.from(new Set(a));
-// ★ 安全な整数長（0..9999）に丸める
+// 安全な整数長（0..9999）に丸める
 const i32=(n,def=0)=>{ n=Number(n); if(!Number.isFinite(n)) return def; if(n<0) return 0; return Math.min(9999,Math.floor(n)); };
 
 /* ===== Redirect URI ===== */
@@ -518,113 +518,7 @@ function editionWeight(u, feats, tracksMap, edition){
   return 0.55*feat + 0.45*mkt + noRemixBonus;
 }
 
-/* ===== Deep divergence builder (V3) + Safe fallback ===== */
-function makeEditionPacksV3(baseUris, feats, pinned, tracksMap){
-  const N = i32(val("finalN","130")||130,130);
-  const withinDupAllowed=!!$("allowWithinDup")?.checked;
-  const allowCrossDup =!!$("allowCrossDup")?.checked;
-  const diverge = getDiverge(); const level=DIV_LEVELS[diverge]||DIV_LEVELS.high;
-
-  const P = i32(Math.min(pinned.length, N));
-  const fixed = pinned.slice(0, P);
-  const tailN = i32(N - P);
-
-  const pinnedSet=new Set(fixed);
-  let remainder=baseUris.filter(u=>!pinnedSet.has(u));
-  if(!allowCrossDup) remainder=[...new Set(remainder)];
-
-  const buckets=[[],[],[],[]];
-  for(const u of remainder){ buckets[seedHash(u)%4].push(u); }
-  const mapEd={UK:0,US:1,EU:2,WORLD:3}, sigSeeds={UK:101,US:202,EU:303,WORLD:404};
-  const packs={}, usedGlobal=new Set();
-
-  function pickByProfile(home,others,edition){
-    const prof = EDITION_PROFILES[edition]||{};
-    const gates = [level.gate, Math.max(0.01, level.gate*0.85), Math.max(0.01, level.gate*0.70), Math.max(0.01, level.gate*0.55), Math.max(0.01, level.gate*0.40), 0.30, 0.20];
-    const orderPools=[home,others];
-    const out=[], artistCount=new Map(), remCount=new Map();
-
-    const pushIf=(u,strictCap=true)=>{
-      if(!u) return false;
-      if(out.length>=tailN) return false;
-      if(!allowCrossDup && usedGlobal.has(u)) return false;
-      if(out.includes(u)) return false;
-      const meta=URI_META.get(u)||{}; const a=meta.artistId||""; const r=meta.remixer||"";
-      if(strictCap){
-        if(a && (artistCount.get(a)||0)>=level.artistCap) return false;
-        if(r && (remCount.get(r)||0)>=level.remixerCap) return false;
-      }
-      out.push(u);
-      if(!allowCrossDup) usedGlobal.add(u);
-      if(a) artistCount.set(a,(artistCount.get(a)||0)+1);
-      if(r) remCount.set(r,(remCount.get(r)||0)+1);
-      return true;
-    };
-
-    for(const g of gates){
-      for(const pool of orderPools){
-        const cand = pool.filter(u=>fitsProfile(feats.get(u), prof, g));
-        cand.sort((a,b)=> editionWeight(b,feats,tracksMap,edition)-editionWeight(a,feats,tracksMap,edition));
-        for(const u of cand){ if(out.length>=tailN) break; pushIf(u,true); }
-        if(out.length>=tailN) break;
-      }
-      if(out.length>=tailN) break;
-    }
-    if(out.length<tailN){
-      const fb = home.concat(others).filter(u=>!out.includes(u));
-      for(const u of fb){ if(out.length>=tailN) break; pushIf(u,true); }
-    }
-    if(out.length<tailN){
-      const fb2 = home.concat(others).filter(u=>!out.includes(u));
-      for(const u of fb2){ if(out.length>=tailN) break; pushIf(u,false); }
-    }
-    return out.slice(0,tailN);
-  }
-
-  function buildOne(edition){
-    const idx=mapEd[edition], seed=sigSeeds[edition];
-    const home=buckets[idx].slice(0);
-    const others=remainder.filter(u=>!home.includes(u));
-    home.sort((a,b)=>editionWeight(b,feats,tracksMap,edition)-editionWeight(a,feats,tracksMap,edition));
-    others.sort((a,b)=>editionWeight(b,feats,tracksMap,edition)-editionWeight(a,feats,tracksMap,edition));
-
-    const tail = pickByProfile(home,others,edition);
-    const prev=fixed[fixed.length-1]||tail[0];
-    const orderedTail=buildTailByPreset(prev, tail, feats, val("preset"+edition, edition==="US"?"rise":edition==="EU"?"drop":edition==="WORLD"?"dj":"waves"), seed);
-
-    let seq=fixed.concat(orderedTail);
-    if(!withinDupAllowed){
-      const ban = allowCrossDup ? null : usedGlobal;
-      const prefPool = home.concat(others);
-      const seqUnique = enforceUniqueWithin(seq, P, prefPool, remainder, edition, ban);
-      if(!allowCrossDup){ for(const u of seqUnique.slice(P)) usedGlobal.add(u); }
-      seq = seqUnique;
-    }
-    const swaps=postProcessNoAdjacency(seq, P);
-    log(`↔️ 連続回避 ${edition}: remixer=${swaps.remix_swaps}, artist=${swaps.artist_swaps}`);
-    return seq;
-  }
-
-  packs.UK=buildOne("UK");
-  packs.US=buildOne("US");
-  packs.EU=buildOne("EU");
-  packs.WORLD=buildOne("WORLD");
-
-  function overlap(a,b){
-    const la = Array.isArray(a)?a.length:0;
-    const lb = Array.isArray(b)?b.length:0;
-    if(la===0 || lb===0) return "0.0";
-    const A=new Set(a),B=new Set(b); let x=0; for(const u of A) if(B.has(u)) x++;
-    const denom = Math.max(1, Math.min(la,lb));
-    return (100*x/denom).toFixed(1);
-  }
-  log(`🪄 版間重なり率(%) UK/US=${overlap(packs.UK,packs.US)}, UK/EU=${overlap(packs.UK,packs.EU)}, UK/WORLD=${overlap(packs.UK,packs.WORLD)}`);
-  log(`🪄 版間重なり率(%) US/EU=${overlap(packs.US,packs.EU)}, US/WORLD=${overlap(packs.US,packs.WORLD)}, EU/WORLD=${overlap(packs.EU,packs.WORLD)}`);
-  log(`🎛️ 差別化レベル: ${diverge} (gate=${level.gate}, artistCap=${level.artistCap}, remixerCap=${level.remixerCap})`);
-  return packs;
-}
-
-/* —— フォールバック（V0：安全第一・シンプル） —— */
+/* ===== Deep Divergence (堅牢版／内蔵フォールバック) ===== */
 function makeEditionPacksFallback(baseUris, feats, pinned){
   const N=i32(val("finalN","130")||130,130);
   const P=i32(Math.min(pinned.length,N));
@@ -639,13 +533,130 @@ function makeEditionPacksFallback(baseUris, feats, pinned){
   return {UK:build("UK"),US:build("US"),EU:build("EU"),WORLD:build("WORLD")};
 }
 
+function makeEditionPacksV3(baseUris, feats, pinned, tracksMap){
+  try{
+    baseUris = Array.isArray(baseUris)? baseUris : [];
+    feats    = (feats instanceof Map)? feats : new Map();
+    tracksMap= (tracksMap instanceof Map)? tracksMap : new Map();
+    pinned   = Array.isArray(pinned)? pinned : [];
+
+    const N = i32(val("finalN","130")||130,130);
+    const P = i32(Math.min(pinned.length,N));
+    const fixed = pinned.slice(0,P);
+    const tailN = i32(N-P);
+    const withinDupAllowed = !!$("allowWithinDup")?.checked;
+    const allowCrossDup    = !!$("allowCrossDup")?.checked;
+
+    // 残りプール
+    const pinnedSet=new Set(fixed);
+    let remainder=baseUris.filter(u=>typeof u==="string" && u && !pinnedSet.has(u));
+    if(!allowCrossDup) remainder=[...new Set(remainder)];
+    log(`🧪 PackParams N=${N} P=${P} tailN=${tailN} remainder=${remainder.length}`);
+
+    // バケット
+    const buckets=[[],[],[],[]];
+    for(const u of remainder){ buckets[seedHash(u)%4].push(u); }
+
+    const mapEd={UK:0,US:1,EU:2,WORLD:3}, sigSeeds={UK:101,US:202,EU:303,WORLD:404};
+    const diverge=getDiverge(); const level=DIV_LEVELS[diverge]||DIV_LEVELS.high;
+    const packs={}, usedGlobal=new Set();
+
+    function pickByProfile(home,others,edition){
+      home=Array.isArray(home)?home:[]; others=Array.isArray(others)?others:[];
+      const prof = EDITION_PROFILES[edition]||{};
+      const gates = [level.gate, Math.max(0.01, level.gate*0.85), Math.max(0.01, level.gate*0.70), Math.max(0.01, level.gate*0.55), Math.max(0.01, level.gate*0.40), 0.30, 0.20];
+      const orderPools=[home,others];
+      const out=[], artistCount=new Map(), remCount=new Map();
+
+      const pushIf=(u,strictCap=true)=>{
+        if(!u) return false;
+        if(out.length>=tailN) return false;
+        if(!allowCrossDup && usedGlobal.has(u)) return false;
+        if(out.includes(u)) return false;
+        const meta=URI_META.get(u)||{}; const a=meta.artistId||""; const r=meta.remixer||"";
+        if(strictCap){
+          if(a && (artistCount.get(a)||0)>= (level.artistCap||2)) return false;
+          if(r && (remCount.get(r)||0)>= (level.remixerCap||1)) return false;
+        }
+        out.push(u);
+        if(!allowCrossDup) usedGlobal.add(u);
+        if(a) artistCount.set(a,(artistCount.get(a)||0)+1);
+        if(r) remCount.set(r,(remCount.get(r)||0)+1);
+        return true;
+      };
+
+      for(const g of gates){
+        for(const pool of orderPools){
+          const cand = pool.filter(u=>fitsProfile(feats.get(u), prof, g));
+          cand.sort((a,b)=> editionWeight(b,feats,tracksMap,edition)-editionWeight(a,feats,tracksMap,edition));
+          for(const u of cand){ if(out.length>=tailN) break; pushIf(u,true); }
+          if(out.length>=tailN) break;
+        }
+        if(out.length>=tailN) break;
+      }
+      if(out.length<tailN){
+        const fb = home.concat(others).filter(u=>!out.includes(u));
+        for(const u of fb){ if(out.length>=tailN) break; pushIf(u,true); }
+      }
+      if(out.length<tailN){
+        const fb2 = home.concat(others).filter(u=>!out.includes(u));
+        for(const u of fb2){ if(out.length>=tailN) break; pushIf(u,false); }
+      }
+      return out.slice(0,tailN);
+    }
+
+    function buildOne(edition){
+      const idx=mapEd[edition], seed=sigSeeds[edition];
+      const home=buckets[idx].slice(0);
+      const others=remainder.filter(u=>!home.includes(u));
+      home.sort((a,b)=>editionWeight(b,feats,tracksMap,edition)-editionWeight(a,feats,tracksMap,edition));
+      others.sort((a,b)=>editionWeight(b,feats,tracksMap,edition)-editionWeight(a,feats,tracksMap,edition));
+      const tail = pickByProfile(home,others,edition);
+      const prev=fixed[fixed.length-1]||tail[0];
+      const orderedTail=buildTailByPreset(prev, tail, feats, val("preset"+edition, edition==="US"?"rise":edition==="EU"?"drop":edition==="WORLD"?"dj":"waves"), seed);
+      let seq=fixed.concat(orderedTail);
+      if(!withinDupAllowed){
+        const ban = allowCrossDup ? null : usedGlobal;
+        const prefPool = home.concat(others);
+        const seqUnique = enforceUniqueWithin(seq, P, prefPool, remainder, edition, ban);
+        if(!allowCrossDup){ for(const u of seqUnique.slice(P)) usedGlobal.add(u); }
+        seq = seqUnique;
+      }
+      const swaps=postProcessNoAdjacency(seq, P);
+      log(`↔️ 連続回避 ${edition}: remixer=${swaps.remix_swaps}, artist=${swaps.artist_swaps}`);
+      return seq;
+    }
+
+    packs.UK=buildOne("UK");
+    packs.US=buildOne("US");
+    packs.EU=buildOne("EU");
+    packs.WORLD=buildOne("WORLD");
+
+    const overlap=(a,b)=>{ const la=a?.length||0, lb=b?.length||0; if(!la||!lb) return "0.0"; const A=new Set(a),B=new Set(b); let x=0; for(const u of A) if(B.has(u)) x++; const d=Math.max(1,Math.min(la,lb)); return (100*x/d).toFixed(1); };
+    log(`🪄 版間重なり率(%) UK/US=${overlap(packs.UK,packs.US)}, UK/EU=${overlap(packs.UK,packs.EU)}, UK/WORLD=${overlap(packs.UK,packs.WORLD)}`);
+    log(`🪄 版間重なり率(%) US/EU=${overlap(packs.US,packs.EU)}, US/WORLD=${overlap(packs.US,packs.WORLD)}, EU/WORLD=${overlap(packs.EU,packs.WORLD)}`);
+    log(`🎛️ 差別化レベル: ${diverge} (gate=${(DIV_LEVELS[diverge]||{}).gate}, artistCap=${(DIV_LEVELS[diverge]||{}).artistCap}, remixerCap=${(DIV_LEVELS[diverge]||{}).remixerCap})`);
+
+    // 最終安全チェック
+    for(const k of ["UK","US","EU","WORLD"]){
+      const arr=packs[k]; if(!Array.isArray(arr)) throw new Error("pack["+k+"] invalid");
+      const need=i32(val("finalN","130")||130,130);
+      if(arr.length!==need) packs[k] = (arr.length>need?arr.slice(0,need):arr.concat((baseUris||[]).slice(0,need-arr.length)));
+    }
+    return packs;
+  }catch(e){
+    log("⚠️ V3分配で例外 → Fallback適用: "+(e.message||e));
+    return makeEditionPacksFallback(baseUris,feats,pinned);
+  }
+}
+
 /* ===== Beatport 150 ===== */
 function buildBeatportFromConsensus(baseUris, feats, pinned, packs4, tracksMap){
   const N = i32(val("finalN","130")||130,130);
   const extra = i32(val("bpExtra","20")||20,20);
   const total = i32(N + extra);
   const P = i32(Math.min(pinned.length, total));
-  const fixed=pinned.slice(0,P), tailN=i32(total-P);
+  const fixed=pinned.slice(0,P); const tailN=i32(total-P);
 
   const freq=new Map();
   for(const name of ["UK","US","EU","WORLD"]){
@@ -747,12 +758,8 @@ async function runCsvOnly(){
 
   progress(78,"エディション分配（Deep Divergence）…");
   let packs4=null;
-  try{
-    packs4=makeEditionPacksV3(basePool, feats, pinned, tracksMap);
-  }catch(e){
-    log("⚠️ V3分配で例外 → Fallback適用: "+(e.message||e));
-    packs4=makeEditionPacksFallback(basePool, feats, pinned);
-  }
+  try{ packs4=makeEditionPacksV3(basePool, feats, pinned, tracksMap); }
+  catch(e){ log("⚠️ V3分配で例外 → Fallback適用: "+(e.message||e)); packs4=makeEditionPacksFallback(basePool, feats, pinned); }
 
   progress(82,"Beatport版（+20）を構成…");
   const packBP=buildBeatportFromConsensus(basePool, feats, pinned, packs4, tracksMap);
@@ -811,12 +818,8 @@ async function runAutoOnly(){
 
   progress(78,"エディション分配（Deep Divergence）…");
   let packs4=null;
-  try{
-    packs4=makeEditionPacksV3(basePool, feats, pinned, tracksMap);
-  }catch(e){
-    log("⚠️ V3分配で例外 → Fallback適用: "+(e.message||e));
-    packs4=makeEditionPacksFallback(basePool, feats, pinned);
-  }
+  try{ packs4=makeEditionPacksV3(basePool, feats, pinned, tracksMap); }
+  catch(e){ log("⚠️ V3分配で例外 → Fallback適用: "+(e.message||e)); packs4=makeEditionPacksFallback(basePool, feats, pinned); }
 
   progress(82,"Beatport版（+20）を構成…");
   const packBP=buildBeatportFromConsensus(basePool, feats, pinned, packs4, tracksMap);
@@ -875,7 +878,7 @@ $("fileCSV").addEventListener("change", async () => {
   csvRows = await readCSV($("fileCSV").files[0]);
   log("✅ CSV: "+csvRows.length+" 行");
   progress(6,"分析開始…");
-  await runCsvOnly();            // ← 自動で走らせる
+  await runCsvOnly();            // 自動で走らせる
 });
 
 /* 実行ボタン */
@@ -911,6 +914,6 @@ $("btnExportCsv").onclick=()=>{
 };
 
 setStatus();
-log("Ready. Deep Divergence + Safe Fallback: 版別プロファイル→不足時段階緩和。上限/ユニーク/連続回避/Beatport150。例外時はフォールバックで完走。");
+log("Ready. Deep Divergence + Safe Fallback：例外でも即フォールバックして完走。UK/US/EU/WORLD各130 + Beatport150、15固定・重複/連続回避対応。");
 </script>
 </body></html>
