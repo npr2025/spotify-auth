@@ -4,16 +4,26 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spotify 認可コールバック (BUILD v10.2)</title>
+<title>Spotify 認可コールバック (BUILD v10.3)</title>
 <style>body{font-family:system-ui;margin:24px}code{background:#f4f4f4;padding:2px 4px;border-radius:4px}</style>
 </head>
 <body>
-<h2>処理中… (BUILD v10.2)</h2>
+<h2>処理中… (BUILD v10.3)</h2>
 <pre id="out"></pre>
 <script>
-const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier"};
+const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier",pend:"csv_auto_pend"};
 function out(s){ document.getElementById('out').textContent += s+"\n"; }
-
+function readVerifier(){
+  const k=LS.ver;
+  try{ const v1=localStorage.getItem(k); if(v1) return v1; }catch(_){}
+  try{ const v2=sessionStorage.getItem(k); if(v2) return v2; }catch(_){}
+  try{ const m=document.cookie.split(";").map(s=>s.trim().split("=")).find(([a])=>a===k); if(m&&m[1]) return decodeURIComponent(m[1]); }catch(_){}
+  return "";
+}
+function clearVerifier(){ try{ localStorage.removeItem(LS.ver); }catch(_){}
+  try{ sessionStorage.removeItem(LS.ver); }catch(_){}
+  try{ document.cookie=LS.ver+"=; Max-Age=0; Path=/"; }catch(_){}
+}
 (async()=>{
   try{
     const url=new URL(location.href);
@@ -23,9 +33,10 @@ function out(s){ document.getElementById('out').textContent += s+"\n"; }
     if(!code){ out("認可コードがありません"); throw new Error("no code"); }
 
     const base = location.origin + location.pathname.replace(/callback\.html?$/,'');
-    const indexUrl = base + "index.html?v=v10.2";
+    const indexUrl = base + "index.html?v=v10.3";
 
-    const code_verifier = localStorage.getItem(LS.ver);
+    const code_verifier = readVerifier();
+    if(!code_verifier){ out("code_verifier が見つかりません（SafariのCookie/トラッキング設定を確認）"); }
     const CLIENT_ID = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 
     const body=new URLSearchParams();
@@ -36,16 +47,21 @@ function out(s){ document.getElementById('out').textContent += s+"\n"; }
     body.set("code_verifier",code_verifier||"");
 
     const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
-    if(!r.ok){ const t=await r.text(); out("Token Error: "+t); throw new Error("token "+r.status); }
+    if(!r.ok){
+      let msg="token "+r.status;
+      try{ const t=await r.json(); msg+=(t.error_description?": "+t.error_description:""); }catch(_){}
+      if(/redirect uri/i.test(msg)) out("Redirect URI 不一致。Dashboardに正しい callback.html を登録してください。");
+      out("Token Error: "+msg);
+      throw new Error(msg);
+    }
     const j=await r.json();
     localStorage.setItem(LS.acc,j.access_token);
     localStorage.setItem(LS.exp,String(Date.now()+j.expires_in*1000));
     if(j.refresh_token) localStorage.setItem(LS.ref,j.refresh_token);
+    clearVerifier();
     out("OK。戻ります…");
     location.href=indexUrl;
-  }catch(e){
-    out("失敗: "+(e.message||e));
-  }
+  }catch(e){ out("失敗: "+(e.message||e)); }
 })();
 </script>
 </body></html>
