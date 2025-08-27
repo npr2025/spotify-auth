@@ -1,16 +1,19 @@
 <!doctype html>
 <html lang="ja"><head>
 <meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spotify 認可コールバック</title>
+<title>Spotify 認可コールバック (BUILD r7)</title>
 <style>body{font-family:system-ui;margin:24px}code{background:#f4f4f4;padding:2px 4px;border-radius:4px}</style>
 </head>
 <body>
-<h2>処理中…</h2>
+<h2>処理中… (BUILD r7)</h2>
 <pre id="out"></pre>
 <script>
 const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier"};
 function out(s){ document.getElementById('out').textContent += s+"\n"; }
+
 (async()=>{
   try{
     const url=new URL(location.href);
@@ -18,24 +21,32 @@ function out(s){ document.getElementById('out').textContent += s+"\n"; }
     const err =url.searchParams.get("error");
     if(err){ out("Error: "+err); throw new Error(err); }
     if(!code){ out("認可コードがありません"); throw new Error("no code"); }
+
+    // index.html と同じフォルダ推定
     const base = location.origin + location.pathname.replace(/callback\.html?$/,'');
-    const indexUrl = base + "index.html";
+    const indexUrl = base + "index.html?v=r7";
+
     const code_verifier = localStorage.getItem(LS.ver);
     const CLIENT_ID = "1fd6350fcf4945a0b3ddffa2d5730d4e";
+
     const body=new URLSearchParams();
     body.set("grant_type","authorization_code");
     body.set("code",code);
     body.set("redirect_uri",location.origin + location.pathname);
     body.set("client_id",CLIENT_ID);
     body.set("code_verifier",code_verifier||"");
+
     const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
     if(!r.ok){ const t=await r.text(); out("Token Error: "+t); throw new Error("token "+r.status); }
     const j=await r.json();
     localStorage.setItem(LS.acc,j.access_token);
     localStorage.setItem(LS.exp,String(Date.now()+j.expires_in*1000));
     if(j.refresh_token) localStorage.setItem(LS.ref,j.refresh_token);
-    out("OK。戻ります…"); location.href=indexUrl;
-  }catch(e){ out("失敗: "+(e.message||e)); }
+    out("OK。戻ります…");
+    location.href=indexUrl;
+  }catch(e){
+    out("失敗: "+(e.message||e));
+  }
 })();
 </script>
 </body></html>
