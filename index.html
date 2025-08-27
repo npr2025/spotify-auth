@@ -4,11 +4,12 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TDCS Editions Builder — Deep Divergence + Unique + No-Adj-Remixer + BP150 (BUILD r7)</title>
+<title>TDCS Editions Builder — Deep Divergence + Unique + No-Adj-Remixer + BP150 (BUILD r8)</title>
 <style>
 :root{--bg:#0b1220;--fg:#cfe3ff}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1180px;margin:32px auto;padding:0 12px}
 h1{margin:0 0 8px}
+.badge{display:inline-block;margin-left:8px;padding:3px 10px;border:1px solid #999;border-radius:999px;font-size:12px;background:#fff}
 fieldset{border:1px solid #ddd;border-radius:10px;padding:14px;margin:14px 0}
 legend{font-weight:600}
 label{display:block;margin:6px 0}
@@ -28,13 +29,18 @@ small.hint{color:#666}
 .hidden{display:none}
 .inline{display:inline-block;margin-right:16px}
 .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
-.badge{display:inline-block;margin-left:8px;padding:2px 8px;border:1px solid #ccc;border-radius:999px;font-size:12px}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
-<h1>TDCS Editions Builder <span class="badge">BUILD r7</span><span class="badge">Deep Divergence</span><span class="badge">20固定</span><span class="badge">版内ユニーク</span><span class="badge">No Adj. Remixer</span><span class="badge">BP150</span></h1>
+<h1>TDCS Editions Builder
+  <span class="badge" id="buildBadge">BUILD r8</span>
+  <span class="badge">20 pinned</span>
+  <span class="badge">Deep Divergence</span>
+  <span class="badge">Unique / No-Adj-Remixer</span>
+  <span class="badge">BP150</span>
+</h1>
 <p id="status">未接続</p>
 <div>
   <button id="btnConnect">Spotifyにサインイン</button>
@@ -96,8 +102,8 @@ small.hint{color:#666}
   </div>
 
   <label><input id="strictMarket" type="checkbox" checked> 市場一致を「優先採用」にする（不足分は候補で補完）</label>
-  <label><input id="allowCrossDup" type="checkbox"> 版間重複を許可（※OFF=版間の中身被りを抑制）</label>
-  <label><input id="allowWithinDup" type="checkbox"> 版内重複を許可（※通常はOFFでユニーク維持）</label>
+  <label><input id="allowCrossDup" type="checkbox"> 版間重複を許可（※OFF=版間の被りを抑制）</label>
+  <label><input id="allowWithinDup" type="checkbox"> 版内重複を許可（※通常はOFF）</label>
 
   <div class="grid3">
     <label>差別化レベル
@@ -113,7 +119,7 @@ small.hint{color:#666}
 </fieldset>
 
 <fieldset id="boxIntro">
-  <legend>イントロ固定（先頭をテンプレ通りに共通化）</legend>
+  <legend>イントロ固定（テンプレ通り＋不足は補完で“常に20曲”）</legend>
   <div class="grid2">
     <label>テンプレPL ID/URL
       <input id="introTpl" type="text" value="https://open.spotify.com/playlist/1v9jLD4ZxIaCDap2fPKGcJ?si=3f561ed29e554a20&pt=657aba40d6c86a1fffe7022ec0398916">
@@ -122,7 +128,6 @@ small.hint{color:#666}
       <input id="introLen" type="number" value="20" min="10" max="20">
     </label>
   </div>
-  <small class="hint">テンプレ外の曲はスキップしつつ、20曲に満たない場合はベースプールから補完して必ず20曲固定。</small>
 </fieldset>
 
 <fieldset id="boxCsv">
@@ -164,7 +169,10 @@ label:"Nipponeer Records" "drum and bass" year:1994-2016 -bootleg -"unofficial" 
 </fieldset>
 
 <script>
-/* ===== 例外/緊急復旧（BUILD r7） ===== */
+/* ===== BUILD STAMP ===== */
+const BUILD_ID="r8";
+
+/* ===== 例外/緊急復旧（強制捕捉） ===== */
 const REC={basePool:null,feats:null,pinned:null,tracksMap:null,packs4:null};
 window.onerror=(m,src,lin,col,err)=>{ const el=document.getElementById("log"); el.textContent+=(el.textContent?"\n":"")+"💥 ScriptError: "+m+" @"+lin+":"+col; console.error(err||m); };
 function _unhandledRecovery(e){
@@ -177,7 +185,7 @@ function _unhandledRecovery(e){
       const packs4 = makeEditionPacksFallback(REC.basePool, REC.feats||new Map(), REC.pinned||[]);
       const packBP  = buildBeatportFromConsensus(REC.basePool, REC.feats||new Map(), REC.pinned||[], packs4, REC.tracksMap||new Map());
       exportPrepAndWrite({...packs4, BEATPORT:packBP}, REC.feats||new Map());
-      el.textContent+=`\n✅ 緊急フォールバック完了（V0で完走）`;
+      el.textContent+=`\n✅ 緊急フォールバック完了（BUILD ${BUILD_ID}）`;
       if(e && typeof e.preventDefault==="function") e.preventDefault();
       return false;
     }
@@ -185,7 +193,7 @@ function _unhandledRecovery(e){
     el.textContent+=`\n💥 Fallback失敗: ${(ex&&ex.message)||ex}`;
   }
 }
-window.addEventListener("unhandledrejection",_unhandledRecovery);
+window.addEventListener("unhandledrejection",_unhandledRecovery,{capture:true});
 window.onunhandledrejection=_unhandledRecovery;
 
 /* ===== 定数/UTIL ===== */
@@ -363,18 +371,16 @@ function buildTailByPreset(prev, tail, feats, preset, editionSeed){
   const withE = tail.map(u=>({u,e:(feats.get(u)||{}).energy ?? 0.5}));
   const low=withE.slice().sort((a,b)=>a.e-b.e), high=withE.slice().sort((a,b)=>b.e-a.e);
   const snake=[]; let i=0,j=0; while(i<low.length||j<high.length){ if(j<high.length) snake.push(high[j++].u); if(i<low.length) snake.push(low[i++].u); }
-  // waves：軽いシャッフル
   const r=editionSeed%2147483647; let x=r; const a=snake;
   for(let k=a.length-1;k>0;k--){ x=(x*48271)%2147483647; const t=Math.floor((x/2147483647)*(k+1)); [a[k],a[t]]=[a[t],a[k]]; }
   return a;
 }
 
-/* ===== メタ（リミキサ／アーティスト） ===== */
+/* ===== メタ ===== */
 let URI_META=new Map();
 function normalizeRemixer(s){ s=String(s||"").trim(); if(!s) return ""; s=s.replace(/\b(original|radio|extended|club)\b.*$/i,"").trim(); return s.toLowerCase(); }
 function parseRemixerFromName(name){
-  name=String(name||"");
-  const pats=[/\(([^)]+?)\s+(?:re-?mix|mix|edit|version)\)/i, /-\s*([^-\(\[]+?)\s+(?:re-?mix|mix|edit|version)\b/i];
+  name=String(name||""); const pats=[/\(([^)]+?)\s+(?:re-?mix|mix|edit|version)\)/i, /-\s*([^-\(\[]+?)\s+(?:re-?mix|mix|edit|version)\b/i];
   for(const re of pats){ const m=name.match(re); if(m){ const r=m[1].trim(); if(/original|radio|extended/i.test(r)) return ""; return r; } }
   return "";
 }
@@ -397,7 +403,7 @@ function seedHash(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.ch
 function rng(seed){ let x=seedHash(String(seed))||1; return ()=>{ x^=x<<13; x^=x>>>17; x^=x<<5; return (x>>>0)/4294967296; } }
 function seededShuffle(arr, seed){ const r=rng(seed); const a=arr.slice(0); for(let i=a.length-1;i>0;i++){ const j=Math.floor(r()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
 
-/* ===== 連続Remixer/Artist回避 ===== */
+/* ===== 連続回避 ===== */
 function deAdjacentByKeyFrom(seq, keyFn, startIdx){
   let swaps=0, prevKey = startIdx>0 ? keyFn(seq[startIdx-1]) : "";
   for(let i=startIdx;i<seq.length;i++){
@@ -418,7 +424,7 @@ function postProcessNoAdjacency(fullSeq, pinnedLen){
   return {remix_swaps:s1, artist_swaps:s2};
 }
 
-/* ===== 版内ユニーク強制 ===== */
+/* ===== 版内ユニーク ===== */
 function enforceUniqueWithin(seq, pinnedLen, primaryPool, fallbackPool, label="", banSet=null){
   seq = Array.isArray(seq) ? seq : [];
   pinnedLen = i32(Math.min(pinnedLen, seq.length));
@@ -452,7 +458,7 @@ function enforceUniqueWithin(seq, pinnedLen, primaryPool, fallbackPool, label=""
   return result;
 }
 
-/* ===== プロファイル等 ===== */
+/* ===== プロファイル ===== */
 function getDiverge(){ const v = (document.getElementById("diverge")?.value)||"high"; return (v==="high"||v==="medium"||v==="low")?v:"high"; }
 const DIV_LEVELS = { high:{gate:1.00,artistCap:2,remixerCap:1}, medium:{gate:0.70,artistCap:3,remixerCap:2}, low:{gate:0.50,artistCap:4,remixerCap:2} };
 const EDITION_PROFILES = {
@@ -485,7 +491,7 @@ function editionWeight(u, feats, tracksMap, edition){
   return 0.55*feat + 0.45*mkt + noRemixBonus;
 }
 
-/* ===== Fallback（安全版） ===== */
+/* ===== Fallback（安全） ===== */
 function makeEditionPacksFallback(baseUris, feats, pinned){
   const N=i32(val("finalN","130")||130,130);
   const P=i32(Math.min(pinned.length,N));
@@ -503,7 +509,7 @@ function makeEditionPacksFallback(baseUris, feats, pinned){
   return {UK:build("UK"),US:build("US"),EU:build("EU"),WORLD:build("WORLD")};
 }
 
-/* ===== Deep Divergence（堅牢） ===== */
+/* ===== Deep Divergence ===== */
 function makeEditionPacksV3(baseUris, feats, pinned, tracksMap){
   try{
     baseUris = Array.isArray(baseUris)? baseUris : [];
@@ -654,7 +660,7 @@ function buildBeatportFromConsensus(baseUris, feats, pinned, packs4, tracksMap){
   return seq;
 }
 
-/* ===== 書込み ===== */
+/* ===== 書込み/エクスポート ===== */
 const extractPlaylistId=(s)=>{s=String(s||""); let m=s.match(/playlist\/([A-Za-z0-9]{22})/); if(m) return m[1]; m=s.match(/^([A-Za-z0-9]{22})$/); if(m) return m[1]; return ""; }
 async function replacePlaylist(pid,uris){
   const chunks=[]; for(let i=0;i<uris.length;i+=100) chunks.push(uris.slice(i,i+100));
@@ -674,7 +680,7 @@ async function ensureWrite(which, uris){
   const base = val("baseName","TDCS Editions").trim() || "TDCS Editions";
   const descNote = val("descNote",""); const isPub = val("pub","0")==="1";
   if(pid){ await replacePlaylist(pid,uris); return pid; }
-  const name = `${base} [${which}]`; const desc = `${descNote} (${new Date().toISOString().slice(0,10)})`;
+  const name = `${base} [${which}]`; const desc = `${descNote} / BUILD ${BUILD_ID} (${new Date().toISOString().slice(0,10)})`;
   log(`📄 新規作成: ${name}`); return await createPlaylistAndFill(name,desc,isPub,uris);
 }
 
@@ -848,12 +854,12 @@ async function exportPrepAndWrite(packs,feats){
     progress(96,"書込み…"); await ensureWrite("EU",packs.EU);
     progress(97,"書込み…"); await ensureWrite("WORLD",packs.WORLD);
     progress(99,"書込み…"); await ensureWrite("BEATPORT",packs.BEATPORT);
-    log("✅ 書込み完了（UK/US/EU/WORLD=各"+val("finalN","130")+"曲・BEATPORT="+(+(val("finalN","130"))+ +(val("bpExtra","20")))+"曲）");
+    log("✅ 書込み完了（BUILD "+BUILD_ID+"｜UK/US/EU/WORLD="+val("finalN","130")+"曲・BEATPORT="+(+(val("finalN","130"))+ +(val("bpExtra","20")))+"曲）");
   }else{
     _pending=packs; log("🔑 接続待ち：『Spotifyにサインイン』→『接続チェック』");
   }
   progress(100,"完了");
-  log("✅ 完了（20共通／Deep Divergence／版内ユニーク／リミキサー連続回避／BP=共通上位+20の150曲）");
+  log("✅ 完了（BUILD "+BUILD_ID+"｜20共通／Deep Divergence／版内ユニーク／リミキサー連続回避／BP=150）");
 }
 
 /* ===== Resume ===== */
@@ -891,7 +897,9 @@ $("fileCSV").addEventListener("change", async () => {
 /* 実行ボタン */
 $("btnRun").onclick=async()=>{
   try{
-    $("log").textContent=""; progress(1,"開始…");
+    $("log").textContent="";
+    log("BUILD "+BUILD_ID+" start");
+    progress(1,"開始…");
     if($("modeCsv").checked){
       if(!$("fileCSV").files.length){ throw new Error("CSVモードですがCSVが選択されていません"); }
       await runCsvOnly();
@@ -909,7 +917,7 @@ $("btnExportXlsx").onclick=()=>{
   const wb=XLSX.utils.book_new();
   const add=(name,key)=>{ const ws=XLSX.utils.json_to_sheet(_exportData[key],{header:["position","edition","spotify_uri","tempo","energy","valence","key","mode","danceability","speechiness","instrumentalness"]}); XLSX.utils.book_append_sheet(wb,ws,name); }
   add("UK","uk"); add("US","us"); add("EU","eu"); add("WORLD","wo"); add("BEATPORT","bp");
-  XLSX.writeFile(wb,"editions_"+new Date().toISOString().slice(0,10)+".xlsx");
+  XLSX.writeFile(wb,"editions_"+new Date().toISOString().slice(0,10)+"_build-"+BUILD_ID+".xlsx");
 };
 $("btnExportCsv").onclick=()=>{
   if(!_exportData){log("ℹ️ データなし");return;}
@@ -917,10 +925,11 @@ $("btnExportCsv").onclick=()=>{
   const H=["position","edition","spotify_uri","tempo","energy","valence","key","mode","danceability","speechiness","instrumentalness"];
   const esc=(v)=>'"'+String(v==null?"":v).replace(/"/g,'""')+'"';
   const rows=[H.join(",")]; for(const r of all){ rows.push(H.map(h=>esc(r[h])).join(",")); }
-  const blob=new Blob([rows.join("\r\n")],{type:"text/csv;charset=utf-8"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="editions_"+new Date().toISOString().slice(0,10)+".csv"; document.body.appendChild(a); a.click(); a.remove();
+  const blob=new Blob([rows.join("\r\n")],{type:"text/csv;charset=utf-8"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="editions_"+new Date().toISOString().slice(0,10)+"_build-"+BUILD_ID+".csv"; document.body.appendChild(a); a.click(); a.remove();
 };
 
 setStatus();
-log("Ready. BUILD r7：V3失敗や未捕捉Rejectionでも即フォールバック実行→書込みまで続行。UK/US/EU/WORLD=各130、Beatport=150、20固定・ユニーク・連続回避・CSV自動実行。");
+document.getElementById("buildBadge").textContent="BUILD "+BUILD_ID;
+log("Ready. BUILD "+BUILD_ID+"：V3で落ちても即フォールバック→必ず完走。20共通/ユニーク/連続回避/BP150。");
 </script>
 </body></html>
