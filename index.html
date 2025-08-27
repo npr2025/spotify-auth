@@ -4,7 +4,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TDCS Editions Builder — Deep Divergence + Unique + No-Adj-Remixer + BP150</title>
+<title>TDCS Editions Builder — Deep Divergence + Unique + No-Adj-Remixer + BP150 (BUILD r7)</title>
 <style>
 :root{--bg:#0b1220;--fg:#cfe3ff}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1180px;margin:32px auto;padding:0 12px}
@@ -34,7 +34,7 @@ small.hint{color:#666}
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
-<h1>TDCS Editions Builder <span class="badge">Deep Divergence</span><span class="badge">15固定</span><span class="badge">版内ユニーク</span><span class="badge">No Adj. Remixer</span><span class="badge">BP150</span></h1>
+<h1>TDCS Editions Builder <span class="badge">BUILD r7</span><span class="badge">Deep Divergence</span><span class="badge">20固定</span><span class="badge">版内ユニーク</span><span class="badge">No Adj. Remixer</span><span class="badge">BP150</span></h1>
 <p id="status">未接続</p>
 <div>
   <button id="btnConnect">Spotifyにサインイン</button>
@@ -108,7 +108,7 @@ small.hint{color:#666}
       </select>
     </label>
     <label>新規作成時のベース名 <input id="baseName" type="text" value="TDCS Editions"></label>
-    <label>説明文の追記 <input id="descNote" type="text" value="Auto-built (15 pinned; deep per-edition profiles; unique; no consecutive remixer; BP=+20)"></label>
+    <label>説明文の追記 <input id="descNote" type="text" value="Auto-built (20 pinned; deep per-edition profiles; unique; no consecutive remixer; BP=+20)"></label>
   </div>
 </fieldset>
 
@@ -119,10 +119,10 @@ small.hint{color:#666}
       <input id="introTpl" type="text" value="https://open.spotify.com/playlist/1v9jLD4ZxIaCDap2fPKGcJ?si=3f561ed29e554a20&pt=657aba40d6c86a1fffe7022ec0398916">
     </label>
     <label>イントロ曲数(10–20)
-      <input id="introLen" type="number" value="15" min="10" max="20">
+      <input id="introLen" type="number" value="20" min="10" max="20">
     </label>
   </div>
-  <small class="hint">テンプレ内にない曲は自動スキップ（候補外は使いません）。未入力時は候補プールの先頭から固定。</small>
+  <small class="hint">テンプレ外の曲はスキップしつつ、20曲に満たない場合はベースプールから補完して必ず20曲固定。</small>
 </fieldset>
 
 <fieldset id="boxCsv">
@@ -164,29 +164,29 @@ label:"Nipponeer Records" "drum and bass" year:1994-2016 -bootleg -"unofficial" 
 </fieldset>
 
 <script>
-/* ===== エラー／緊急復旧フック ===== */
+/* ===== 例外/緊急復旧（BUILD r7） ===== */
 const REC={basePool:null,feats:null,pinned:null,tracksMap:null,packs4:null};
 window.onerror=(m,src,lin,col,err)=>{ const el=document.getElementById("log"); el.textContent+=(el.textContent?"\n":"")+"💥 ScriptError: "+m+" @"+lin+":"+col; console.error(err||m); };
-window.addEventListener("unhandledrejection",(e)=>{ 
+function _unhandledRecovery(e){
   const msg=String(e.reason&&e.reason.message?e.reason.message:e.reason||"");
-  const isLen= /Invalid array length/i.test(msg);
-  const stage = (REC && REC.basePool && REC.pinned) ? "builder" : "unknown";
   const el=document.getElementById("log");
-  el.textContent+=(el.textContent?"\n":"")+`⚠️ Unhandled(${stage}): ${msg}`;
+  el.textContent+=(el.textContent?"\n":"")+`🛟 Unhandled(builder): ${msg}`;
   console.error(e.reason);
-  // 強制フォールバック（材料が揃っていればその場で続行）
-  if(stage==="builder"){
-    try{
+  try{
+    if(REC && REC.basePool && REC.pinned){
       const packs4 = makeEditionPacksFallback(REC.basePool, REC.feats||new Map(), REC.pinned||[]);
       const packBP  = buildBeatportFromConsensus(REC.basePool, REC.feats||new Map(), REC.pinned||[], packs4, REC.tracksMap||new Map());
       exportPrepAndWrite({...packs4, BEATPORT:packBP}, REC.feats||new Map());
       el.textContent+=`\n✅ 緊急フォールバック完了（V0で完走）`;
-      e.preventDefault();
-    }catch(ex){
-      el.textContent+=`\n💥 Fallback失敗: ${(ex&&ex.message)||ex}`;
+      if(e && typeof e.preventDefault==="function") e.preventDefault();
+      return false;
     }
+  }catch(ex){
+    el.textContent+=`\n💥 Fallback失敗: ${(ex&&ex.message)||ex}`;
   }
-});
+}
+window.addEventListener("unhandledrejection",_unhandledRecovery);
+window.onunhandledrejection=_unhandledRecovery;
 
 /* ===== 定数/UTIL ===== */
 const zws=/[\u200B-\u200D\uFEFF]/g;
@@ -273,7 +273,7 @@ function guessCsvColumns(rows){
   return {idCol,isrcCol,tCol,vCol,aCol};
 }
 
-/* ===== 検索/URI解決（CSV/Auto共通） ===== */
+/* ===== 検索/URI解決 ===== */
 const _isrcCache=new Map();
 async function searchOnce(q,m,limit=10,offset=0){
   const r=await spFetch(`/v1/search?q=${encodeURIComponent(q)}&type=track&limit=${limit}&offset=${offset}&market=${m}`,"GET");
@@ -318,7 +318,7 @@ async function fetchAudioFeaturesByUris(uris){
   return feats;
 }
 
-/* ===== 並び（プリセット対応） ===== */
+/* ===== 並び（プリセット） ===== */
 const camelot=(key,mode)=>({num:[8,3,10,5,0,7,2,9,4,11,6,1][(key||0)%12],isMinor:mode===0});
 const keyDistance=(a,b)=>{ if(!a||!b||a.key==null||b.key==null) return 2; const A=camelot(a.key,a.mode), B=camelot(b.key,b.mode); let d=Math.abs(A.num-B.num); d=Math.min(d,12-d); let pen=d/6; if(A.isMinor!==B.isMinor) pen+=0.4; return pen; }
 function nextCost(a,b,preset){
@@ -331,30 +331,42 @@ function nextCost(a,b,preset){
   if(preset==="bp")   return 0.25*dTempo+0.25*dKey+0.45*dEner+0.05*dVal;
   return               0.40*dTempo+0.25*dKey+0.25*dEner+0.10*dVal;
 }
-
-/* ===== イントロ固定 ===== */
-async function fetchPlaylistTrackUris(pid){
-  const out=[]; let off=0;
-  while(true){
-    const r=await spFetch(`/v1/playlists/${pid}/tracks?limit=100&offset=${off}`,"GET");
-    if(!r||!r.items||!r.items.length) break;
-    for(const it of r.items){ const t=it && it.track; if(t && t.id) out.push("spotify:track:"+t.id); }
-    off+=r.items.length; if(r.items.length<100) break;
+function buildTailByPreset(prev, tail, feats, preset, editionSeed){
+  tail = Array.isArray(tail) ? tail : [];
+  if(tail.length===0) return [];
+  const id8=(u)=>(u||"").slice(-8);
+  if(preset==="rise"||preset==="drop"||preset==="bp"){
+    const scored = tail.map(u=>{
+      const f=feats.get(u)||{};
+      const base=(preset==="rise")? (0.6*(f.energy??0.5)+0.4*((f.tempo??120)/200))
+                 :(preset==="drop")? (0.7*(f.energy??0.5)+0.3*((f.tempo??120)/200))
+                 :((f.energy??0.5)*0.75 + (f.tempo??120)/260*0.25);
+      return {u,score:base + ((parseInt(id8(u),36)%997)/997-0.5)*0.06 + (editionSeed%100)/5000};
+    });
+    scored.sort((a,b)=> (preset==="rise")? (a.score-b.score) : (b.score-a.score));
+    return scored.map(x=>x.u);
   }
-  return Array.from(new Set(out));
-}
-async function getPinnedIntro(basePool){
-  const want=i32(Math.max(10, Math.min(20, +(val("introLen","15")||15))));
-  const tpl=(val("introTpl","")||"").trim();
-  const poolSet=new Set(basePool);
-  if(!tpl) return basePool.slice(0,want);
-  const pid=extractPlaylistId(tpl);
-  if(!pid){ log("⚠️ イントロ: プレイリストIDが解釈できません"); return basePool.slice(0,want); }
-  const tplUris=await fetchPlaylistTrackUris(pid);
-  const pinned=tplUris.filter(u=>poolSet.has(u)).slice(0,want);
-  if(pinned.length<want) log(`ℹ️ イントロ: テンプレ外で ${want-pinned.length} 曲スキップ（採用 ${pinned.length}/${want}）`);
-  else log(`🎛️ イントロ固定: ${pinned.length}曲`);
-  return pinned.length?pinned:basePool.slice(0,want);
+  if(preset==="dj"){
+    const seq=[]; const pool=tail.slice(0);
+    let cur=prev||pool[0];
+    while(pool.length){
+      let bestI=0, best=1e9;
+      for(let i=0;i<pool.length;i++){
+        const a=feats.get(cur)||{}, b=feats.get(pool[i])||{};
+        let cost=nextCost(a,b,"dj") + ((parseInt((pool[i]||"").slice(-6),36)%89)/1000);
+        if(cost<best){ best=cost; bestI=i; }
+      }
+      const pick=pool.splice(bestI,1)[0]; seq.push(pick); cur=pick;
+    }
+    return seq;
+  }
+  const withE = tail.map(u=>({u,e:(feats.get(u)||{}).energy ?? 0.5}));
+  const low=withE.slice().sort((a,b)=>a.e-b.e), high=withE.slice().sort((a,b)=>b.e-a.e);
+  const snake=[]; let i=0,j=0; while(i<low.length||j<high.length){ if(j<high.length) snake.push(high[j++].u); if(i<low.length) snake.push(low[i++].u); }
+  // waves：軽いシャッフル
+  const r=editionSeed%2147483647; let x=r; const a=snake;
+  for(let k=a.length-1;k>0;k--){ x=(x*48271)%2147483647; const t=Math.floor((x/2147483647)*(k+1)); [a[k],a[t]]=[a[t],a[k]]; }
+  return a;
 }
 
 /* ===== メタ（リミキサ／アーティスト） ===== */
@@ -384,43 +396,6 @@ function buildUriMeta(uriList, tracksMap, hintRows=null, cols=null){
 function seedHash(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0; } return h>>>0; }
 function rng(seed){ let x=seedHash(String(seed))||1; return ()=>{ x^=x<<13; x^=x>>>17; x^=x<<5; return (x>>>0)/4294967296; } }
 function seededShuffle(arr, seed){ const r=rng(seed); const a=arr.slice(0); for(let i=a.length-1;i>0;i++){ const j=Math.floor(r()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
-function jitterSmall(id, seed){ const j=seedHash(id+":"+seed)%1000; return (j/1000-0.5)*0.06; }
-function scoreRise(f){ const tempo=f?.tempo??120, ener=f?.energy??0.5; return 0.6*ener+0.4*(tempo/200); }
-function scoreDrop(f){ const tempo=f?.tempo??120, ener=f?.energy??0.5; return 0.7*ener+0.3*(tempo/200); }
-
-/* ===== 並び作成 ===== */
-function buildTailByPreset(prev, tail, feats, preset, editionSeed){
-  tail = Array.isArray(tail) ? tail : [];
-  if(tail.length===0) return [];
-  const id8=(u)=>(u||"").slice(-8);
-  if(preset==="rise"||preset==="drop"||preset==="bp"){
-    const scored = tail.map(u=>{
-      const f=feats.get(u)||{};
-      const base=(preset==="rise")?scoreRise(f):(preset==="drop")?scoreDrop(f):((f.energy??0.5)*0.75 + (f.tempo??120)/260*0.25);
-      return {u,score:base + jitterSmall(id8(u),editionSeed)};
-    });
-    scored.sort((a,b)=> (preset==="rise")? (a.score-b.score) : (b.score-a.score));
-    return scored.map(x=>x.u);
-  }
-  if(preset==="dj"){
-    const seq=[]; const pool=tail.slice(0);
-    let cur=prev||pool[0];
-    while(pool.length){
-      let bestI=0, best=1e9;
-      for(let i=0;i<pool.length;i++){
-        const a=feats.get(cur)||{}, b=feats.get(pool[i])||{};
-        let cost=nextCost(a,b,"dj"); cost += (seedHash((pool[i]||"")+":dj")%80)/1000;
-        if(cost<best){ best=cost; bestI=i; }
-      }
-      const pick=pool.splice(bestI,1)[0]; seq.push(pick); cur=pick;
-    }
-    return seq;
-  }
-  const withE = tail.map(u=>({u,e:(feats.get(u)||{}).energy ?? 0.5}));
-  const low=withE.slice().sort((a,b)=>a.e-b.e), high=withE.slice().sort((a,b)=>b.e-a.e);
-  const snake=[]; let i=0,j=0; while(i<low.length||j<high.length){ if(j<high.length) snake.push(high[j++].u); if(i<low.length) snake.push(low[i++].u); }
-  return seededShuffle(snake, editionSeed);
-}
 
 /* ===== 連続Remixer/Artist回避 ===== */
 function deAdjacentByKeyFrom(seq, keyFn, startIdx){
@@ -514,7 +489,10 @@ function editionWeight(u, feats, tracksMap, edition){
 function makeEditionPacksFallback(baseUris, feats, pinned){
   const N=i32(val("finalN","130")||130,130);
   const P=i32(Math.min(pinned.length,N));
-  const fixed=pinned.slice(0,P); const tailN=i32(N-P);
+  const fixed=pinned.slice(0,P);
+  const tailNraw = N - P;
+  const tailN = Number.isFinite(tailNraw) && tailNraw>0 ? Math.min(9999, Math.floor(tailNraw)) : 0;
+
   const remain=baseUris.filter(u=>!fixed.includes(u));
   const seeds={UK:11,US:22,EU:33,WORLD:44};
   function build(ed){
@@ -525,7 +503,7 @@ function makeEditionPacksFallback(baseUris, feats, pinned){
   return {UK:build("UK"),US:build("US"),EU:build("EU"),WORLD:build("WORLD")};
 }
 
-/* ===== Deep Divergence（堅牢版：try/catch内蔵） ===== */
+/* ===== Deep Divergence（堅牢） ===== */
 function makeEditionPacksV3(baseUris, feats, pinned, tracksMap){
   try{
     baseUris = Array.isArray(baseUris)? baseUris : [];
@@ -536,7 +514,9 @@ function makeEditionPacksV3(baseUris, feats, pinned, tracksMap){
     const N = i32(val("finalN","130")||130,130);
     const P = i32(Math.min(pinned.length,N));
     const fixed = pinned.slice(0,P);
-    const tailN = i32(N-P);
+    const tailNraw = N - P;
+    const tailN = Number.isFinite(tailNraw) && tailNraw>0 ? Math.min(9999, Math.floor(tailNraw)) : 0;
+
     const withinDupAllowed = !!$("allowWithinDup")?.checked;
     const allowCrossDup    = !!$("allowCrossDup")?.checked;
 
@@ -593,7 +573,8 @@ function makeEditionPacksV3(baseUris, feats, pinned, tracksMap){
         const fb2 = home.concat(others).filter(u=>!out.includes(u));
         for(const u of fb2){ if(out.length>=tailN) break; pushIf(u,false); }
       }
-      return out.slice(0,tailN);
+      const n = Number.isFinite(tailN) ? Math.max(0, Math.min(out.length, Math.floor(tailN))) : 0;
+      return out.slice(0, n);
     }
 
     function buildOne(edition){
@@ -626,7 +607,6 @@ function makeEditionPacksV3(baseUris, feats, pinned, tracksMap){
     const overlap=(a,b)=>{ const la=a?.length||0, lb=b?.length||0; if(!la||!lb) return "0.0"; const A=new Set(a),B=new Set(b); let x=0; for(const u of A) if(B.has(u)) x++; const d=Math.max(1,Math.min(la,lb)); return (100*x/d).toFixed(1); };
     log(`🪄 版間重なり率(%) UK/US=${overlap(packs.UK,packs.US)}, UK/EU=${overlap(packs.UK,packs.EU)}, UK/WORLD=${overlap(packs.UK,packs.WORLD)}`);
     log(`🪄 版間重なり率(%) US/EU=${overlap(packs.US,packs.EU)}, US/WORLD=${overlap(packs.US,packs.WORLD)}, EU/WORLD=${overlap(packs.EU,packs.WORLD)}`);
-    log(`🎛️ 差別化レベル: ${diverge} (gate=${(DIV_LEVELS[diverge]||{}).gate}, artistCap=${(DIV_LEVELS[diverge]||{}).artistCap}, remixerCap=${(DIV_LEVELS[diverge]||{}).remixerCap})`);
 
     for(const k of ["UK","US","EU","WORLD"]){
       const arr=packs[k]; const need=i32(val("finalN","130")||130,130);
@@ -698,13 +678,42 @@ async function ensureWrite(which, uris){
   log(`📄 新規作成: ${name}`); return await createPlaylistAndFill(name,desc,isPub,uris);
 }
 
-/* ===== ベースプール（市場優先を先頭に） ===== */
+/* ===== ベースプール（市場優先→先頭） ===== */
 function buildBasePool(list, preferred){
   const used=new Set(), seq=[];
   const push=(u)=>{ if(u && !used.has(u)){ used.add(u); seq.push(u); } };
   for(const u of preferred) push(u);
   for(const u of list)      push(u);
   return seq;
+}
+
+/* ===== イントロ固定（20曲） ===== */
+async function fetchPlaylistTrackUris(pid){
+  const out=[]; let off=0;
+  while(true){
+    const r=await spFetch(`/v1/playlists/${pid}/tracks?limit=100&offset=${off}`,"GET");
+    if(!r||!r.items||!r.items.length) break;
+    for(const it of r.items){ const t=it && it.track; if(t && t.id) out.push("spotify:track:"+t.id); }
+    off+=r.items.length; if(r.items.length<100) break;
+  }
+  return Array.from(new Set(out));
+}
+async function getPinnedIntro(basePool){
+  const want = i32(Math.max(10, Math.min(20, +(val("introLen","20")||20))));
+  const tpl=(val("introTpl","")||"").trim();
+  const pool=Array.isArray(basePool)?basePool.slice(0):[];
+  const poolSet=new Set(pool);
+  if(!tpl) return pool.slice(0,want);
+  const pid=extractPlaylistId(tpl);
+  if(!pid){ log("⚠️ イントロ: プレイリストID解釈不可 → ベースから固定"); return pool.slice(0,want); }
+  const tplUris=await fetchPlaylistTrackUris(pid);
+  const pinned=[];
+  for(const u of tplUris){ if(pinned.length>=want) break; if(poolSet.has(u)) pinned.push(u); }
+  if(pinned.length<want){
+    for(const u of pool){ if(pinned.length>=want) break; if(!pinned.includes(u)) pinned.push(u); }
+  }
+  log(`🎛️ イントロ固定 ${pinned.length}曲（目標${want}）`);
+  return pinned.slice(0,want);
 }
 
 /* ===== メイン ===== */
@@ -744,10 +753,10 @@ async function runCsvOnly(){
 
   URI_META=buildUriMeta(list, tracksMap, csvRows, cols);
 
-  progress(76,"イントロ取得…");
+  progress(76,"イントロ取得（20固定）…");
   const pinned = await getPinnedIntro(basePool);
 
-  // ここで緊急復旧用に材料を退避
+  // 緊急復旧用退避
   REC.basePool=basePool; REC.feats=feats; REC.pinned=pinned; REC.tracksMap=tracksMap;
 
   progress(78,"エディション分配（Deep Divergence）…");
@@ -808,7 +817,7 @@ async function runAutoOnly(){
 
   URI_META=buildUriMeta(list, tracksMap, null, null);
 
-  progress(76,"イントロ取得…");
+  progress(76,"イントロ取得（20固定）…");
   const pinned = await getPinnedIntro(basePool);
 
   REC.basePool=basePool; REC.feats=feats; REC.pinned=pinned; REC.tracksMap=tracksMap;
@@ -844,7 +853,7 @@ async function exportPrepAndWrite(packs,feats){
     _pending=packs; log("🔑 接続待ち：『Spotifyにサインイン』→『接続チェック』");
   }
   progress(100,"完了");
-  log("✅ 完了（15共通／Deep Divergence／版内ユニーク／リミキサー連続回避／BP=共通上位+20の150曲）");
+  log("✅ 完了（20共通／Deep Divergence／版内ユニーク／リミキサー連続回避／BP=共通上位+20の150曲）");
 }
 
 /* ===== Resume ===== */
@@ -867,16 +876,16 @@ $("btnConnect").onclick=startAuth;
 $("btnReset").onclick=()=>{ for(const k in LS) localStorage.removeItem(LS[k]); _me=null; setStatus(); log("🧽 ローカルトークン削除"); };
 $("btnCheck").onclick=async()=>{ try{ await refreshTokenIfNeeded(); const me=await spFetch("/v1/me","GET"); if(me) {$("status").textContent="接続中（"+(me.display_name||me.id)+")"; log("✅ API確認 OK"); if(_pending) await resolveAndWrite(_pending);} else {$("status").textContent="接続中（OK）";} }catch(e){ log("⚠️ 接続エラー: "+(e.message||e)); } };
 
-/* CSV選択→自動実行 */
+/* CSV選択→自動実行（指定通り） */
 $("fileCSV").addEventListener("change", async () => {
-  if(!$("modeCsv").checked) return;
+  if(!$("modeCsv").checked) return; // Auto時は無視
   $("log").textContent="";
   progress(3,"CSV読み込み…");
   if(!$("fileCSV").files.length){ log("⚠️ CSV未選択"); return; }
   csvRows = await readCSV($("fileCSV").files[0]);
   log("✅ CSV: "+csvRows.length+" 行");
   progress(6,"分析開始…");
-  await runCsvOnly();
+  await runCsvOnly();            // ← 自動で走らせる
 });
 
 /* 実行ボタン */
@@ -912,6 +921,6 @@ $("btnExportCsv").onclick=()=>{
 };
 
 setStatus();
-log("Ready. 強制完走：V3失敗や未捕捉Rejectionでも即フォールバック実行→書込みまで続行。UK/US/EU/WORLD=各130、Beatport=150、15固定・ユニーク・連続回避・CSV自動実行。");
+log("Ready. BUILD r7：V3失敗や未捕捉Rejectionでも即フォールバック実行→書込みまで続行。UK/US/EU/WORLD=各130、Beatport=150、20固定・ユニーク・連続回避・CSV自動実行。");
 </script>
 </body></html>
