@@ -4,14 +4,14 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spotify 認可コールバック (BUILD v10.6)</title>
+<title>Spotify 認可コールバック (BUILD v10.8)</title>
 <style>body{font-family:system-ui;margin:24px}code{background:#f4f4f4;padding:2px 4px;border-radius:4px}</style>
 </head>
 <body>
-<h2>処理中… (BUILD v10.6)</h2>
+<h2>処理中… (BUILD v10.8)</h2>
 <pre id="out"></pre>
 <script>
-const BUILD_ID="v10.6";
+const BUILD_ID="v10.8";
 const FIXED_REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
 const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier"};
 function out(s){ document.getElementById('out').textContent += s+"\n"; }
@@ -20,11 +20,15 @@ function readVerifier(){
   try{ const v1=localStorage.getItem(k); if(v1) return v1; }catch(_){}
   try{ const v2=sessionStorage.getItem(k); if(v2) return v2; }catch(_){}
   try{ const m=document.cookie.split(";").map(s=>s.trim().split("=")).find(([a])=>a===k); if(m&&m[1]) return decodeURIComponent(m[1]); }catch(_){}
+  const st=new URL(location.href).searchParams.get("state")||"";
+  if(st.startsWith("cv.")){ try{ const b=st.split(".")[1]||""; return decodeURIComponent(escape(atob(b.replace(/-/g,"+").replace(/_/g,"/")))); }catch(_){} }
   return "";
 }
-function clearVerifier(){ try{ localStorage.removeItem(LS.ver); }catch(_){}
+function clearVerifier(){
+  try{ localStorage.removeItem(LS.ver); }catch(_){}
   try{ sessionStorage.removeItem(LS.ver); }catch(_){}
-  try{ document.cookie=LS.ver+"=; Max-Age=0; Path=/"; }catch(_){} }
+  try{ document.cookie=LS.ver+"=; Max-Age=0; Path=/spotify-auth/"; }catch(_){}
+}
 (async()=>{
   try{
     const url=new URL(location.href);
