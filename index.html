@@ -4,7 +4,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TDCS Editions Builder — BUILD v10.5</title>
+<title>TDCS Editions Builder — BUILD v10.6</title>
 <style>
 :root{--bg:#0b1220;--fg:#cfe3ff}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1180px;margin:32px auto;padding:0 12px}
@@ -35,11 +35,12 @@ a.btn{display:inline-block;padding:9px 12px;border:1px solid #bbb;border-radius:
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
-<h1>TDCS Editions Builder <span class="badge" id="buildBadge">BUILD v10.5</span><span class="badge">Latest20 pinned</span><span class="badge">Divergence++</span><span class="badge">No-Adj remixer/artist/album/catalog/catNo</span><span class="badge">BP150</span></h1>
+<h1>TDCS Editions Builder <span class="badge" id="buildBadge">BUILD v10.6</span><span class="badge">Latest20 pinned</span><span class="badge">Divergence++</span><span class="badge">No-Adj remixer/artist/album/catalog/catNo</span><span class="badge">BP150</span></h1>
 <p id="status">未接続</p>
 <div>
   <button id="btnConnect">Spotifyにサインイン</button>
   <a id="aConnect" class="btn" href="#" target="_self">サインイン(リンク)</a>
+  <a id="aHard" class="btn" href="#">ハードリロード</a>
   <button id="btnReset">初期化（保存トークン削除）</button>
   <button id="btnCheck">接続チェック</button>
 </div>
@@ -151,9 +152,9 @@ a.btn{display:inline-block;padding:9px 12px;border:1px solid #bbb;border-radius:
   <pre id="log"></pre>
 </fieldset>
 <script>
-const BUILD_ID="v10.5";
+const BUILD_ID="v10.6";
+(function(){const u=new URL(location.href);let ch=false;if(u.searchParams.get("v")!==BUILD_ID){u.searchParams.set("v",BUILD_ID);ch=true}u.searchParams.set("bust",Date.now().toString());const k="boot_"+BUILD_ID;if(ch||!sessionStorage.getItem(k)){sessionStorage.setItem(k,"1");location.replace(u.toString())}})();
 const FIXED_REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
-(function(){const u=new URL(location.href);if(u.searchParams.get("v")!==BUILD_ID){u.searchParams.set("v",BUILD_ID);u.searchParams.set("bust",Date.now());location.replace(u.toString());}})();
 const zws=/[\u200B-\u200D\uFEFF]/g;
 const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier",pend:"csv_auto_pend"};
 const SCOPES="playlist-modify-public playlist-modify-private ugc-image-upload";
@@ -200,7 +201,7 @@ async function startAuth(){
     try{ const url=await buildAuthURL(); const a=$("aConnect"); if(a){ a.href=url; a.click(); } else { location.href=url; } }catch(_){}
   }
 }
-window.addEventListener("pageshow",async()=>{ try{ const url=await buildAuthURL(); const a=$("aConnect"); if(a) a.href=url; }catch(_){} });
+window.addEventListener("pageshow",async()=>{ try{ const url=await buildAuthURL(); const a=$("aConnect"); if(a) a.href=url; const h=$("aHard"); if(h) h.href=`index.html?v=${BUILD_ID}&bust=${Date.now()}` }catch(_){} });
 async function refreshTokenIfNeeded(){
   const exp=+(localStorage.getItem(LS.exp)||0);
   if(Date.now()<exp-5000) return;
@@ -374,13 +375,13 @@ function enforceUniqueWithin(seq,pinnedLen,primaryPool,fallbackPool,label="",ban
     if(m.remixer)   cnt.rem.set(m.remixer,(cnt.rem.get(m.remixer)||0)+1);
     if(m.albumId)   cnt.album.set(m.albumId,(cnt.album.get(m.albumId)||0)+1);
     if(m.catalog)   cnt.catalog.set(m.catalog,(cnt.catalog.get(m.catalog)||0)+1);
-    if(m.catNo)     cnt.catno.set(m.catno,(cnt.catno.get(m.catNo)||0)+1); }
+    if(m.catNo)     cnt.catno.set(m.catno,(cnt.catno.get(m.catno)||0)+1); }
   for(const u of tail){ if(canPush(u)) push(u); else drop++; }
   const want = Math.floor(tail.length);
   function refill(fromPool){ const src=Array.isArray(fromPool)?fromPool:[]; for(const u of src){ if(uniqTail.length>=want) break; if(!u) continue; if(canPush(u)) push(u); } }
   refill(primaryPool); if(uniqTail.length<want) refill(fallbackPool);
   const result = fixed.concat(uniqTail).slice(0, targetLen);
-  if(drop>0) log(`内重複/上限修正 ${label||""}: -${drop}件 → 最終${result.length}`);
+  if(drop>0) log("内重複/上限修正 "+(label||"")+": -"+drop+"件 → 最終"+result.length);
   return result;
 }
 function getDiverge(){ const v=(document.getElementById("diverge")?.value)||"high"; return (v==="high"||v==="medium"||v==="low")?v:"high"; }
@@ -477,7 +478,7 @@ function makeEditionPacksV3(baseUris,feats,pinned,tracksMap){
         seq=seqUnique;
       }
       const swaps=postProcessNoAdjacencyAndDispersion(seq,P,level);
-      log(`連続/分散 ${edition}: rem=${swaps.remix_swaps}/${swaps.win_remix_swaps} artist=${swaps.artist_swaps} album=${swaps.album_swaps} catalog=${swaps.catalog_swaps} catNo=${swaps.catno_swaps}/${swaps.win_catno_swaps}`);
+      log("連続/分散 "+edition+": rem="+swaps.remix_swaps+"/"+swaps.win_remix_swaps+" artist="+swaps.artist_swaps+" album="+swaps.album_swaps+" catalog="+swaps.catalog_swaps+" catNo="+swaps.catno_swaps+"/"+swaps.win_catno_swaps);
       return seq;
     }
     const packs={}; packs.UK=buildOne("UK"); packs.US=buildOne("US"); packs.EU=buildOne("EU"); packs.WORLD=buildOne("WORLD");
@@ -505,7 +506,7 @@ function buildBeatportFromConsensus(baseUris,feats,pinned,packs4,tracksMap){
   const seq0=fixed.concat(consensus.concat(orderedRest).slice(0,tailN));
   const seq=enforceUniqueWithin(seq0,P,consensus.concat(remainder),remainder,"BEATPORT",null,{artist:capsLevel.artistCap,rem:capsLevel.remixerCap,album:capsLevel.albumCap,catalog:capsLevel.catalogCap,catno:capsLevel.catNoCap});
   const swaps=postProcessNoAdjacencyAndDispersion(seq,P,capsLevel);
-  log(`連続/分散 BEATPORT: rem=${swaps.remix_swaps}/${swaps.win_remix_swaps} artist=${swaps.artist_swaps} album=${swaps.album_swaps} catalog=${swaps.catalog_swaps} catNo=${swaps.catno_swaps}/${swaps.win_catno_swaps}`);
+  log("連続/分散 BEATPORT: rem="+swaps.remix_swaps+"/"+swaps.win_remix_swaps+" artist="+swaps.artist_swaps+" album="+swaps.album_swaps+" catalog="+swaps.catalog_swaps+" catNo="+swaps.catno_swaps+"/"+swaps.win_catno_swaps);
   return seq;
 }
 const extractPlaylistId=(s)=>{s=String(s||""); let m=s.match(/playlist\/([A-Za-z0-9]{22})/); if(m) return m[1]; m=s.match(/^([A-Za-z0-9]{22})$/); if(m) return m[1]; return ""; }
@@ -521,14 +522,14 @@ async function ensureWrite(which,uris){
   const base=val("baseName","TDCS Editions").trim()||"TDCS Editions"; const descNote=val("descNote",""); const isPub=val("pub","0")==="1";
   if(pid){ await replacePlaylist(pid,uris); return pid; }
   const name=`${base} [${which}]`; const desc=`${descNote} / BUILD ${BUILD_ID} (${new Date().toISOString().slice(0,10)})`;
-  log(`新規作成: ${name}`); return await createPlaylistAndFill(name,desc,isPub,uris);
+  log("新規作成: "+name); return await createPlaylistAndFill(name,desc,isPub,uris);
 }
 function buildBasePool(list,preferred){ const used=new Set(),seq=[]; const push=(u)=>{ if(u&&!used.has(u)){used.add(u);seq.push(u);} }; for(const u of preferred) push(u); for(const u of list) push(u); return seq; }
 function analyzePinnedAdjacency(pinned){
   const remKey=(u)=>(URI_META.get(u)?.remixer)||""; const albKey=(u)=>(URI_META.get(u)?.albumId)||""; const catKey=(u)=>(URI_META.get(u)?.catalog)||""; const catNoKey=(u)=>(URI_META.get(u)?.catNo)||"";
   function countAdj(keyFn){ let adj=0; for(let i=1;i<pinned.length;i++){ if(keyFn(pinned[i]) && keyFn(pinned[i])===keyFn(pinned[i-1])) adj++; } return adj; }
   const rep={rem:countAdj(remKey), alb:countAdj(albKey), cat:countAdj(catKey), catno:countAdj(catNoKey)};
-  if(rep.rem||rep.alb||rep.cat||rep.catno){ log(`イントロ固定内に連打 rem=${rep.rem} album=${rep.alb} catalog=${rep.cat} catNo=${rep.catno}（固定部は順序維持）`); }
+  if(rep.rem||rep.alb||rep.cat||rep.catno){ log("イントロ固定内に連打 rem="+rep.rem+" album="+rep.alb+" catalog="+rep.cat+" catNo="+rep.catno+"（固定部は順序維持）"); }
 }
 async function fetchPlaylistNewestUris(pid,want){
   const items=[]; let off=0;
@@ -548,7 +549,7 @@ async function getPinnedIntroLatest20(basePool){
   const pid=extractPlaylistId(tpl); if(!pid){ log("イントロ: プレイリストID不可 → ベースから補完"); return pool.slice(0,want); }
   const newest=await fetchPlaylistNewestUris(pid,want*3); const pinned=[]; for(const u of newest){ if(pinned.length>=want) break; if(poolSet.has(u)) pinned.push(u); }
   if(pinned.length<want){ for(const u of pool){ if(pinned.length>=want) break; if(!pinned.includes(u)) pinned.push(u); } }
-  log(`最新固定 ${pinned.length}曲（目標${want}）`); return pinned.slice(0,want);
+  log("最新固定 "+pinned.length+"曲（目標"+want+"）"); return pinned.slice(0,want);
 }
 let _pending=null;
 function getMarkets(){ const raw=(val("markets","")||"").toUpperCase(); const arr=raw.split(",").map(s=>s.trim()).filter(Boolean); return arr.length?uniq(arr):["ES","US","GB","NZ"]; }
@@ -559,7 +560,7 @@ async function runCsvOnly(){
   progress(20,"URI解決…");
   const mkts=getMarkets(); const uris=[]; let ok=0;
   for(let i=0;i<csvRows.length;i++){ const u=await resolveOne(csvRows[i],cols,mkts); uris.push(u); if(u) ok++; if(((i+1)%20===0)||i+1===csvRows.length) subProgress(i+1,csvRows.length,20,48,"URI解決"); }
-  log(`URI解決: ${ok}/${csvRows.length}`);
+  log("URI解決: "+ok+"/"+csvRows.length);
   const list=uris.filter(Boolean); if(list.length===0){ throw new Error("CSVから解決できるURIがありません"); }
   progress(55,"曲詳細→市場優先…");
   const tracksMap=await fetchTrackDetailsByUris(list);
@@ -567,7 +568,7 @@ async function runCsvOnly(){
   let preferred=list;
   if(strict){
     preferred=list.filter(u=>{ const t=tracksMap.get(u); if(!t || !Array.isArray(t.available_markets)) return false; return mk.some(m=>t.available_markets.includes(m)); });
-    log(`市場一致(優先採用): ${preferred.length}/${list.length}（不足分は候補で補完）`);
+    log("市場一致(優先採用): "+preferred.length+"/"+list.length+"（不足分は候補で補完）");
   }
   const basePool=buildBasePool(list,preferred);
   progress(62,"アルバム/ラベル取得…"); const albums=await fetchAlbumsForTracks(tracksMap);
@@ -583,7 +584,7 @@ async function runAutoOnly(){
   progress(10,"検索クエリ…");
   const mkts=getMarkets(); const queries=(val("autoQueries","")||"").split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
   const perQ=Math.floor(val("autoLimit","60")||60); const cap=Math.floor(val("autoCap","300")||300); const doDedup=val("autoDedup","1")==="1";
-  log(`クエリ=${queries.length} / 各${perQ} / cap=${cap} / dedup=${doDedup}`);
+  log("クエリ="+queries.length+" / 各"+perQ+" / cap="+cap+" / dedup="+doDedup);
   const pool=[];
   for(const q of queries){ let got=0; for(const m of mkts){ if(got>=perQ) break; const need=Math.min(perQ-got,100); const items=await searchMany(q,m,need); for(const it of items) pool.push("spotify:track:"+it.id); got+=items.length; if((pool.length%60)===0) subProgress(pool.length,cap,10,40,"候補取得"); if(pool.length>=cap) break; } if(pool.length>=cap) break; }
   let list=doDedup?Array.from(new Set(pool)):pool; if(list.length===0) throw new Error("Autoモード：検索で候補が得られませんでした"); if(list.length>cap) list=list.slice(0,cap);
@@ -593,7 +594,7 @@ async function runAutoOnly(){
   let preferred=list;
   if(strict){
     preferred=list.filter(u=>{ const t=tracksMap.get(u); if(!t || !Array.isArray(t.available_markets)) return false; return mk.some(m=>t.available_markets.includes(m)); });
-    log(`市場一致(優先採用): ${preferred.length}/${list.length}（不足分は候補で補完）`);
+    log("市場一致(優先採用): "+preferred.length+"/"+list.length+"（不足分は候補で補完）");
   }
   const basePool=buildBasePool(list,preferred);
   progress(62,"アルバム/ラベル取得…"); const albums=await fetchAlbumsForTracks(tracksMap);
@@ -638,6 +639,7 @@ $("modeCsv").onchange=()=>{ setHidden("boxCsv",!$("modeCsv").checked); setHidden
 $("modeAuto").onchange=$("modeCsv").onchange; $("modeCsv").onchange();
 $("btnConnect").onclick=startAuth;
 $("aConnect").onclick=async(e)=>{ try{ const url=await buildAuthURL(); $("aConnect").href=url; }catch(_){} };
+$("aHard").onclick=(e)=>{ e.preventDefault(); location.replace(`index.html?v=${BUILD_ID}&bust=${Date.now()}`); };
 $("btnReset").onclick=()=>{ for(const k in LS) localStorage.removeItem(LS[k]); _me=null; setStatus(); log("ローカルトークン削除"); };
 $("btnCheck").onclick=async()=>{ try{ await refreshTokenIfNeeded(); const me=await spFetch("/v1/me","GET"); if(me) {$("status").textContent="接続中（"+(me.display_name||me.id)+")"; log("API確認 OK"); if(_pending) await resolveAndWrite(_pending);} else {$("status").textContent="接続中（OK）";} }catch(e){ log("接続エラー: "+(e.message||e)); } };
 $("fileCSV").addEventListener("change", async () => {
@@ -650,23 +652,36 @@ $("fileCSV").addEventListener("change", async () => {
   progress(6,"分析開始…");
   await runCsvOnly();
 });
-$("btnRun").onclick=async()=>{ try{ $("log").textContent=""; progress(1,"開始…"); if(!isAuthed()){ $("status").textContent="未接続（自動サインイン中）"; await startAuth(); return; } if($("modeCsv").checked){ if(!$("fileCSV").files.length){ throw new Error("CSVモードですがCSVが選択されていません"); } await runCsvOnly(); } else { await runAutoOnly(); } }catch(e){ progress(100,"エラー"); log("ERROR: "+(e.message||e)); } };
-function exportXlsx(){
+$("btnRun").onclick=async()=>{
+  $("log").textContent="";
+  progress(1,"開始…");
+  if(!isAuthed()){
+    $("status").textContent="未接続（自動サインイン中）";
+    await startAuth();
+    return;
+  }
+  const useCsv = $("modeCsv").checked && $("fileCSV").files.length>0;
+  try{
+    if(useCsv){
+      await runCsvOnly();
+    }else{
+      $("modeAuto").checked=true;
+      $("modeCsv").onchange();
+      await runAutoOnly();
+    }
+  }catch(e){
+    log("ERROR: "+(e.message||e));
+  }
+};
+document.getElementById("btnExportXlsx").onclick=()=>{
   if(!_exportData){ log("データなし"); return; }
   const wb=XLSX.utils.book_new();
   const H=["position","edition","spotify_uri","tempo","energy","valence","key","mode","danceability","speechiness","instrumentalness"];
-  function add(name,rows){
-    const ws=XLSX.utils.json_to_sheet(rows,{header:H});
-    XLSX.utils.book_append_sheet(wb,ws,name);
-  }
-  add("UK",_exportData.uk);
-  add("US",_exportData.us);
-  add("EU",_exportData.eu);
-  add("WORLD",_exportData.wo);
-  add("BEATPORT",_exportData.bp);
-  XLSX.writeFile(wb,"editions_"+new Date().toISOString().slice(0,10)+"_v10.5.xlsx");
-}
-function exportCsv(){
+  function add(name,rows){ const ws=XLSX.utils.json_to_sheet(rows,{header:H}); XLSX.utils.book_append_sheet(wb,ws,name); }
+  add("UK",_exportData.uk); add("US",_exportData.us); add("EU",_exportData.eu); add("WORLD",_exportData.wo); add("BEATPORT",_exportData.bp);
+  XLSX.writeFile(wb,"editions_"+new Date().toISOString().slice(0,10)+"_v10.6.xlsx");
+};
+document.getElementById("btnExportCsv").onclick=()=>{
   if(!_exportData){ log("データなし"); return; }
   const H=["position","edition","spotify_uri","tempo","energy","valence","key","mode","danceability","speechiness","instrumentalness"];
   const esc=(v)=>'"'+String(v==null?"":v).replace(/"/g,'""')+'"';
@@ -676,14 +691,12 @@ function exportCsv(){
   const blob=new Blob([rows.join("\r\n")],{type:"text/csv;charset=utf-8"});
   const a=document.createElement("a");
   a.href=URL.createObjectURL(blob);
-  a.download="editions_"+new Date().toISOString().slice(0,10)+"_v10.5.csv";
+  a.download="editions_"+new Date().toISOString().slice(0,10)+"_v10.6.csv";
   document.body.appendChild(a); a.click(); a.remove();
-}
-document.getElementById("btnExportXlsx").onclick=exportXlsx;
-document.getElementById("btnExportCsv").onclick=exportCsv;
+};
 setStatus();
 document.getElementById("buildBadge").textContent="BUILD "+BUILD_ID;
-(async()=>{ try{ const url=await buildAuthURL(); const a=$("aConnect"); if(a) a.href=url; }catch(_){}})();
+(async()=>{ try{ const url=await buildAuthURL(); const a=$("aConnect"); if(a) a.href=url; const h=$("aHard"); if(h) h.href=`index.html?v=${BUILD_ID}&bust=${Date.now()}` }catch(_){}})();
 if(!isAuthed()){ $("status").textContent="未接続（自動サインイン中）"; startAuth(); }
 </script>
 </body></html>
