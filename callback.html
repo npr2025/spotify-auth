@@ -24,7 +24,6 @@ function out(s){ document.getElementById('out').textContent += s+"\n"; }
     const base = location.origin + location.pathname.replace(/callback\.html?$/,'');
     const indexUrl = base + "index.html";
 
-    // code_verifier / client_id を index から取得
     const code_verifier = localStorage.getItem(LS.ver);
     const CLIENT_ID = "1fd6350fcf4945a0b3ddffa2d5730d4e";
 
