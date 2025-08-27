@@ -17,10 +17,6 @@ input[type="text"]{width:100%;padding:6px 8px;border:1px solid #ccc;border-radiu
 </div>
 <button id="go">Spotifyにサインイン</button>
 <script>
-document.getElementById("go").onclick=()=>{
-  const id=(document.getElementById("cid").value||"").trim();
-  // シンプルに index.html へ戻る（index側で開始）
-  location.href="index.html";
-};
+document.getElementById("go").onclick=()=>{ location.href="index.html"; };
 </script>
 </body></html>
