@@ -1,3 +1,4 @@
+<!-- index.html -->
 <!doctype html>
 <html lang="ja"><head>
 <meta charset="utf-8">
@@ -172,6 +173,7 @@ a.btn{display:inline-block;padding:9px 12px;border:1px solid #bbb;border-radius:
 
 <script>
 const BUILD_ID="v10.4";
+const FIXED_REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
 (function(){const u=new URL(location.href);if(u.searchParams.get("v")!==BUILD_ID){u.searchParams.set("v",BUILD_ID);u.searchParams.set("bust",Date.now());location.replace(u.toString());}})();
 const zws=/[\u200B-\u200D\uFEFF]/g;
 const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier",pend:"csv_auto_pend"};
@@ -186,14 +188,15 @@ const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
 const round4=(x)=> (typeof x==="number"&&isFinite(x))?Math.round(x*10000)/10000:"";
 const uniq=(a)=>Array.from(new Set(a));
 const i32=(n,def=0)=>{ n=Number(n); if(!Number.isFinite(n)) return def; if(n<0) return 0; return Math.min(9999,Math.floor(n)); };
-(function(){ const base = location.origin + location.pathname.replace(/index\.html?$/,''); const uri = base + "callback.html"; const red = $("redir"); if(red) red.value = uri; })();
+if($("redir")) $("redir").value=FIXED_REDIRECT_URI;
 const isAuthed=()=> !!localStorage.getItem(LS.acc) && Date.now() < (+localStorage.getItem(LS.exp)||0)-5000;
 function setStatus(){ $("status").textContent=isAuthed()?"接続中（OK）":"未接続"; if(isAuthed() && _pending) resolveAndWrite(_pending); }
 function setVerifier(v){ try{ localStorage.setItem(LS.ver,v); }catch(_){}
   try{ sessionStorage.setItem(LS.ver,v); }catch(_){}
   try{ const p=location.pathname.replace(/\/[^\/]*$/,'/')||"/"; document.cookie=`${LS.ver}=${encodeURIComponent(v)}; Max-Age=900; SameSite=Lax; Path=${p}`; }catch(_){} }
 async function startAuth(){
-  const CLIENT_ID = val("clientId").replace(zws,"").trim(); const REDIRECT_URI = val("redir").trim();
+  const CLIENT_ID = val("clientId").replace(zws,"").trim();
+  const REDIRECT_URI = FIXED_REDIRECT_URI;
   let v=""; crypto.getRandomValues(new Uint8Array(64)).forEach(x=>v+=String.fromCharCode(97+(x%26))); setVerifier(v);
   let ch=v, method="plain";
   try{ const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v)); let b=""; const u8=new Uint8Array(buf); for(let i=0;i<u8.length;i++) b+=String.fromCharCode(u8[i]); ch=btoa(b).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); method="S256"; }catch(_){}
@@ -247,7 +250,8 @@ function guessCsvColumns(rows){
   const vCol=pickByName(cols,["version","バージョン","mix","remix","edit"]);
   const aCol=pickByName(cols,["artist","artists","アーティスト"])||cols[0];
   return {idCol,isrcCol,tCol,vCol,aCol};
-} const _isrcCache=new Map();
+}
+const _isrcCache=new Map();
 async function searchOnce(q,m,limit=10,offset=0){ const r=await spFetch(`/v1/search?q=${encodeURIComponent(q)}&type=track&limit=${limit}&offset=${offset}&market=${m}`,"GET"); return (r&&r.tracks&&r.tracks.items)?r.tracks.items:[]; }
 async function searchMany(q,m,need=60){ const out=[]; const step=50; for(let off=0; off<need; off+=step){ const items=await searchOnce(q,m,Math.min(step,need-off),off); if(!items||!items.length) break; out.push(...items);} return out; }
 function isrcVariants(s){ s=String(s||"").trim(); if(!s) return []; const up=s.toUpperCase(); const no=up.replace(/-/g,""); const hy=up.indexOf("-")>=0?up:up.replace(/^(.{2})(.{3})(.{2})(.{5})$/,"$1-$2-$3-$4"); return Array.from(new Set([up,no,hy])); }
@@ -486,7 +490,7 @@ function makeEditionPacksV3(baseUris,feats,pinned,tracksMap){
     log(`🪄 版間重なり率(%) UK/US=${overlap(packs.UK,packs.US)}, UK/EU=${overlap(packs.UK,packs.EU)}, UK/WORLD=${overlap(packs.UK,packs.WORLD)}`);
     log(`🪄 版間重なり率(%) US/EU=${overlap(packs.US,packs.EU)}, US/WORLD=${overlap(packs.US,packs.WORLD)}, EU/WORLD=${overlap(packs.EU,packs.WORLD)}`);
     for(const k of ["UK","US","EU","WORLD"]){
-      const arr=packs[k]; const need=i32(val("finalN","130")||130,130);
+      const arr=packs[k]; const need=i32(val("finalN","130")||130);
       if(!Array.isArray(arr) || arr.length!==need){
         const base=Array.isArray(arr)?arr:[]; packs[k]=(base.length>need?base.slice(0,need):base.concat((baseUris||[]).slice(0,need-base.length)));
       }
