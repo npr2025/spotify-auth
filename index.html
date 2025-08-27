@@ -164,11 +164,31 @@ label:"Nipponeer Records" "drum and bass" year:1994-2016 -bootleg -"unofficial" 
 </fieldset>
 
 <script>
-/* ===== Errors ===== */
+/* ===== エラー／緊急復旧フック ===== */
+const REC={basePool:null,feats:null,pinned:null,tracksMap:null,packs4:null};
 window.onerror=(m,src,lin,col,err)=>{ const el=document.getElementById("log"); el.textContent+=(el.textContent?"\n":"")+"💥 ScriptError: "+m+" @"+lin+":"+col; console.error(err||m); };
-window.addEventListener("unhandledrejection",(e)=>{ const el=document.getElementById("log"); el.textContent+=(el.textContent?"\n":"")+"💥 PromiseRejection: "+(e.reason&&e.reason.message?e.reason.message:String(e.reason)); console.error(e.reason); });
+window.addEventListener("unhandledrejection",(e)=>{ 
+  const msg=String(e.reason&&e.reason.message?e.reason.message:e.reason||"");
+  const isLen= /Invalid array length/i.test(msg);
+  const stage = (REC && REC.basePool && REC.pinned) ? "builder" : "unknown";
+  const el=document.getElementById("log");
+  el.textContent+=(el.textContent?"\n":"")+`⚠️ Unhandled(${stage}): ${msg}`;
+  console.error(e.reason);
+  // 強制フォールバック（材料が揃っていればその場で続行）
+  if(stage==="builder"){
+    try{
+      const packs4 = makeEditionPacksFallback(REC.basePool, REC.feats||new Map(), REC.pinned||[]);
+      const packBP  = buildBeatportFromConsensus(REC.basePool, REC.feats||new Map(), REC.pinned||[], packs4, REC.tracksMap||new Map());
+      exportPrepAndWrite({...packs4, BEATPORT:packBP}, REC.feats||new Map());
+      el.textContent+=`\n✅ 緊急フォールバック完了（V0で完走）`;
+      e.preventDefault();
+    }catch(ex){
+      el.textContent+=`\n💥 Fallback失敗: ${(ex&&ex.message)||ex}`;
+    }
+  }
+});
 
-/* ===== Consts/Utils ===== */
+/* ===== 定数/UTIL ===== */
 const zws=/[\u200B-\u200D\uFEFF]/g;
 const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier"};
 const SCOPES="playlist-modify-public playlist-modify-private ugc-image-upload";
@@ -181,10 +201,9 @@ const subProgress=(i,t,s,e,l)=>{ const f=t?i/t:0; progress(s+(e-s)*f,`${l} (${i}
 const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
 const round4=(x)=> (typeof x==="number"&&isFinite(x))?Math.round(x*10000)/10000:"";
 const uniq=(a)=>Array.from(new Set(a));
-// 安全な整数長（0..9999）に丸める
 const i32=(n,def=0)=>{ n=Number(n); if(!Number.isFinite(n)) return def; if(n<0) return 0; return Math.min(9999,Math.floor(n)); };
 
-/* ===== Redirect URI ===== */
+/* ===== REDIRECT_URI自動設定 ===== */
 (function(){ const base = location.origin + location.pathname.replace(/index\.html?$/,''); const uri = base + "callback.html"; const red = $("redir"); if(red) red.value = uri; })();
 
 /* ===== Auth ===== */
@@ -254,55 +273,31 @@ function guessCsvColumns(rows){
   return {idCol,isrcCol,tCol,vCol,aCol};
 }
 
-/* ===== Search/Resolve ===== */
+/* ===== 検索/URI解決（CSV/Auto共通） ===== */
 const _isrcCache=new Map();
 async function searchOnce(q,m,limit=10,offset=0){
   const r=await spFetch(`/v1/search?q=${encodeURIComponent(q)}&type=track&limit=${limit}&offset=${offset}&market=${m}`,"GET");
   return (r&&r.tracks&&r.tracks.items)?r.tracks.items:[];
 }
-async function searchMany(q,m,need=60){
-  const out=[]; const step=50;
-  for(let off=0; off<need; off+=step){
-    const items=await searchOnce(q,m,Math.min(step,need-off),off);
-    if(!items||!items.length) break;
-    out.push(...items);
-  }
-  return out;
-}
+async function searchMany(q,m,need=60){ const out=[]; const step=50; for(let off=0; off<need; off+=step){ const items=await searchOnce(q,m,Math.min(step,need-off),off); if(!items||!items.length) break; out.push(...items);} return out; }
 function isrcVariants(s){ s=String(s||"").trim(); if(!s) return []; const up=s.toUpperCase(); const no=up.replace(/-/g,""); const hy=up.indexOf("-")>=0?up:up.replace(/^(.{2})(.{3})(.{2})(.{5})$/,"$1-$2-$3-$4"); return uniq([up,no,hy]); }
 function makeQueriesFromRow(row,cols){
-  const id=cols.idCol?extractTrackId(row[cols.idCol]):"";
-  const isrc=String(cols.isrcCol?row[cols.isrcCol]:"").trim();
-  const title=(row[cols.tCol]||"").toString().trim();
-  const version=(cols.vCol? (row[cols.vCol]||"") : "").toString().trim();
-  const artist=(row[cols.aCol]||"").toString().trim();
-  const q=[];
-  if(id) q.push({type:"id",q:id});
-  if(isrc && ISRC_RE.test(isrc)){ for(const v of isrcVariants(isrc)) q.push({type:"isrc",q:"isrc:"+v}); }
-  if(title && artist){
-    const base=title.split(/\s+-\s+/)[0];
-    q.push({type:"field",q:`track:"${base}" artist:"${artist}"`});
-    if(version) q.push({type:"field",q:`track:"${title}" artist:"${artist}"`});
-    q.push({type:"free",q:`"${base}" ${artist}`});
-  }else if(title){ q.push({type:"free",q:title}); }
+  const id=cols.idCol?extractTrackId(row[cols.idCol]):""; const isrc=String(cols.isrcCol?row[cols.isrcCol]:"").trim();
+  const title=(row[cols.tCol]||"").toString().trim(); const version=(cols.vCol? (row[cols.vCol]||"") : "").toString().trim(); const artist=(row[cols.aCol]||"").toString().trim(); const q=[];
+  if(id) q.push({type:"id",q:id}); if(isrc && ISRC_RE.test(isrc)){ for(const v of isrcVariants(isrc)) q.push({type:"isrc",q:"isrc:"+v}); }
+  if(title && artist){ const base=title.split(/\s+-\s+/)[0]; q.push({type:"field",q:`track:"${base}" artist:"${artist}"`}); if(version) q.push({type:"field",q:`track:"${title}" artist:"${artist}"`}); q.push({type:"free",q:`"${base}" ${artist}`}); }
+  else if(title){ q.push({type:"free",q:title}); }
   return {q,isrc,id};
 }
 async function resolveOne(row,cols,markets){
   const {q,isrc,id}=makeQueriesFromRow(row,cols);
   if(id) return "spotify:track:"+id;
   if(isrc){ for(const v of isrcVariants(isrc)){ if(_isrcCache.has(v)) return _isrcCache.get(v); } }
-  for(const qq of q){
-    for(const m of markets){
-      try{
-        const items=await searchOnce(qq.q,m,10,0);
-        if(items && items.length){ const u="spotify:track:"+items[0].id; if(isrc) for(const v of isrcVariants(isrc)) _isrcCache.set(v,u); return u; }
-      }catch(_){}
-    }
-  }
+  for(const qq of q){ for(const m of markets){ try{ const items=await searchOnce(qq.q,m,10,0); if(items && items.length){ const u="spotify:track:"+items[0].id; if(isrc) for(const v of isrcVariants(isrc)) _isrcCache.set(v,u); return u; } }catch(_){}} }
   return "";
 }
 
-/* ===== Details/Features ===== */
+/* ===== 詳細/Features ===== */
 async function fetchTrackDetailsByUris(uris){
   const ids=[], map=new Map();
   for(const u of uris){ if(u) ids.push(u.replace("spotify:track:","")); }
@@ -316,15 +311,14 @@ async function fetchTrackDetailsByUris(uris){
 async function fetchAudioFeaturesByUris(uris){
   const ids=[], feats=new Map(); for(const u of uris){ if(u) ids.push(u.replace("spotify:track:","")); }
   for(let i=0;i<ids.length;i+=100){
-    const slice=ids.slice(i,i+100);
-    if(!slice.length) continue;
+    const slice=ids.slice(i,i+100); if(!slice.length) continue;
     const r=await spFetch("/v1/audio-features?ids="+slice.join(","),"GET");
     const arr=(r&&r.audio_features)||[]; for(const f of arr){ if(f&&f.id) feats.set("spotify:track:"+f.id,f); }
   }
   return feats;
 }
 
-/* ===== Ordering/Cost ===== */
+/* ===== 並び（プリセット対応） ===== */
 const camelot=(key,mode)=>({num:[8,3,10,5,0,7,2,9,4,11,6,1][(key||0)%12],isMinor:mode===0});
 const keyDistance=(a,b)=>{ if(!a||!b||a.key==null||b.key==null) return 2; const A=camelot(a.key,a.mode), B=camelot(b.key,b.mode); let d=Math.abs(A.num-B.num); d=Math.min(d,12-d); let pen=d/6; if(A.isMinor!==B.isMinor) pen+=0.4; return pen; }
 function nextCost(a,b,preset){
@@ -338,7 +332,7 @@ function nextCost(a,b,preset){
   return               0.40*dTempo+0.25*dKey+0.25*dEner+0.10*dVal;
 }
 
-/* ===== Intro (pinned) ===== */
+/* ===== イントロ固定 ===== */
 async function fetchPlaylistTrackUris(pid){
   const out=[]; let off=0;
   while(true){
@@ -363,7 +357,7 @@ async function getPinnedIntro(basePool){
   return pinned.length?pinned:basePool.slice(0,want);
 }
 
-/* ===== Meta (remixer/artist) ===== */
+/* ===== メタ（リミキサ／アーティスト） ===== */
 let URI_META=new Map();
 function normalizeRemixer(s){ s=String(s||"").trim(); if(!s) return ""; s=s.replace(/\b(original|radio|extended|club)\b.*$/i,"").trim(); return s.toLowerCase(); }
 function parseRemixerFromName(name){
@@ -386,7 +380,7 @@ function buildUriMeta(uriList, tracksMap, hintRows=null, cols=null){
   return meta;
 }
 
-/* ===== RNG/helpers ===== */
+/* ===== RNG/ヘルパ ===== */
 function seedHash(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0; } return h>>>0; }
 function rng(seed){ let x=seedHash(String(seed))||1; return ()=>{ x^=x<<13; x^=x>>>17; x^=x<<5; return (x>>>0)/4294967296; } }
 function seededShuffle(arr, seed){ const r=rng(seed); const a=arr.slice(0); for(let i=a.length-1;i>0;i++){ const j=Math.floor(r()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
@@ -394,7 +388,7 @@ function jitterSmall(id, seed){ const j=seedHash(id+":"+seed)%1000; return (j/10
 function scoreRise(f){ const tempo=f?.tempo??120, ener=f?.energy??0.5; return 0.6*ener+0.4*(tempo/200); }
 function scoreDrop(f){ const tempo=f?.tempo??120, ener=f?.energy??0.5; return 0.7*ener+0.3*(tempo/200); }
 
-/* ===== Tail ordering ===== */
+/* ===== 並び作成 ===== */
 function buildTailByPreset(prev, tail, feats, preset, editionSeed){
   tail = Array.isArray(tail) ? tail : [];
   if(tail.length===0) return [];
@@ -428,7 +422,7 @@ function buildTailByPreset(prev, tail, feats, preset, editionSeed){
   return seededShuffle(snake, editionSeed);
 }
 
-/* ===== No adjacent remixer/artist ===== */
+/* ===== 連続Remixer/Artist回避 ===== */
 function deAdjacentByKeyFrom(seq, keyFn, startIdx){
   let swaps=0, prevKey = startIdx>0 ? keyFn(seq[startIdx-1]) : "";
   for(let i=startIdx;i<seq.length;i++){
@@ -449,7 +443,7 @@ function postProcessNoAdjacency(fullSeq, pinnedLen){
   return {remix_swaps:s1, artist_swaps:s2};
 }
 
-/* ===== Unique helpers ===== */
+/* ===== 版内ユニーク強制 ===== */
 function enforceUniqueWithin(seq, pinnedLen, primaryPool, fallbackPool, label="", banSet=null){
   seq = Array.isArray(seq) ? seq : [];
   pinnedLen = i32(Math.min(pinnedLen, seq.length));
@@ -483,7 +477,7 @@ function enforceUniqueWithin(seq, pinnedLen, primaryPool, fallbackPool, label=""
   return result;
 }
 
-/* ===== Edition profiles & gating ===== */
+/* ===== プロファイル等 ===== */
 function getDiverge(){ const v = (document.getElementById("diverge")?.value)||"high"; return (v==="high"||v==="medium"||v==="low")?v:"high"; }
 const DIV_LEVELS = { high:{gate:1.00,artistCap:2,remixerCap:1}, medium:{gate:0.70,artistCap:3,remixerCap:2}, low:{gate:0.50,artistCap:4,remixerCap:2} };
 const EDITION_PROFILES = {
@@ -504,8 +498,6 @@ function fitsProfile(feat, prof, gate){
   const okMode  = (typeof prof.mode==="number") ? (gate>=0.9 ? (feat.mode===prof.mode) : true) : true;
   return okTempo && okEner && okVal && okDance && okSpeech && okInstr && okMode;
 }
-
-/* ===== Edition weighting (tie-break) ===== */
 function gauss(x,c,w){ if(x==null) return 0.3; const z=(x-c)/w; return Math.exp(-0.5*z*z); }
 function marketScore(t, tags){ const mk=new Set((t?.available_markets)||[]); let sc=0; for(const [code,w] of tags){ if(mk.has(code)) sc+=w; } return Math.min(sc,1); }
 function editionWeight(u, feats, tracksMap, edition){
@@ -518,7 +510,7 @@ function editionWeight(u, feats, tracksMap, edition){
   return 0.55*feat + 0.45*mkt + noRemixBonus;
 }
 
-/* ===== Deep Divergence (堅牢版／内蔵フォールバック) ===== */
+/* ===== Fallback（安全版） ===== */
 function makeEditionPacksFallback(baseUris, feats, pinned){
   const N=i32(val("finalN","130")||130,130);
   const P=i32(Math.min(pinned.length,N));
@@ -533,6 +525,7 @@ function makeEditionPacksFallback(baseUris, feats, pinned){
   return {UK:build("UK"),US:build("US"),EU:build("EU"),WORLD:build("WORLD")};
 }
 
+/* ===== Deep Divergence（堅牢版：try/catch内蔵） ===== */
 function makeEditionPacksV3(baseUris, feats, pinned, tracksMap){
   try{
     baseUris = Array.isArray(baseUris)? baseUris : [];
@@ -547,13 +540,11 @@ function makeEditionPacksV3(baseUris, feats, pinned, tracksMap){
     const withinDupAllowed = !!$("allowWithinDup")?.checked;
     const allowCrossDup    = !!$("allowCrossDup")?.checked;
 
-    // 残りプール
     const pinnedSet=new Set(fixed);
     let remainder=baseUris.filter(u=>typeof u==="string" && u && !pinnedSet.has(u));
     if(!allowCrossDup) remainder=[...new Set(remainder)];
     log(`🧪 PackParams N=${N} P=${P} tailN=${tailN} remainder=${remainder.length}`);
 
-    // バケット
     const buckets=[[],[],[],[]];
     for(const u of remainder){ buckets[seedHash(u)%4].push(u); }
 
@@ -637,11 +628,11 @@ function makeEditionPacksV3(baseUris, feats, pinned, tracksMap){
     log(`🪄 版間重なり率(%) US/EU=${overlap(packs.US,packs.EU)}, US/WORLD=${overlap(packs.US,packs.WORLD)}, EU/WORLD=${overlap(packs.EU,packs.WORLD)}`);
     log(`🎛️ 差別化レベル: ${diverge} (gate=${(DIV_LEVELS[diverge]||{}).gate}, artistCap=${(DIV_LEVELS[diverge]||{}).artistCap}, remixerCap=${(DIV_LEVELS[diverge]||{}).remixerCap})`);
 
-    // 最終安全チェック
     for(const k of ["UK","US","EU","WORLD"]){
-      const arr=packs[k]; if(!Array.isArray(arr)) throw new Error("pack["+k+"] invalid");
-      const need=i32(val("finalN","130")||130,130);
-      if(arr.length!==need) packs[k] = (arr.length>need?arr.slice(0,need):arr.concat((baseUris||[]).slice(0,need-arr.length)));
+      const arr=packs[k]; const need=i32(val("finalN","130")||130,130);
+      if(!Array.isArray(arr) || arr.length!==need){
+        const base=Array.isArray(arr)?arr:[]; packs[k] = (base.length>need?base.slice(0,need):base.concat((baseUris||[]).slice(0,need-base.length)));
+      }
     }
     return packs;
   }catch(e){
@@ -683,7 +674,7 @@ function buildBeatportFromConsensus(baseUris, feats, pinned, packs4, tracksMap){
   return seq;
 }
 
-/* ===== Write & Create ===== */
+/* ===== 書込み ===== */
 const extractPlaylistId=(s)=>{s=String(s||""); let m=s.match(/playlist\/([A-Za-z0-9]{22})/); if(m) return m[1]; m=s.match(/^([A-Za-z0-9]{22})$/); if(m) return m[1]; return ""; }
 async function replacePlaylist(pid,uris){
   const chunks=[]; for(let i=0;i<uris.length;i+=100) chunks.push(uris.slice(i,i+100));
@@ -707,7 +698,7 @@ async function ensureWrite(which, uris){
   log(`📄 新規作成: ${name}`); return await createPlaylistAndFill(name,desc,isPub,uris);
 }
 
-/* ===== Pref pool ===== */
+/* ===== ベースプール（市場優先を先頭に） ===== */
 function buildBasePool(list, preferred){
   const used=new Set(), seq=[];
   const push=(u)=>{ if(u && !used.has(u)){ used.add(u); seq.push(u); } };
@@ -716,11 +707,11 @@ function buildBasePool(list, preferred){
   return seq;
 }
 
-/* ===== Main ===== */
+/* ===== メイン ===== */
 let _pending=null;
 function getMarkets(){ const raw=(val("markets","")||"").toUpperCase(); const arr=raw.split(",").map(s=>s.trim()).filter(Boolean); return arr.length?uniq(arr):["ES","US","GB","NZ"]; }
 
-/* CSV */
+/* CSVモード */
 async function runCsvOnly(){
   progress(8,"CSV検出…");
   const cols=guessCsvColumns(csvRows);
@@ -756,10 +747,14 @@ async function runCsvOnly(){
   progress(76,"イントロ取得…");
   const pinned = await getPinnedIntro(basePool);
 
+  // ここで緊急復旧用に材料を退避
+  REC.basePool=basePool; REC.feats=feats; REC.pinned=pinned; REC.tracksMap=tracksMap;
+
   progress(78,"エディション分配（Deep Divergence）…");
   let packs4=null;
   try{ packs4=makeEditionPacksV3(basePool, feats, pinned, tracksMap); }
   catch(e){ log("⚠️ V3分配で例外 → Fallback適用: "+(e.message||e)); packs4=makeEditionPacksFallback(basePool, feats, pinned); }
+  REC.packs4=packs4;
 
   progress(82,"Beatport版（+20）を構成…");
   const packBP=buildBeatportFromConsensus(basePool, feats, pinned, packs4, tracksMap);
@@ -768,7 +763,7 @@ async function runCsvOnly(){
   await exportPrepAndWrite({...packs4, BEATPORT:packBP},feats);
 }
 
-/* Auto */
+/* Autoモード */
 async function runAutoOnly(){
   progress(10,"検索クエリ収集…");
   const mkts=getMarkets();
@@ -816,10 +811,13 @@ async function runAutoOnly(){
   progress(76,"イントロ取得…");
   const pinned = await getPinnedIntro(basePool);
 
+  REC.basePool=basePool; REC.feats=feats; REC.pinned=pinned; REC.tracksMap=tracksMap;
+
   progress(78,"エディション分配（Deep Divergence）…");
   let packs4=null;
   try{ packs4=makeEditionPacksV3(basePool, feats, pinned, tracksMap); }
   catch(e){ log("⚠️ V3分配で例外 → Fallback適用: "+(e.message||e)); packs4=makeEditionPacksFallback(basePool, feats, pinned); }
+  REC.packs4=packs4;
 
   progress(82,"Beatport版（+20）を構成…");
   const packBP=buildBeatportFromConsensus(basePool, feats, pinned, packs4, tracksMap);
@@ -828,7 +826,7 @@ async function runAutoOnly(){
   await exportPrepAndWrite({...packs4, BEATPORT:packBP},feats);
 }
 
-/* Export & Write */
+/* ===== Export & Write ===== */
 let _exportData=null; const enableExportButtons=(on)=>{ $("btnExportXlsx").disabled=!on; $("btnExportCsv").disabled=!on; }
 async function exportPrepAndWrite(packs,feats){
   function packRows(arr,ed){ const out=[]; for(let i=0;i<arr.length;i++){ const f=feats.get(arr[i])||{}; out.push({position:i+1,edition:ed,spotify_uri:arr[i],tempo:round4(f.tempo),energy:round4(f.energy),valence:round4(f.valence),key:(f.key==null?"":f.key),mode:(f.mode==null?"":f.mode),danceability:round4(f.danceability),speechiness:round4(f.speechiness),instrumentalness:round4(f.instrumentalness)}); } return out; }
@@ -846,10 +844,10 @@ async function exportPrepAndWrite(packs,feats){
     _pending=packs; log("🔑 接続待ち：『Spotifyにサインイン』→『接続チェック』");
   }
   progress(100,"完了");
-  log("✅ 完了（15共通／Deep Divergenceプロファイル／版内ユニーク／リミキサー連続回避／BP=共通上位+20の150曲）");
+  log("✅ 完了（15共通／Deep Divergence／版内ユニーク／リミキサー連続回避／BP=共通上位+20の150曲）");
 }
 
-/* Resume */
+/* ===== Resume ===== */
 async function resolveAndWrite(packs){
   try{
     progress(90,"書込み再開…");
@@ -861,7 +859,7 @@ async function resolveAndWrite(packs){
   }catch(e){ log("💥 ERROR(resolveAndWrite): "+(e.message||e)); }
 }
 
-/* UI events */
+/* ===== UI ===== */
 $("modeCsv").onchange=()=>{ setHidden("boxCsv",!$("modeCsv").checked); setHidden("boxAuto",$("modeCsv").checked); };
 $("modeAuto").onchange=$("modeCsv").onchange; $("modeCsv").onchange();
 
@@ -869,16 +867,16 @@ $("btnConnect").onclick=startAuth;
 $("btnReset").onclick=()=>{ for(const k in LS) localStorage.removeItem(LS[k]); _me=null; setStatus(); log("🧽 ローカルトークン削除"); };
 $("btnCheck").onclick=async()=>{ try{ await refreshTokenIfNeeded(); const me=await spFetch("/v1/me","GET"); if(me) {$("status").textContent="接続中（"+(me.display_name||me.id)+")"; log("✅ API確認 OK"); if(_pending) await resolveAndWrite(_pending);} else {$("status").textContent="接続中（OK）";} }catch(e){ log("⚠️ 接続エラー: "+(e.message||e)); } };
 
-/* CSV選択で自動実行 */
+/* CSV選択→自動実行 */
 $("fileCSV").addEventListener("change", async () => {
-  if(!$("modeCsv").checked) return; // Auto時は無視
+  if(!$("modeCsv").checked) return;
   $("log").textContent="";
   progress(3,"CSV読み込み…");
   if(!$("fileCSV").files.length){ log("⚠️ CSV未選択"); return; }
   csvRows = await readCSV($("fileCSV").files[0]);
   log("✅ CSV: "+csvRows.length+" 行");
   progress(6,"分析開始…");
-  await runCsvOnly();            // 自動で走らせる
+  await runCsvOnly();
 });
 
 /* 実行ボタン */
@@ -896,7 +894,7 @@ $("btnRun").onclick=async()=>{
   }
 };
 
-/* Export buttons */
+/* Export */
 $("btnExportXlsx").onclick=()=>{
   if(!_exportData){log("ℹ️ データなし");return;}
   const wb=XLSX.utils.book_new();
@@ -914,6 +912,6 @@ $("btnExportCsv").onclick=()=>{
 };
 
 setStatus();
-log("Ready. Deep Divergence + Safe Fallback：例外でも即フォールバックして完走。UK/US/EU/WORLD各130 + Beatport150、15固定・重複/連続回避対応。");
+log("Ready. 強制完走：V3失敗や未捕捉Rejectionでも即フォールバック実行→書込みまで続行。UK/US/EU/WORLD=各130、Beatport=150、15固定・ユニーク・連続回避・CSV自動実行。");
 </script>
 </body></html>
