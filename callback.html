@@ -14,7 +14,7 @@
 <script>
 const BUILD_ID="v10.4";
 const FIXED_REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
-const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier",pend:"csv_auto_pend"};
+const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier"};
 function out(s){ document.getElementById('out').textContent += s+"\n"; }
 function readVerifier(){
   const k=LS.ver;
@@ -26,34 +26,36 @@ function readVerifier(){
 function clearVerifier(){ try{ localStorage.removeItem(LS.ver); }catch(_){}
   try{ sessionStorage.removeItem(LS.ver); }catch(_){}
   try{ document.cookie=LS.ver+"=; Max-Age=0; Path=/"; }catch(_){} }
+
 (async()=>{
   try{
     const url=new URL(location.href);
     const code=url.searchParams.get("code");
     const err =url.searchParams.get("error");
-    if(err){ out("Error: "+err); throw new Error(err); }
-    if(!code){ out("認可コードがありません"); throw new Error("no code"); }
-    const base = location.origin + location.pathname.replace(/callback\.html?$/,'');
-    const indexUrl = base + "index.html?v="+BUILD_ID+"&bust="+Date.now();
+    if(err) throw new Error(err);
+    if(!code) throw new Error("no code");
+
+    const indexUrl = "https://npr2025.github.io/spotify-auth/index.html?v="+BUILD_ID+"&bust="+Date.now();
     const code_verifier = readVerifier();
     const CLIENT_ID = "1fd6350fcf4945a0b3ddffa2d5730d4e";
+
     const body=new URLSearchParams();
     body.set("grant_type","authorization_code");
     body.set("code",code);
     body.set("redirect_uri",FIXED_REDIRECT_URI);
     body.set("client_id",CLIENT_ID);
     body.set("code_verifier",code_verifier||"");
+
     const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
     if(!r.ok){
       let msg="token "+r.status; try{ const t=await r.json(); msg+=(t.error_description?": "+t.error_description:""); }catch(_){}
-      out("Token Error: "+msg); throw new Error(msg);
+      throw new Error(msg);
     }
     const j=await r.json();
     localStorage.setItem(LS.acc,j.access_token);
     localStorage.setItem(LS.exp,String(Date.now()+j.expires_in*1000));
     if(j.refresh_token) localStorage.setItem(LS.ref,j.refresh_token);
     clearVerifier();
-    out("OK。戻ります…");
     location.href=indexUrl;
   }catch(e){ out("失敗: "+(e.message||e)); }
 })();
