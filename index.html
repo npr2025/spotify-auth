@@ -296,10 +296,9 @@ function makeEditionPacks(allUris, feats){
   const allowCrossDup  = $("allowCrossDup").checked;
   let base = allUris.slice(0);
   if(!allowCrossDup){
-    // 版間で相互非重複
-    const used=new Set();
-    const takeUnique=(arr)=>arr.filter(u=>{ if(used.has(u)) return false; used.add(u); return true; });
-    base = takeUnique(base);
+    // （任意）版間で相互非重複にしたい場合の実装は別途。既定は重複許可。
+    // ここでは base の重複を除去するのみ（既定ONなので通常は未使用）
+    base = Array.from(new Set(base));
   }
   const mkUK = orderFlow(fillToN(base, N, allowWithinDup), feats, ($("#presetUK").value||"waves"));
   const mkUS = orderFlow(fillToN(base, N, allowWithinDup), feats, ($("#presetUS").value||"rise"));
@@ -348,7 +347,7 @@ function buildBasePool(list, preferred, N){
   const pushUnique = (u)=>{ if(u && !used.has(u)){ used.add(u); seq.push(u); } };
   for (const u of preferred) pushUnique(u);
   for (const u of list)      pushUnique(u);
-  return seq; // 最終的な130化は fillToN が担当（dup可）
+  return seq; // 最終130化は fillToN が担当（dup可）
 }
 
 /* ===== メイン ===== */
@@ -386,6 +385,12 @@ async function runCsvOnly(){
     const mk=getMarkets();
     let preferred=list; // 既定：全曲同列
     if(strict){
+      preferred=list.filter(u=>{
+        const t=tracksMap.get(u);
+        if(!t || !Array.isArray(t.available_markets)) return false;
+        return mk.some(m=>t.includes ? t.includes(m) : t.available_markets.includes(m));
+      });
+      // 念のため includes 安全化（上で t.available_markets に統一しているが保険）
       preferred=list.filter(u=>{
         const t=tracksMap.get(u);
         if(!t || !Array.isArray(t.available_markets)) return false;
