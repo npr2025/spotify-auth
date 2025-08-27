@@ -4,7 +4,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TDCS Editions Builder — CSV限定 / Auto市場調査 / 強制130</title>
+<title>TDCS Editions Builder — 4版差別化＋Beatport版150（固定イントロ/強制130+20）</title>
 <style>
 :root{--bg:#0b1220;--fg:#cfe3ff}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1180px;margin:32px auto;padding:0 12px}
@@ -28,12 +28,13 @@ small.hint{color:#666}
 .hidden{display:none}
 .inline{display:inline-block;margin-right:16px}
 .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
+.badge{display:inline-block;margin-left:8px;padding:2px 8px;border:1px solid #ccc;border-radius:999px;font-size:12px}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
-<h1>TDCS Editions Builder — CSV限定 or Auto市場調査（強制130）</h1>
+<h1>TDCS Editions Builder <span class="badge">4版差別化</span><span class="badge">Beatport版150</span><span class="badge">固定イントロ</span></h1>
 <p id="status">未接続</p>
 <div>
   <button id="btnConnect">Spotifyにサインイン</button>
@@ -57,21 +58,22 @@ small.hint{color:#666}
 </fieldset>
 
 <fieldset id="boxCommon">
-  <legend>共通設定（4エディション）</legend>
+  <legend>共通設定（5エディション）</legend>
   <div class="grid4">
     <label>UK プレイリストID/URL <input id="plUK" type="text" placeholder="空なら新規作成"></label>
     <label>US プレイリストID/URL <input id="plUS" type="text" placeholder="空なら新規作成"></label>
     <label>EU プレイリストID/URL <input id="plEU" type="text" placeholder="空なら新規作成"></label>
     <label>WORLD プレイリストID/URL <input id="plWORLD" type="text" placeholder="空なら新規作成"></label>
   </div>
-  <div class="grid3">
+  <div class="grid4">
+    <label>BEATPORT プレイリストID/URL <input id="plBP" type="text" placeholder="空なら新規作成（150曲）"></label>
     <label>API間隔(ms) <input id="gap" type="number" value="1000"></label>
-    <label>各エディション出力数 <input id="finalN" type="number" value="130"></label>
+    <label>各エディション出力数（UK/US/EU/WORLD）<input id="finalN" type="number" value="130"></label>
     <label>主要マーケット（優先順）<input id="markets" type="text" value="ES,US,GB,NZ"></label>
   </div>
   <div class="grid4">
     <label>UKプリセット
-      <select id="presetUK"><option>waves</option><option selected>rise</option><option>drop</option><option>dj</option></select>
+      <select id="presetUK"><option selected>waves</option><option>rise</option><option>drop</option><option>dj</option></select>
     </label>
     <label>USプリセット
       <select id="presetUS"><option>waves</option><option selected>rise</option><option>drop</option><option>dj</option></select>
@@ -83,21 +85,43 @@ small.hint{color:#666}
       <select id="presetWORLD"><option>waves</option><option>rise</option><option>drop</option><option selected>dj</option></select>
     </label>
   </div>
-  <label><input id="strictMarket" type="checkbox" checked> 市場一致を「優先採用」にする（不足分は手持ち候補で補完）</label>
-  <label><input id="allowCrossDup" type="checkbox" checked> 版間重複を許可</label>
-  <label><input id="allowWithinDup" type="checkbox" checked> 版内重複を許可（必ず130曲）</label>
-  <div class="grid2">
-    <label>新規作成時のベース名 <input id="baseName" type="text" value="TDCS Editions"></label>
+  <div class="grid3">
+    <label>BEATPORTプリセット
+      <select id="presetBP"><option selected>bp</option><option>drop</option><option>dj</option></select>
+    </label>
+    <label>Beatport追加曲数（+）<input id="bpExtra" type="number" value="20" min="1" max="50"></label>
     <label>公開可否
       <select id="pub"><option value="0" selected>非公開</option><option value="1">公開</option></select>
     </label>
   </div>
+
+  <label><input id="strictMarket" type="checkbox" checked> 市場一致を「優先採用」にする（不足分は手持ち候補で補完）</label>
+  <label><input id="allowCrossDup" type="checkbox"> 版間重複を許可（※OFF推奨＝4版は中身を分離）</label>
+  <label><input id="allowWithinDup" type="checkbox" checked> 版内重複を許可（常に曲数を担保）</label>
+
+  <div class="grid2">
+    <label>新規作成時のベース名 <input id="baseName" type="text" value="TDCS Editions"></label>
+    <label>説明文の追記 <input id="descNote" type="text" value="Auto-built (intro pinned, diversified, BP=+20 from cross-edition consensus)"></label>
+  </div>
+</fieldset>
+
+<fieldset id="boxIntro">
+  <legend>イントロ固定（先頭をテンプレ通りに共通化）</legend>
+  <div class="grid2">
+    <label>テンプレPL ID/URL
+      <input id="introTpl" type="text" value="https://open.spotify.com/playlist/1v9jLD4ZxIaCDap2fPKGcJ?si=3f561ed29e554a20&pt=657aba40d6c86a1fffe7022ec0398916">
+    </label>
+    <label>イントロ曲数(10–20)
+      <input id="introLen" type="number" value="15" min="10" max="20">
+    </label>
+  </div>
+  <small class="hint">テンプレ内にない曲は自動スキップ（候補外の曲は使いません）。未入力時は候補プールの先頭から固定。</small>
 </fieldset>
 
 <fieldset id="boxCsv">
   <legend>CSVモード（このCSVだけで組む）</legend>
   <label>ソースCSV <input id="fileCSV" type="file" accept=".csv"></label>
-  <small class="hint">列は自動検出：track_uri/url/id, isrc, title/version, artist 優先。</small>
+  <small class="hint">列は自動検出：track_uri/url/id, isrc, title/version, artist 優先。CSV選択→自動実行。</small>
 </fieldset>
 
 <fieldset id="boxAuto" class="hidden">
@@ -303,7 +327,7 @@ async function fetchAudioFeaturesByUris(uris){
   return feats;
 }
 
-/* ===== 並び（プリセット対応） ===== */
+/* ===== 並び・距離関数 ===== */
 const camelot=(key,mode)=>({num:[8,3,10,5,0,7,2,9,4,11,6,1][(key||0)%12],isMinor:mode===0});
 const keyDistance=(a,b)=>{ if(!a||!b||a.key==null||b.key==null) return 2; const A=camelot(a.key,a.mode), B=camelot(b.key,b.mode); let d=Math.abs(A.num-B.num); d=Math.min(d,12-d); let pen=d/6; if(A.isMinor!==B.isMinor) pen+=0.4; return pen; }
 function nextCost(a,b,preset){
@@ -313,46 +337,174 @@ function nextCost(a,b,preset){
   if(preset==="dj")   return 0.45*dTempo+0.35*dKey+0.15*dEner+0.05*dVal;
   if(preset==="rise") return 0.35*dTempo+0.20*dKey+0.35*dEner+0.10*dVal;
   if(preset==="drop") return 0.35*dTempo+0.20*dKey+0.35*dEner+0.10*dVal;
-  return               0.40*dTempo+0.25*dKey+0.25*dEner+0.10*dVal; /* 0.25*dKey */
-}
-function orderFlow(uris,featMap,preset){
-  if(uris.length<=2) return uris.slice(0);
-  const seq=[uris[0]];
-  const pool=uris.slice(1);
-  while(pool.length){
-    const prev=seq[seq.length-1];
-    let bestIdx=0, best=1e9;
-    for(let i=0;i<pool.length;i++){
-      const a=featMap.get(prev)||{}, b=featMap.get(pool[i])||{};
-      let cost=nextCost(a,b,preset);
-      if(cost<best){best=cost; bestIdx=i;}
-    }
-    seq.push(pool.splice(bestIdx,1)[0]);
-  }
-  return seq;
+  if(preset==="bp")   return 0.25*dTempo+0.25*dKey+0.45*dEner+0.05*dVal; /* Beatport: エネ重視 */
+  return               0.40*dTempo+0.25*dKey+0.25*dEner+0.10*dVal; /* waves既定 */
 }
 
-/* ===== 分配（重複許容で強制130） ===== */
-function fillToN(baseUris, N, allowWithinDup){
-  if(baseUris.length===0) return [];
-  if(allowWithinDup){
-    const out=[]; let i=0; while(out.length<N){ out.push(baseUris[i%baseUris.length]); i++; if(i> N*20) break; }
-    return out.slice(0,N);
-  }else{
-    return baseUris.slice(0,N);
+/* ===== イントロ固定（テンプレPL→候補内のみ採用） ===== */
+async function fetchPlaylistTrackUris(pid){
+  const out=[]; let off=0;
+  while(true){
+    const r=await spFetch(`/v1/playlists/${pid}/tracks?limit=100&offset=${off}`,"GET");
+    if(!r||!r.items||!r.items.length) break;
+    for(const it of r.items){ const t=it && it.track; if(t && t.id) out.push("spotify:track:"+t.id); }
+    off+=r.items.length; if(r.items.length<100) break;
   }
+  return Array.from(new Set(out));
 }
-function makeEditionPacks(allUris, feats){
+async function getPinnedIntro(basePool){
+  const want=Math.max(10, Math.min(20, +(val("introLen","15")||15)));
+  const tpl=(val("introTpl","")||"").trim();
+  const poolSet=new Set(basePool);
+  if(!tpl) return basePool.slice(0,want);
+  const pid=extractPlaylistId(tpl);
+  if(!pid){ log("⚠️ イントロ: プレイリストIDが解釈できません"); return basePool.slice(0,want); }
+  const tplUris=await fetchPlaylistTrackUris(pid);
+  const pinned=tplUris.filter(u=>poolSet.has(u)).slice(0,want);
+  if(pinned.length<want) log(`ℹ️ イントロ: テンプレ外で ${want-pinned.length} 曲スキップ（採用 ${pinned.length}/${want}）`);
+  else log(`🎛️ イントロ固定: ${pinned.length}曲`);
+  return pinned.length?pinned:basePool.slice(0,want);
+}
+
+/* ===== 乱数系ユーティリティ ===== */
+function seedHash(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0; } return h>>>0; }
+function rng(seed){ let x=seedHash(String(seed))||1; return ()=>{ x^=x<<13; x^=x>>>17; x^=x<<5; return (x>>>0)/4294967296; } }
+function seededShuffle(arr, seed){ const r=rng(seed); const a=arr.slice(0); for(let i=a.length-1;i>0;i--){ const j=Math.floor(r()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+function jitterSmall(id, seed){ const j=seedHash(id+":"+seed)%1000; return (j/1000-0.5)*0.06; } // ±0.03
+function scoreRise(f){ const tempo=f?.tempo??120, ener=f?.energy??0.5; return 0.6*ener+0.4*(tempo/200); }
+function scoreDrop(f){ const tempo=f?.tempo??120, ener=f?.energy??0.5; return 0.7*ener+0.3*(tempo/200); }
+
+/* ===== プリセット別の“後半”構築 ===== */
+function buildTailByPreset(prev, tail, feats, preset, editionSeed){
+  const id8=(u)=>(u||"").slice(-8);
+  if(preset==="rise"||preset==="drop"||preset==="bp"){
+    const scored = tail.map(u=>{
+      const f=feats.get(u)||{};
+      const base=(preset==="rise")?scoreRise(f):(preset==="drop")?scoreDrop(f):( (f.energy??0.5)*0.75 + (f.tempo??120)/260*0.25 );
+      return {u,score:base + jitterSmall(id8(u),editionSeed)};
+    });
+    scored.sort((a,b)=> (preset==="rise")? (a.score-b.score) : (b.score-a.score));
+    return scored.map(x=>x.u);
+  }
+  if(preset==="dj"){
+    const seq=[]; const pool=tail.slice(0);
+    let cur=prev||pool[0];
+    while(pool.length){
+      let bestI=0, best=1e9;
+      for(let i=0;i<pool.length;i++){
+        const a=feats.get(cur)||{}, b=feats.get(pool[i])||{};
+        let cost=nextCost(a,b,"dj");
+        cost += (seedHash(id8(pool[i])+":dj")%80)/1000; // 0〜0.079
+        if(cost<best){ best=cost; bestI=i; }
+      }
+      const pick=pool.splice(bestI,1)[0];
+      seq.push(pick); cur=pick;
+    }
+    return seq;
+  }
+  // waves：上下織り交ぜ→軽いシャッフル
+  const withE = tail.map(u=>({u,e:(feats.get(u)||{}).energy ?? 0.5}));
+  const low  = withE.slice().sort((a,b)=>a.e-b.e);
+  const high = withE.slice().sort((a,b)=>b.e-a.e);
+  const snake=[]; let i=0,j=0;
+  while(i<low.length || j<high.length){ if(j<high.length) snake.push(high[j++].u); if(i<low.length) snake.push(low[i++].u); }
+  return seededShuffle(snake, editionSeed);
+}
+
+/* ===== 4版（UK/US/EU/WORLD）：固定イントロ＋版間非重複を優先 ===== */
+function makeEditionPacksDiversified(baseUris, feats, pinned){
   const N=+(val("finalN","130")||130);
-  const allowWithinDup = !!$("allowWithinDup")?.checked;
-  const allowCrossDup  = !!$("allowCrossDup")?.checked;
-  let base = allUris.slice(0);
-  if(!allowCrossDup){ base = Array.from(new Set(base)); }
-  const mkUK = orderFlow(fillToN(base, N, allowWithinDup), feats, (val("presetUK","waves")||"waves"));
-  const mkUS = orderFlow(fillToN(base, N, allowWithinDup), feats, (val("presetUS","rise")||"rise"));
-  const mkEU = orderFlow(fillToN(base, N, allowWithinDup), feats, (val("presetEU","waves")||"waves"));
-  const mkWO = orderFlow(fillToN(base, N, allowWithinDup), feats, (val("presetWORLD","dj")||"dj"));
-  return {UK:mkUK, US:mkUS, EU:mkEU, WORLD:mkWO};
+  const allowWithinDup=!!$("allowWithinDup")?.checked;
+  const allowCrossDup =!!$("allowCrossDup")?.checked;
+
+  const P=Math.min(pinned.length, N);
+  const fixed=pinned.slice(0,P);
+  const tailN=N-P;
+  const pinnedSet=new Set(fixed);
+
+  let remainder=baseUris.filter(u=>!pinnedSet.has(u));
+  if(!allowCrossDup) remainder=[...new Set(remainder)];
+
+  const eds=[["UK",val("presetUK","waves"),101],["US",val("presetUS","rise"),202],["EU",val("presetEU","drop"),303],["WORLD",val("presetWORLD","dj"),404]];
+
+  const used=new Set(); // 版間の重複を極力避ける
+  const packs={};
+
+  const pickTail=(seed)=>{
+    const shuffled=seededShuffle(remainder,seed);
+    const out=[];
+    for(const u of shuffled){
+      if(out.length>=tailN) break;
+      if(!allowCrossDup && used.has(u)) continue;
+      out.push(u); used.add(u);
+    }
+    if(out.length<tailN){ // 共有を許可
+      for(const u of shuffled){
+        if(out.length>=tailN) break;
+        if(!allowWithinDup && out.includes(u)) continue;
+        out.push(u);
+      }
+    }
+    while(out.length<tailN){
+      out.push(out[out.length%Math.max(1,out.length)]);
+      if(out.length>tailN*2) break;
+    }
+    return out.slice(0,tailN);
+  };
+
+  for(const [name,preset,seed] of eds){
+    const tail=pickTail(seed);
+    const prev=fixed[fixed.length-1]||tail[0];
+    const orderedTail=buildTailByPreset(prev, tail, feats, preset, seed);
+    packs[name]=fixed.concat(orderedTail);
+  }
+  return packs;
+}
+
+/* ===== Beatport版（+20）：4版の“共通上位”から優先採用 → 150曲 ===== */
+function buildBeatportFromConsensus(baseUris, feats, pinned, packs4){
+  const N=+(val("finalN","130")||130);
+  const extra=Math.max(1, +(val("bpExtra","20")||20));
+  const total=N+extra; // 例：130+20=150
+
+  const P=Math.min(pinned.length, total);
+  const fixed=pinned.slice(0,P);
+  const tailN=total-P;
+  const pinnedSet=new Set(fixed);
+
+  // 4版の並びから頻度集計（イントロを除く）
+  const freq=new Map();
+  for(const name of ["UK","US","EU","WORLD"]){
+    const arr=(packs4[name]||[]).slice(P); // 先頭は共通のため除外
+    for(const u of arr){ freq.set(u,(freq.get(u)||0)+1); }
+  }
+  // スコア＝頻度>エネルギー>テンポ（クラブ想定）
+  const scored = [...freq.entries()].map(([u,f])=>{
+    const ft=feats.get(u)||{};
+    const score = f*10 + (ft.energy??0.5)*3 + (ft.tempo??120)/300;
+    return {u,score,f};
+  }).sort((a,b)=> b.score-a.score);
+
+  // まず“共通上位”から必要数ピック（tailNのうち先に extra 近辺を確保）
+  const consensusPicks=[];
+  const needConsensus=Math.min(extra, tailN);
+  for(const x of scored){
+    if(consensusPicks.length>=needConsensus) break;
+    if(pinnedSet.has(x.u)) continue;
+    if(consensusPicks.includes(x.u)) continue;
+    consensusPicks.push(x.u);
+  }
+
+  // 残りはベースから補完（重複排除）
+  const usedSet=new Set([...pinnedSet, ...consensusPicks]);
+  const remainder=baseUris.filter(u=>!usedSet.has(u));
+
+  // 並べ方：Beatportプリセット（bp=エネ重視降順→適度に近接）
+  const seed=505;
+  const restOrdered = buildTailByPreset(consensusPicks[consensusPicks.length-1]||remainder[0], remainder, feats, (val("presetBP","bp")||"bp"), seed);
+
+  const merged = consensusPicks.concat(restOrdered).slice(0,tailN);
+  return fixed.concat(merged);
 }
 
 /* ===== 書込み & プレイリスト作成 ===== */
@@ -369,29 +521,30 @@ async function createPlaylistAndFill(name,desc,isPublic,uris){
   const pid=(pl&&pl.id)?pl.id:""; await replacePlaylist(pid,uris); return pid;
 }
 async function ensureWrite(which, uris){
-  const inputVal = val("pl"+which,"").trim();
+  const inputId = (which==="BEATPORT")? "plBP" : ("pl"+which);
+  const inputVal = val(inputId,"").trim();
   const pid = extractPlaylistId(inputVal);
-  if(pid){ await replacePlaylist(pid,uris); return pid; }
   const base = val("baseName","TDCS Editions").trim() || "TDCS Editions";
+  const descNote = val("descNote","");
   const isPub = val("pub","0")==="1";
+  if(pid){ await replacePlaylist(pid,uris); return pid; }
   const name = `${base} [${which}]`;
-  const desc = `Auto-built ${which} (${new Date().toISOString().slice(0,10)})`;
+  const desc = `${descNote} (${new Date().toISOString().slice(0,10)})`;
   log(`📄 新規作成: ${name}`);
   return await createPlaylistAndFill(name,desc,isPub,uris);
 }
 
 /* ===== 優先採用ユーティリティ ===== */
 function buildBasePool(list, preferred){
-  const used = new Set(); const seq = [];
-  const pushUnique = (u)=>{ if(u && !used.has(u)){ used.add(u); seq.push(u); } };
-  for (const u of preferred) pushUnique(u);
-  for (const u of list)      pushUnique(u);
+  const used=new Set(), seq=[];
+  const push=(u)=>{ if(u && !used.has(u)){ used.add(u); seq.push(u); } };
+  for(const u of preferred) push(u);
+  for(const u of list)      push(u);
   return seq;
 }
 
 /* ===== メイン ===== */
 let _pending=null;
-
 function getMarkets(){
   const raw=(val("markets","")||"").toUpperCase();
   const arr=raw.split(",").map(s=>s.trim()).filter(Boolean);
@@ -438,11 +591,17 @@ async function runCsvOnly(){
   try{ feats=await fetchAudioFeaturesByUris(basePool); }
   catch(e){ log("⚠️ audio-features 取得スキップ: "+(e.message||e)); }
 
-  progress(78,"エディション分配（強制130/重複許容）…");
-  const packs=makeEditionPacks(basePool, feats);
+  progress(76,"イントロ取得…");
+  const pinned = await getPinnedIntro(basePool);
 
-  progress(86,"曲順最適化（プリセット反映）…");
-  await exportPrepAndWrite(packs,feats);
+  progress(78,"エディション分配（固定イントロ＋版間非重複）…");
+  const packs4=makeEditionPacksDiversified(basePool, feats, pinned);
+
+  progress(82,"Beatport版（+20）を構成…");
+  const packBP=buildBeatportFromConsensus(basePool, feats, pinned, packs4);
+
+  progress(90,"書込み/エクスポート準備…");
+  await exportPrepAndWrite({...packs4, BEATPORT:packBP},feats);
 }
 
 /* Autoモード */
@@ -462,18 +621,14 @@ async function runAutoOnly(){
       if(got>=perQ) break;
       const need=Math.min(perQ-got, 100);
       const items=await searchMany(q,m,need);
-      for(const it of items){
-        const u="spotify:track:"+it.id;
-        pool.push(u);
-      }
+      for(const it of items) pool.push("spotify:track:"+it.id);
       got+=items.length;
       if(((pool.length)%60)===0) subProgress(pool.length,cap,10,40,"候補取得");
       if(pool.length>=cap) break;
     }
     if(pool.length>=cap) break;
   }
-  let list = pool;
-  if(doDedup) list = Array.from(new Set(list));
+  let list = doDedup? Array.from(new Set(pool)) : pool;
   if(list.length===0){ throw new Error("Autoモード：検索で候補が得られませんでした"); }
   if(list.length>cap) list = list.slice(0,cap);
   log(`📦 候補: ${list.length} 件`);
@@ -498,32 +653,45 @@ async function runAutoOnly(){
   try{ feats=await fetchAudioFeaturesByUris(basePool); }
   catch(e){ log("⚠️ audio-features 取得スキップ: "+(e.message||e)); }
 
-  progress(78,"エディション分配（強制130/重複許容）…");
-  const packs=makeEditionPacks(basePool, feats);
+  progress(76,"イントロ取得…");
+  const pinned = await getPinnedIntro(basePool);
 
-  progress(86,"曲順最適化（プリセット反映）…");
-  await exportPrepAndWrite(packs,feats);
+  progress(78,"エディション分配（固定イントロ＋版間非重複）…");
+  const packs4=makeEditionPacksDiversified(basePool, feats, pinned);
+
+  progress(82,"Beatport版（+20）を構成…");
+  const packBP=buildBeatportFromConsensus(basePool, feats, pinned, packs4);
+
+  progress(90,"書込み/エクスポート準備…");
+  await exportPrepAndWrite({...packs4, BEATPORT:packBP},feats);
 }
 
 /* エクスポート＋書込み */
 let _exportData=null; const enableExportButtons=(on)=>{ $("btnExportXlsx").disabled=!on; $("btnExportCsv").disabled=!on; }
 async function exportPrepAndWrite(packs,feats){
   function packRows(arr,ed){ const out=[]; for(let i=0;i<arr.length;i++){ const f=feats.get(arr[i])||{}; out.push({position:i+1,edition:ed,spotify_uri:arr[i],tempo:round4(f.tempo),energy:round4(f.energy),valence:round4(f.valence),key:(f.key==null?"":f.key),mode:(f.mode==null?"":f.mode)}); } return out; }
-  _exportData={uk:packRows(packs.UK,"UK"),us:packRows(packs.US,"US"),eu:packRows(packs.EU,"EU"),wo:packRows(packs.WORLD,"WORLD")};
+  _exportData={
+    uk:packRows(packs.UK,"UK"),
+    us:packRows(packs.US,"US"),
+    eu:packRows(packs.EU,"EU"),
+    wo:packRows(packs.WORLD,"WORLD"),
+    bp:packRows(packs.BEATPORT,"BEATPORT")
+  };
   enableExportButtons(true);
 
   if(isAuthed()){
-    progress(90,"書込み…"); await ensureWrite("UK",packs.UK);
-    progress(92,"書込み…"); await ensureWrite("US",packs.US);
-    progress(94,"書込み…"); await ensureWrite("EU",packs.EU);
-    progress(96,"書込み…"); await ensureWrite("WORLD",packs.WORLD);
-    log("✅ 書込み完了");
+    progress(92,"書込み…"); await ensureWrite("UK",packs.UK);
+    progress(94,"書込み…"); await ensureWrite("US",packs.US);
+    progress(96,"書込み…"); await ensureWrite("EU",packs.EU);
+    progress(97,"書込み…"); await ensureWrite("WORLD",packs.WORLD);
+    progress(99,"書込み…"); await ensureWrite("BEATPORT",packs.BEATPORT);
+    log("✅ 書込み完了（UK/US/EU/WORLD=各"+val("finalN","130")+"曲・BEATPORT="+(+(val("finalN","130"))+ +(val("bpExtra","20")))+"曲）");
   }else{
     _pending=packs;
     log("🔑 接続待ち：『Spotifyにサインイン』→『接続チェック』");
   }
   progress(100,"完了");
-  log("✅ 完了（CSV/Auto・強制130・市場一致は優先採用・WORLDプリセット・新規作成可）");
+  log("✅ 完了（固定イントロ共通／4版は中身＆流れを差別化／Beatportは4版共通上位から+20で150曲）");
 }
 
 /* 接続後に保留分を書き込む */
@@ -537,34 +705,31 @@ async function resolveAndWrite(packs){
     await ensureWrite("EU",packs.EU);
     progress(96,"書込み再開…");
     await ensureWrite("WORLD",packs.WORLD);
+    progress(98,"書込み再開…");
+    await ensureWrite("BEATPORT",packs.BEATPORT);
     log("✅ 書込み完了");
     _pending=null;
-  }catch(e){
-    log("💥 ERROR(resolveAndWrite): "+(e.message||e));
-  }
+  }catch(e){ log("💥 ERROR(resolveAndWrite): "+(e.message||e)); }
 }
 
 /* ===== イベント ===== */
-/* モードUI切替 */
 $("modeCsv").onchange=()=>{ setHidden("boxCsv",!$("modeCsv").checked); setHidden("boxAuto",$("modeCsv").checked); };
-$("modeAuto").onchange=$("modeCsv").onchange;
-$("modeCsv").onchange();
+$("modeAuto").onchange=$("modeCsv").onchange; $("modeCsv").onchange();
 
-/* サインイン等 */
 $("btnConnect").onclick=startAuth;
 $("btnReset").onclick=()=>{ for(const k in LS) localStorage.removeItem(LS[k]); _me=null; setStatus(); log("🧽 ローカルトークン削除"); };
 $("btnCheck").onclick=async()=>{ try{ await refreshTokenIfNeeded(); const me=await spFetch("/v1/me","GET"); if(me) {$("status").textContent="接続中（"+(me.display_name||me.id)+")"; log("✅ API確認 OK"); if(_pending) await resolveAndWrite(_pending);} else {$("status").textContent="接続中（OK）";} }catch(e){ log("⚠️ 接続エラー: "+(e.message||e)); } };
 
-/* ★ CSV選択で自動実行（あなた指定のハンドラ） */
+/* CSV選択で自動実行 */
 $("fileCSV").addEventListener("change", async () => {
-  if(!$("modeCsv").checked) return; // Auto時は無視
+  if(!$("modeCsv").checked) return;
   $("log").textContent="";
   progress(3,"CSV読み込み…");
   if(!$("fileCSV").files.length){ log("⚠️ CSV未選択"); return; }
   csvRows = await readCSV($("fileCSV").files[0]);
   log("✅ CSV: "+csvRows.length+" 行");
   progress(6,"分析開始…");
-  await runCsvOnly();            // ← 自動で走らせる
+  await runCsvOnly();
 });
 
 /* 実行ボタン（Auto用 or CSV再実行用） */
@@ -587,12 +752,12 @@ $("btnExportXlsx").onclick=()=>{
   if(!_exportData){log("ℹ️ データなし");return;}
   const wb=XLSX.utils.book_new();
   const add=(name,key)=>{ const ws=XLSX.utils.json_to_sheet(_exportData[key],{header:["position","edition","spotify_uri","tempo","energy","valence","key","mode"]}); XLSX.utils.book_append_sheet(wb,ws,name); }
-  add("UK","uk"); add("US","us"); add("EU","eu"); add("WORLD","wo");
+  add("UK","uk"); add("US","us"); add("EU","eu"); add("WORLD","wo"); add("BEATPORT","bp");
   XLSX.writeFile(wb,"editions_"+new Date().toISOString().slice(0,10)+".xlsx");
 };
 $("btnExportCsv").onclick=()=>{
   if(!_exportData){log("ℹ️ データなし");return;}
-  const all=[].concat(_exportData.uk,_exportData.us,_exportData.eu,_exportData.wo);
+  const all=[].concat(_exportData.uk,_exportData.us,_exportData.eu,_exportData.wo,_exportData.bp);
   const H=["position","edition","spotify_uri","tempo","energy","valence","key","mode"];
   const esc=(v)=>'"'+String(v==null?"":v).replace(/"/g,'""')+'"';
   const rows=[H.join(",")];
@@ -601,6 +766,6 @@ $("btnExportCsv").onclick=()=>{
 };
 
 setStatus();
-log("Ready. CSV→自動実行 / Auto検索→市場“優先”→AudioFeatures→プリセット並び→4×130強制→既存or新規プレイリストに書込み。");
+log("Ready. 先頭15曲＝テンプレ固定／UK=waves, US=rise, EU=drop, WORLD=djで差別化。Beatport版は4版の共通上位から+20（計150）。主要マーケット=ES,US,GB,NZ。");
 </script>
 </body></html>
