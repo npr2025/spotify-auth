@@ -4,7 +4,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TDCS Editions Builder — 4版差別化＋Beatport版150（固定イントロ/強制130+20）</title>
+<title>TDCS Editions Builder — 先頭15共通・版間強制差別化・連続リミキサー回避・BP150</title>
 <style>
 :root{--bg:#0b1220;--fg:#cfe3ff}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1180px;margin:32px auto;padding:0 12px}
@@ -34,7 +34,7 @@ small.hint{color:#666}
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
-<h1>TDCS Editions Builder <span class="badge">4版差別化</span><span class="badge">Beatport版150</span><span class="badge">固定イントロ</span></h1>
+<h1>TDCS Editions Builder <span class="badge">先頭15共通</span><span class="badge">版間強制差別化</span><span class="badge">連続リミキサー回避</span><span class="badge">Beatport150</span></h1>
 <p id="status">未接続</p>
 <div>
   <button id="btnConnect">Spotifyにサインイン</button>
@@ -96,12 +96,12 @@ small.hint{color:#666}
   </div>
 
   <label><input id="strictMarket" type="checkbox" checked> 市場一致を「優先採用」にする（不足分は手持ち候補で補完）</label>
-  <label><input id="allowCrossDup" type="checkbox"> 版間重複を許可（※OFF推奨＝4版は中身を分離）</label>
+  <label><input id="allowCrossDup" type="checkbox"> 版間重複を許可（※OFF=“中身被り”を極小化）</label>
   <label><input id="allowWithinDup" type="checkbox" checked> 版内重複を許可（常に曲数を担保）</label>
 
   <div class="grid2">
     <label>新規作成時のベース名 <input id="baseName" type="text" value="TDCS Editions"></label>
-    <label>説明文の追記 <input id="descNote" type="text" value="Auto-built (intro pinned, diversified, BP=+20 from cross-edition consensus)"></label>
+    <label>説明文の追記 <input id="descNote" type="text" value="Auto-built (15 intro pinned, strong edition diversity, no consecutive remixer, BP=+20)"></label>
   </div>
 </fieldset>
 
@@ -115,7 +115,7 @@ small.hint{color:#666}
       <input id="introLen" type="number" value="15" min="10" max="20">
     </label>
   </div>
-  <small class="hint">テンプレ内にない曲は自動スキップ（候補外の曲は使いません）。未入力時は候補プールの先頭から固定。</small>
+  <small class="hint">テンプレ内にない曲は自動スキップ（候補外は使いません）。未入力時は候補プールの先頭から固定。</small>
 </fieldset>
 
 <fieldset id="boxCsv">
@@ -327,7 +327,7 @@ async function fetchAudioFeaturesByUris(uris){
   return feats;
 }
 
-/* ===== 並び・距離関数 ===== */
+/* ===== 並び（距離関数） ===== */
 const camelot=(key,mode)=>({num:[8,3,10,5,0,7,2,9,4,11,6,1][(key||0)%12],isMinor:mode===0});
 const keyDistance=(a,b)=>{ if(!a||!b||a.key==null||b.key==null) return 2; const A=camelot(a.key,a.mode), B=camelot(b.key,b.mode); let d=Math.abs(A.num-B.num); d=Math.min(d,12-d); let pen=d/6; if(A.isMinor!==B.isMinor) pen+=0.4; return pen; }
 function nextCost(a,b,preset){
@@ -338,10 +338,10 @@ function nextCost(a,b,preset){
   if(preset==="rise") return 0.35*dTempo+0.20*dKey+0.35*dEner+0.10*dVal;
   if(preset==="drop") return 0.35*dTempo+0.20*dKey+0.35*dEner+0.10*dVal;
   if(preset==="bp")   return 0.25*dTempo+0.25*dKey+0.45*dEner+0.05*dVal; /* Beatport: エネ重視 */
-  return               0.40*dTempo+0.25*dKey+0.25*dEner+0.10*dVal; /* waves既定 */
+  return               0.40*dTempo+0.25*dKey+0.25*dEner+0.10*dVal;      /* waves既定 */
 }
 
-/* ===== イントロ固定（テンプレPL→候補内のみ採用） ===== */
+/* ===== イントロ取得（テンプレPL→候補内のみ採用） ===== */
 async function fetchPlaylistTrackUris(pid){
   const out=[]; let off=0;
   while(true){
@@ -366,7 +366,35 @@ async function getPinnedIntro(basePool){
   return pinned.length?pinned:basePool.slice(0,want);
 }
 
-/* ===== 乱数系ユーティリティ ===== */
+/* ===== メタ（リミキサー/アーティスト） ===== */
+let URI_META=new Map();
+function normalizeRemixer(s){
+  s=String(s||"").trim();
+  if(!s) return "";
+  s=s.replace(/\b(original|radio|extended|club)\b.*$/i,"").trim();
+  return s.toLowerCase();
+}
+function parseRemixerFromName(name){
+  name=String(name||"");
+  const pats=[/\(([^)]+?)\s+(?:re-?mix|mix|edit|version)\)/i, /-\s*([^-\(\[]+?)\s+(?:re-?mix|mix|edit|version)\b/i];
+  for(const re of pats){ const m=name.match(re); if(m){ const r=m[1].trim(); if(/original|radio|extended/i.test(r)) return ""; return r; } }
+  return "";
+}
+function buildUriMeta(uriList, tracksMap, hintRows=null, cols=null){
+  const meta=new Map();
+  for(let i=0;i<uriList.length;i++){
+    const u=uriList[i]; const t=tracksMap.get(u);
+    if(!u||!t) continue;
+    let rem = (hintRows&&cols&&cols.vCol)? String(hintRows[i]?.[cols.vCol]||"") : "";
+    if(!rem) rem=parseRemixerFromName(t.name);
+    rem=normalizeRemixer(rem);
+    const artistId=(t.artists&&t.artists[0]&&t.artists[0].id)||"";
+    meta.set(u,{remixer:rem, artistId});
+  }
+  return meta;
+}
+
+/* ===== 乱数系 ===== */
 function seedHash(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0; } return h>>>0; }
 function rng(seed){ let x=seedHash(String(seed))||1; return ()=>{ x^=x<<13; x^=x>>>17; x^=x<<5; return (x>>>0)/4294967296; } }
 function seededShuffle(arr, seed){ const r=rng(seed); const a=arr.slice(0); for(let i=a.length-1;i>0;i--){ const j=Math.floor(r()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
@@ -394,7 +422,7 @@ function buildTailByPreset(prev, tail, feats, preset, editionSeed){
       for(let i=0;i<pool.length;i++){
         const a=feats.get(cur)||{}, b=feats.get(pool[i])||{};
         let cost=nextCost(a,b,"dj");
-        cost += (seedHash(id8(pool[i])+":dj")%80)/1000; // 0〜0.079
+        cost += (seedHash((pool[i]||"")+":dj")%80)/1000;
         if(cost<best){ best=cost; bestI=i; }
       }
       const pick=pool.splice(bestI,1)[0];
@@ -402,109 +430,166 @@ function buildTailByPreset(prev, tail, feats, preset, editionSeed){
     }
     return seq;
   }
-  // waves：上下織り交ぜ→軽いシャッフル
+  // waves：上下織り交ぜ→軽シャッフル
   const withE = tail.map(u=>({u,e:(feats.get(u)||{}).energy ?? 0.5}));
-  const low  = withE.slice().sort((a,b)=>a.e-b.e);
-  const high = withE.slice().sort((a,b)=>b.e-a.e);
-  const snake=[]; let i=0,j=0;
-  while(i<low.length || j<high.length){ if(j<high.length) snake.push(high[j++].u); if(i<low.length) snake.push(low[i++].u); }
+  const low=withE.slice().sort((a,b)=>a.e-b.e), high=withE.slice().sort((a,b)=>b.e-a.e);
+  const snake=[]; let i=0,j=0; while(i<low.length||j<high.length){ if(j<high.length) snake.push(high[j++].u); if(i<low.length) snake.push(low[i++].u); }
   return seededShuffle(snake, editionSeed);
 }
 
-/* ===== 4版（UK/US/EU/WORLD）：固定イントロ＋版間非重複を優先 ===== */
-function makeEditionPacksDiversified(baseUris, feats, pinned){
+/* ===== 連続リミキサー／アーティスト回避（ポスト処理、先頭pinnedは固定） ===== */
+function deAdjacentByKeyFrom(seq, keyFn, startIdx){
+  let swaps=0;
+  let prevKey = startIdx>0 ? keyFn(seq[startIdx-1]) : "";
+  for(let i=startIdx;i<seq.length;i++){
+    const k=keyFn(seq[i]);
+    if(prevKey && k && k===prevKey){
+      // j: 先の要素から違うキーを探してスワップ
+      let j=i+1;
+      while(j<seq.length && keyFn(seq[j])===k) j++;
+      if(j<seq.length){
+        const tmp=seq[i]; seq[i]=seq[j]; seq[j]=tmp; swaps++;
+      }
+    }
+    prevKey = keyFn(seq[i]);
+  }
+  return swaps;
+}
+function postProcessNoAdjacency(fullSeq, pinnedLen){
+  const remKey=(u)=> (URI_META.get(u)?.remixer)||"";
+  const artKey=(u)=> (URI_META.get(u)?.artistId)||"";
+  const s1=deAdjacentByKeyFrom(fullSeq, remKey, pinnedLen);
+  const s2=deAdjacentByKeyFrom(fullSeq, artKey, pinnedLen);
+  return {remix_swaps:s1, artist_swaps:s2};
+}
+
+/* ===== 版別指向スコア（強制差別化の“性格”） ===== */
+function gauss(x,c,w){ if(x==null) return 0.3; const z=(x-c)/w; return Math.exp(-0.5*z*z); }
+function marketScore(t, tags){
+  const mk=new Set((t?.available_markets)||[]);
+  let sc=0;
+  for(const [code,w] of tags){ if(mk.has(code)) sc+=w; }
+  return Math.min(sc,1);
+}
+function editionWeight(u, feats, tracksMap, edition){
+  const f=feats.get(u)||{};
+  const t=tracksMap.get(u)||{};
+  let feat=0, mkt=0;
+  if(edition==="UK"){
+    feat=0.5*gauss(f.tempo,170,7)+0.3*gauss(f.energy,0.65,0.2)+0.2*gauss(f.valence,0.45,0.25);
+    mkt=marketScore(t,[["GB",1]]);
+  }else if(edition==="US"){
+    feat=0.5*gauss(f.tempo,170,6)+0.3*gauss(f.energy,0.7,0.2)+0.2*gauss(f.valence,0.6,0.25);
+    mkt=marketScore(t,[["US",1]]);
+  }else if(edition==="EU"){
+    feat=0.45*gauss(f.tempo,172,5)+0.4*gauss(f.energy,0.8,0.2)+0.15*gauss(f.valence,0.35,0.25) + (f.mode===0?0.08:0);
+    mkt=marketScore(t,[["ES",0.7],["NL",0.3]]);
+  }else{ // WORLD
+    feat=0.5*gauss(f.tempo,170,8)+0.3*gauss(f.energy,0.7,0.25)+0.2*gauss(f.valence,0.5,0.3);
+    mkt=marketScore(t,[["ES",0.25],["US",0.25],["GB",0.25],["NZ",0.25]]);
+  }
+  const noRemixBonus = (URI_META.get(u)?.remixer)?0:0.05;
+  return 0.55*feat + 0.45*mkt + noRemixBonus;
+}
+
+/* ===== 4版：先頭15固定＋ハッシュ分割で“ほぼ不重複”配分 → プリセット最適化 → 連続回避 ===== */
+function makeEditionPacksDiversifiedV2(baseUris, feats, pinned, tracksMap){
   const N=+(val("finalN","130")||130);
   const allowWithinDup=!!$("allowWithinDup")?.checked;
   const allowCrossDup =!!$("allowCrossDup")?.checked;
-
   const P=Math.min(pinned.length, N);
   const fixed=pinned.slice(0,P);
   const tailN=N-P;
-  const pinnedSet=new Set(fixed);
 
+  const pinnedSet=new Set(fixed);
   let remainder=baseUris.filter(u=>!pinnedSet.has(u));
   if(!allowCrossDup) remainder=[...new Set(remainder)];
 
-  const eds=[["UK",val("presetUK","waves"),101],["US",val("presetUS","rise"),202],["EU",val("presetEU","drop"),303],["WORLD",val("presetWORLD","dj"),404]];
+  // ハッシュで4分割（強制差別化の芯）
+  const buckets=[[],[],[],[]];
+  for(const u of remainder){ buckets[seedHash(u)%4].push(u); }
+  const mapEd={UK:0,US:1,EU:2,WORLD:3};
+  const sigSeeds={UK:101,US:202,EU:303,WORLD:404};
+  const packs={}; const used=new Set();
 
-  const used=new Set(); // 版間の重複を極力避ける
-  const packs={};
-
-  const pickTail=(seed)=>{
-    const shuffled=seededShuffle(remainder,seed);
+  function pickFor(edition){
+    const idx=mapEd[edition];
+    const seed=sigSeeds[edition];
+    const home=buckets[idx].slice(0);
+    const others=remainder.filter(u=>!home.includes(u));
+    // 指向スコアで並べ替え（home優先）
+    home.sort((a,b)=>editionWeight(b,feats,tracksMap,edition)-editionWeight(a,feats,tracksMap,edition));
+    others.sort((a,b)=>editionWeight(b,feats,tracksMap,edition)-editionWeight(a,feats,tracksMap,edition));
     const out=[];
-    for(const u of shuffled){
+    // まずhomeから非重複で埋める
+    for(const u of home){
       if(out.length>=tailN) break;
       if(!allowCrossDup && used.has(u)) continue;
       out.push(u); used.add(u);
     }
-    if(out.length<tailN){ // 共有を許可
-      for(const u of shuffled){
-        if(out.length>=tailN) break;
-        if(!allowWithinDup && out.includes(u)) continue;
-        out.push(u);
-      }
+    // 足りなければothersで補完
+    for(const u of others){
+      if(out.length>=tailN) break;
+      if(!allowCrossDup && used.has(u)) continue;
+      if(!allowWithinDup && out.includes(u)) continue;
+      out.push(u); used.add(u);
     }
+    // それでも足りなければ最終充足
     while(out.length<tailN){
       out.push(out[out.length%Math.max(1,out.length)]);
       if(out.length>tailN*2) break;
     }
-    return out.slice(0,tailN);
-  };
-
-  for(const [name,preset,seed] of eds){
-    const tail=pickTail(seed);
-    const prev=fixed[fixed.length-1]||tail[0];
-    const orderedTail=buildTailByPreset(prev, tail, feats, preset, seed);
-    packs[name]=fixed.concat(orderedTail);
+    // 並び：プリセット→連続回避
+    const prev=fixed[fixed.length-1]||out[0];
+    const orderedTail=buildTailByPreset(prev, out, feats, val("preset"+edition, edition==="US"?"rise":edition==="EU"?"drop":edition==="WORLD"?"dj":"waves"), seed);
+    const seq=fixed.concat(orderedTail);
+    const swaps=postProcessNoAdjacency(seq, P);
+    log(`↔️ 連続回避 ${edition}: remixer=${swaps.remix_swaps}, artist=${swaps.artist_swaps}`);
+    return seq;
   }
+
+  packs.UK=pickFor("UK"); packs.US=pickFor("US");
+  packs.EU=pickFor("EU"); packs.WORLD=pickFor("WORLD");
+
+  // 重なり率を簡易表示（低いほど良い）
+  function overlap(a,b){ const A=new Set(a),B=new Set(b); let x=0; for(const u of A) if(B.has(u)) x++; return (100*x/Math.min(a.length,b.length)).toFixed(1); }
+  log(`🪄 版間重なり率(%) UK/US=${overlap(packs.UK,packs.US)}, UK/EU=${overlap(packs.UK,packs.EU)}, UK/WORLD=${overlap(packs.UK,packs.WORLD)}`);
+  log(`🪄 版間重なり率(%) US/EU=${overlap(packs.US,packs.EU)}, US/WORLD=${overlap(packs.US,packs.WORLD)}, EU/WORLD=${overlap(packs.EU,packs.WORLD)}`);
+
   return packs;
 }
 
-/* ===== Beatport版（+20）：4版の“共通上位”から優先採用 → 150曲 ===== */
-function buildBeatportFromConsensus(baseUris, feats, pinned, packs4){
+/* ===== Beatport版（150）：4版の“共通上位”から+20 → 並び＆連続回避 ===== */
+function buildBeatportFromConsensus(baseUris, feats, pinned, packs4, tracksMap){
   const N=+(val("finalN","130")||130);
   const extra=Math.max(1, +(val("bpExtra","20")||20));
-  const total=N+extra; // 例：130+20=150
-
+  const total=N+extra;
   const P=Math.min(pinned.length, total);
   const fixed=pinned.slice(0,P);
   const tailN=total-P;
-  const pinnedSet=new Set(fixed);
 
-  // 4版の並びから頻度集計（イントロを除く）
+  // 頻度スコア（イントロ以降）
   const freq=new Map();
   for(const name of ["UK","US","EU","WORLD"]){
-    const arr=(packs4[name]||[]).slice(P); // 先頭は共通のため除外
+    const arr=(packs4[name]||[]).slice(P);
     for(const u of arr){ freq.set(u,(freq.get(u)||0)+1); }
   }
-  // スコア＝頻度>エネルギー>テンポ（クラブ想定）
-  const scored = [...freq.entries()].map(([u,f])=>{
-    const ft=feats.get(u)||{};
-    const score = f*10 + (ft.energy??0.5)*3 + (ft.tempo??120)/300;
-    return {u,score,f};
-  }).sort((a,b)=> b.score-a.score);
+  const scored=[...freq.entries()].map(([u,f])=>{
+    const ft=feats.get(u)||{}; const t=tracksMap.get(u)||{};
+    const mkt = marketScore(t,[["ES",0.25],["US",0.25],["GB",0.25],["NZ",0.25]]);
+    const sc = f*10 + (ft.energy??0.5)*3 + (ft.tempo??120)/300 + mkt;
+    return {u,sc};
+  }).sort((a,b)=>b.sc-a.sc).map(x=>x.u);
 
-  // まず“共通上位”から必要数ピック（tailNのうち先に extra 近辺を確保）
-  const consensusPicks=[];
-  const needConsensus=Math.min(extra, tailN);
-  for(const x of scored){
-    if(consensusPicks.length>=needConsensus) break;
-    if(pinnedSet.has(x.u)) continue;
-    if(consensusPicks.includes(x.u)) continue;
-    consensusPicks.push(x.u);
-  }
-
-  // 残りはベースから補完（重複排除）
-  const usedSet=new Set([...pinnedSet, ...consensusPicks]);
-  const remainder=baseUris.filter(u=>!usedSet.has(u));
-
-  // 並べ方：Beatportプリセット（bp=エネ重視降順→適度に近接）
+  const consensus=scored.slice(0,Math.min(extra,tailN));
+  const used=new Set([...fixed, ...consensus]);
+  const remainder=baseUris.filter(u=>!used.has(u));
   const seed=505;
-  const restOrdered = buildTailByPreset(consensusPicks[consensusPicks.length-1]||remainder[0], remainder, feats, (val("presetBP","bp")||"bp"), seed);
-
-  const merged = consensusPicks.concat(restOrdered).slice(0,tailN);
-  return fixed.concat(merged);
+  const orderedRest = buildTailByPreset(consensus[consensus.length-1]||remainder[0], remainder, feats, (val("presetBP","bp")||"bp"), seed);
+  const seq=fixed.concat(consensus.concat(orderedRest).slice(0,tailN));
+  const swaps=postProcessNoAdjacency(seq, P);
+  log(`↔️ 連続回避 BEATPORT: remixer=${swaps.remix_swaps}, artist=${swaps.artist_swaps}`);
+  return seq;
 }
 
 /* ===== 書込み & プレイリスト作成 ===== */
@@ -570,7 +655,7 @@ async function runCsvOnly(){
   const list=uris.filter(Boolean);
   if(list.length===0){ throw new Error("CSVから解決できるURIがありません"); }
 
-  progress(55,"曲詳細→市場優先度チェック…");
+  progress(55,"曲詳細→市場優先…");
   const tracksMap=await fetchTrackDetailsByUris(list);
   const strict=$("strictMarket")?.checked;
   const mk=getMarkets();
@@ -586,19 +671,22 @@ async function runCsvOnly(){
 
   const basePool=buildBasePool(list, preferred);
 
-  progress(68,"Audio Features 取得…");
+  progress(66,"Audio Features 取得…");
   let feats=new Map();
   try{ feats=await fetchAudioFeaturesByUris(basePool); }
   catch(e){ log("⚠️ audio-features 取得スキップ: "+(e.message||e)); }
 
+  // リミキサー/アーティスト情報の構築（CSV version列→曲名のRemix表記で補完）
+  URI_META=buildUriMeta(list, tracksMap, csvRows, cols);
+
   progress(76,"イントロ取得…");
   const pinned = await getPinnedIntro(basePool);
 
-  progress(78,"エディション分配（固定イントロ＋版間非重複）…");
-  const packs4=makeEditionPacksDiversified(basePool, feats, pinned);
+  progress(78,"エディション分配（強制差別化＋連続回避）…");
+  const packs4=makeEditionPacksDiversifiedV2(basePool, feats, pinned, tracksMap);
 
   progress(82,"Beatport版（+20）を構成…");
-  const packBP=buildBeatportFromConsensus(basePool, feats, pinned, packs4);
+  const packBP=buildBeatportFromConsensus(basePool, feats, pinned, packs4, tracksMap);
 
   progress(90,"書込み/エクスポート準備…");
   await exportPrepAndWrite({...packs4, BEATPORT:packBP},feats);
@@ -633,7 +721,7 @@ async function runAutoOnly(){
   if(list.length>cap) list = list.slice(0,cap);
   log(`📦 候補: ${list.length} 件`);
 
-  progress(55,"曲詳細→市場優先度チェック…");
+  progress(55,"曲詳細→市場優先…");
   const tracksMap=await fetchTrackDetailsByUris(list);
   const strict=$("strictMarket")?.checked;
   const mk=getMarkets();
@@ -646,21 +734,25 @@ async function runAutoOnly(){
     });
     log(`🌍 市場一致(優先採用): ${preferred.length}/${list.length}（不足分は候補で補完）`);
   }
+
   const basePool=buildBasePool(list, preferred);
 
-  progress(68,"Audio Features 取得…");
+  progress(66,"Audio Features 取得…");
   let feats=new Map();
   try{ feats=await fetchAudioFeaturesByUris(basePool); }
   catch(e){ log("⚠️ audio-features 取得スキップ: "+(e.message||e)); }
 
+  // AutoはCSVがないので曲名から推定
+  URI_META=buildUriMeta(list, tracksMap, null, null);
+
   progress(76,"イントロ取得…");
   const pinned = await getPinnedIntro(basePool);
 
-  progress(78,"エディション分配（固定イントロ＋版間非重複）…");
-  const packs4=makeEditionPacksDiversified(basePool, feats, pinned);
+  progress(78,"エディション分配（強制差別化＋連続回避）…");
+  const packs4=makeEditionPacksDiversifiedV2(basePool, feats, pinned, tracksMap);
 
   progress(82,"Beatport版（+20）を構成…");
-  const packBP=buildBeatportFromConsensus(basePool, feats, pinned, packs4);
+  const packBP=buildBeatportFromConsensus(basePool, feats, pinned, packs4, tracksMap);
 
   progress(90,"書込み/エクスポート準備…");
   await exportPrepAndWrite({...packs4, BEATPORT:packBP},feats);
@@ -691,7 +783,7 @@ async function exportPrepAndWrite(packs,feats){
     log("🔑 接続待ち：『Spotifyにサインイン』→『接続チェック』");
   }
   progress(100,"完了");
-  log("✅ 完了（固定イントロ共通／4版は中身＆流れを差別化／Beatportは4版共通上位から+20で150曲）");
+  log("✅ 完了（15共通／版間強制差別化／プリセット流れ＋リミキサー連続回避／BP=共通上位+20の150曲）");
 }
 
 /* 接続後に保留分を書き込む */
@@ -766,6 +858,6 @@ $("btnExportCsv").onclick=()=>{
 };
 
 setStatus();
-log("Ready. 先頭15曲＝テンプレ固定／UK=waves, US=rise, EU=drop, WORLD=djで差別化。Beatport版は4版の共通上位から+20（計150）。主要マーケット=ES,US,GB,NZ。");
+log("Ready. 先頭15曲＝テンプレ固定／強制差別化（ハッシュ分割＋版別指向スコア）→プリセット整列→リミキサー/アーティスト連続回避。Beatport版は4版の共通上位+20で150曲。");
 </script>
 </body></html>
