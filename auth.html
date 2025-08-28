@@ -15,16 +15,13 @@ input[type="text"]{width:100%;padding:6px 8px;border:1px solid #ccc;border-radiu
 </head>
 <body>
 <h1>Spotify サインイン（PKCE）</h1>
-<p>Client ID を保存してトップへ戻ります。</p>
+<p>ボタンを押すとサインイン用のトップへ遷移します。</p>
 <div>
-  <label>CLIENT_ID <input id="cid" type="text" value=""></label>
+  <label>CLIENT_ID <input id="cid" type="text" value="1fd6350fcf4945a0b3ddffa2d5730d4e"></label>
 </div>
 <button id="go">Spotifyにサインイン</button>
 <script>
 const BUILD_ID="v10.10";
-document.addEventListener("DOMContentLoaded",()=>{
-  try{document.getElementById("cid").value=(localStorage.getItem("client_id_pref")||"").trim()}catch(_){}
-});
 document.getElementById("go").onclick=()=>{
   const id=(document.getElementById("cid").value||"").trim();
   try{localStorage.setItem("client_id_pref",id)}catch(_){}
