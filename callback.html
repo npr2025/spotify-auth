@@ -1,11 +1,10 @@
 <!doctype html>
-<html lang="ja">
-<head>
+<html lang="ja"><head>
 <meta charset="utf-8">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spotify 認可コールバック — v10.9</title>
+<title>Spotify 認可コールバック — v10.10</title>
 <style>body{font-family:system-ui;margin:24px}pre{white-space:pre-wrap;word-break:break-all}button{padding:8px 12px;border:1px solid #bbb;border-radius:8px;background:#fff;cursor:pointer}</style>
 </head>
 <body>
@@ -13,11 +12,10 @@
 <pre id="out"></pre>
 <p><button id="retry" style="display:none">再試行</button></p>
 <script>
-const BUILD_ID="v10.9";
+const BUILD_ID="v10.10";
 const FIXED_REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
 const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier",cid:"client_id_pref"};
 function out(s){const e=document.getElementById("out");e.textContent+=(e.textContent?"\n":"")+s}
-
 function readVerifier(){
   try{const v1=sessionStorage.getItem(LS.ver); if(v1) return v1;}catch(_){}
   try{const v2=localStorage.getItem(LS.ver); if(v2) return v2;}catch(_){}
@@ -28,14 +26,11 @@ function clearVerifier(){ try{sessionStorage.removeItem(LS.ver)}catch(_){}
   try{localStorage.removeItem(LS.ver)}catch(_){}
   try{document.cookie=LS.ver+"=; Max-Age=0; Path=/spotify-auth/"}catch(_){}
 }
-
 function clientIdFromState(state){
   const m=String(state||"").match(/^ci_([^_]+)_/);
   return m?m[1]:(localStorage.getItem(LS.cid)||"1fd6350fcf4945a0b3ddffa2d5730d4e");
 }
-
 window.addEventListener("unhandledrejection",e=>{e.preventDefault();out("unhandled: "+(e.reason&&e.reason.message?e.reason.message:String(e.reason)))});
-
 async function tokenExchange(){
   const url=new URL(location.href);
   const code=url.searchParams.get("code");
@@ -47,14 +42,13 @@ async function tokenExchange(){
   if(!code){
     out("no code");
     out("ヒント: Redirect URI 登録が正しいか？ → "+FIXED_REDIRECT_URI);
-    out("ヒント: 認可URLを同一タブで開いているか？（別タブだと code 受け取り前に再読込すると no code になります）");
+    out("ヒント: 認可URLを同一タブで開いているか？");
     out("state="+(state||"(なし)")+" / 想定client_id="+CLIENT_ID);
     document.getElementById("retry").style.display="inline-block";
     return;
   }
-
   const cv=readVerifier();
-  if(!cv){ out("no code_verifier（ストレージから復元できず）"); document.getElementById("retry").style.display="inline-block"; return; }
+  if(!cv){ out("no code_verifier（保存/復元失敗）"); document.getElementById("retry").style.display="inline-block"; return; }
 
   const body=new URLSearchParams();
   body.set("grant_type","authorization_code");
@@ -65,10 +59,7 @@ async function tokenExchange(){
 
   for(let a=0;a<4;a++){
     try{
-      const r=await fetch("https://accounts.spotify.com/api/token",{
-        method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},
-        body,cache:"no-store"
-      });
+      const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body,cache:"no-store"});
       if(!r.ok){
         let msg="token "+r.status;
         try{const j=await r.json(); if(j.error||j.error_description) msg+=": "+(j.error_description||j.error);}
@@ -93,5 +84,4 @@ async function tokenExchange(){
 document.getElementById("retry").onclick=()=>{document.getElementById("retry").style.display="none";tokenExchange();};
 tokenExchange();
 </script>
-</body>
-</html>
+</body></html>
