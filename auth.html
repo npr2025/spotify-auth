@@ -1,8 +1,10 @@
 <!doctype html>
-<html lang="ja"><head>
+<html lang="ja">
+<head>
 <meta charset="utf-8">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Spotify サインイン — v10.10</title>
 <style>
@@ -13,7 +15,7 @@ input[type="text"]{width:100%;padding:6px 8px;border:1px solid #ccc;border-radiu
 </head>
 <body>
 <h1>Spotify サインイン（PKCE）</h1>
-<p>ボタンを押すとサインイン用のトップへ遷移します。</p>
+<p>ボタンを押すとサインイン用トップへ遷移します。</p>
 <div>
   <label>CLIENT_ID <input id="cid" type="text" value="1fd6350fcf4945a0b3ddffa2d5730d4e"></label>
 </div>
@@ -26,4 +28,5 @@ document.getElementById("go").onclick=()=>{
   location.href="index.html?v="+BUILD_ID+"&bust="+Date.now();
 };
 </script>
-</body></html>
+</body>
+</html>
