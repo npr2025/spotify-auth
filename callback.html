@@ -19,10 +19,7 @@ const FIXED_REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
 const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier"};
 
 function out(s){const e=document.getElementById("out");e.textContent+=(e.textContent?"\n":"")+s}
-function readClientId(){
-  try{const v=(localStorage.getItem("client_id_pref")||"").trim(); if(v) return v;}catch(_){}
-  return "1fd6350fcf4945a0b3ddffa2d5730d4e"; // フォールバック
-}
+
 function readVerifier(){
   try{const v1=localStorage.getItem(LS.ver);if(v1)return v1}catch(_){}
   try{const v2=sessionStorage.getItem(LS.ver);if(v2)return v2}catch(_){}
@@ -42,10 +39,13 @@ async function tokenExchange(){
   const err=url.searchParams.get("error");
   if(err){out("error="+err);document.getElementById("retry").style.display="inline-block";return}
   if(!code){out("no code");document.getElementById("retry").style.display="inline-block";return}
-  const cv=readVerifier();
-  if(!cv){out("no code_verifier");document.getElementById("retry").style.display="inline-block";return}
 
-  const CLIENT_ID=readClientId();
+  const cv=readVerifier(); if(!cv){out("no code_verifier");document.getElementById("retry").style.display="inline-block";return}
+
+  // Client ID は index で保存したものを使用（ハードコード回避）
+  let CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e";
+  try{ const pref=localStorage.getItem("client_id_pref"); if(pref) CLIENT_ID=pref; }catch(_){}
+
   const body=new URLSearchParams();
   body.set("grant_type","authorization_code");
   body.set("code",code);
@@ -67,8 +67,9 @@ async function tokenExchange(){
       try{if(j.refresh_token)localStorage.setItem(LS.ref,j.refresh_token)}catch(_){}
       try{sessionStorage.setItem(LS.acc,j.access_token)}catch(_){}
       clearVerifier();
-      location.href="https://npr2025.github.io/spotify-auth/index.html?v="+BUILD_ID+"&ok=1&bust="+Date.now();
-      return;
+      // 戻る時は同一タブ維持
+      location.replace("https://npr2025.github.io/spotify-auth/index.html?v="+BUILD_ID+"&ok=1&bust="+Date.now());
+      return
     }catch(e){
       out("retry "+(a+1)+": "+(e.message||e));
       await new Promise(r=>setTimeout(r,700*(a+1)))
@@ -76,7 +77,6 @@ async function tokenExchange(){
   }
   document.getElementById("retry").style.display="inline-block"
 }
-
 document.getElementById("retry").onclick=()=>{document.getElementById("retry").style.display="none";tokenExchange()};
 tokenExchange();
 </script>
