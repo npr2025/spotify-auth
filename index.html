@@ -1,4 +1,3 @@
-<!-- index.html -->
 <!doctype html>
 <html lang="ja"><head>
 <meta charset="utf-8">
@@ -40,8 +39,9 @@ a.btn{display:inline-block;padding:9px 12px;border:1px solid #bbb;border-radius:
 <p id="status">未接続</p>
 <div>
   <button id="btnConnect" disabled>Spotifyにサインイン</button>
-  <a id="aConnectS256" class="btn" href="#" target="_blank">サインイン(S256)</a>
-  <a id="aConnectPLAIN" class="btn" href="#" target="_blank">サインイン(PLAIN直リンク)</a>
+  <!-- 同一タブ遷移用：target は外す -->
+  <a id="aConnectS256" class="btn" href="#">サインイン(S256)</a>
+  <a id="aConnectPLAIN" class="btn" href="#">サインイン(PLAIN直リンク)</a>
   <a id="aCopy" class="btn" href="#">URLをコピー</a>
   <a id="aHard" class="btn" href="#">ハードリロード</a>
   <button id="btnReset">初期化（保存トークン削除）</button>
@@ -51,7 +51,7 @@ a.btn{display:inline-block;padding:9px 12px;border:1px solid #bbb;border-radius:
 <fieldset>
   <legend>固定</legend>
   <div class="grid2">
-    <label>CLIENT_ID <input type="text" id="clientId" value=""></label>
+    <label>CLIENT_ID <input type="text" id="clientId" value="1fd6350fcf4945a0b3ddffa2d5730d4e"></label>
     <label>REDIRECT_URI <input type="text" id="redir" value="https://npr2025.github.io/spotify-auth/callback.html" disabled></label>
   </div>
   <small class="hint">Redirect URIs に https://npr2025.github.io/spotify-auth/callback.html を登録</small>
@@ -162,7 +162,13 @@ a.btn{display:inline-block;padding:9px 12px;border:1px solid #bbb;border-radius:
 
 <script>
 const BUILD_ID="v10.10";
-(function(){const u=new URL(location.href);let ch=false;if(u.searchParams.get("v")!==BUILD_ID){u.searchParams.set("v",BUILD_ID);ch=true}u.searchParams.set("bust",Date.now().toString());const k="boot_"+BUILD_ID;if(ch||!sessionStorage.getItem(k)){sessionStorage.setItem(k,"1");location.replace(u.toString())}})();
+(function(){
+  const u=new URL(location.href);let ch=false;
+  if(u.searchParams.get("v")!==BUILD_ID){u.searchParams.set("v",BUILD_ID);ch=true}
+  u.searchParams.set("bust",Date.now().toString());
+  const k="boot_"+BUILD_ID;
+  if(ch||!sessionStorage.getItem(k)){sessionStorage.setItem(k,"1");location.replace(u.toString())}
+})();
 
 const FIXED_REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
 const zws=/[\u200B-\u200D\uFEFF]/g;
@@ -182,25 +188,15 @@ window.addEventListener("unhandledrejection",e=>{e.preventDefault();log("Unhandl
 
 if($("redir")) $("redir").value=FIXED_REDIRECT_URI;
 
-// ===== Client ID の一元管理（保存も同時に）=====
-function currentClientId(){
+// ★ Client ID を一元取得
+function getClientId(){
   const input=$("clientId");
   let id=(input && input.value ? input.value : "").replace(zws,"").trim();
-  if(!id){
-    try{ id=(localStorage.getItem("client_id_pref")||"").trim(); }catch(_){}
-    if(input) input.value=id;
-  }
+  if(!id){ try{ id=(localStorage.getItem("client_id_pref")||"").trim(); }catch(_){ } }
+  if(!id){ id="1fd6350fcf4945a0b3ddffa2d5730d4e"; if(input) input.value=id; }
   try{ if(id) localStorage.setItem("client_id_pref",id); }catch(_){}
   return id;
 }
-
-// 初期値の流し込み（localStorage→input）
-window.addEventListener("DOMContentLoaded",()=>{
-  try{
-    const saved=(localStorage.getItem("client_id_pref")||"").trim();
-    if(saved && $("clientId")) $("clientId").value=saved;
-  }catch(_){}
-});
 
 let AUTH_READY_S256=false, AUTH_URL_S256="", AUTH_URL_PLAIN="";
 const isAuthed=()=> !!localStorage.getItem(LS.acc) && Date.now() < (+localStorage.getItem(LS.exp)||0)-5000;
@@ -214,7 +210,8 @@ function b64url(buf){ let b=""; const u8=new Uint8Array(buf); for(let i=0;i<u8.l
 function randAlpha(n){ const a="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"; let s=""; for(let i=0;i<n;i++) s+=a[Math.floor(Math.random()*a.length)]; return s; }
 
 function makeAuthURLPlain(){
-  const CLIENT_ID = currentClientId();
+  const CLIENT_ID = getClientId();
+  if(!CLIENT_ID){ log("Client ID 未設定"); return "#"; }
   const v = randAlpha(64); setVerifier(v);
   const u=new URL("https://accounts.spotify.com/authorize");
   u.searchParams.set("response_type","code");
@@ -229,7 +226,8 @@ function makeAuthURLPlain(){
 
 async function makeAuthURLS256(){
   try{
-    const CLIENT_ID = currentClientId();
+    const CLIENT_ID = getClientId();
+    if(!CLIENT_ID){ AUTH_READY_S256=false; $("aConnectS256").href="#"; return; }
     let v=""; crypto.getRandomValues(new Uint8Array(64)).forEach(x=>v+=String.fromCharCode(97+(x%26)));
     setVerifier(v);
     const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v));
@@ -248,17 +246,13 @@ async function makeAuthURLS256(){
 }
 
 function prepareAuthLinks(){
+  const cid=getClientId();
+  if(!cid){ $("btnConnect").disabled=true; log("Client ID を入力してください"); return; }
   AUTH_URL_PLAIN = makeAuthURLPlain();
   $("aConnectPLAIN").href = AUTH_URL_PLAIN;
   $("aCopy").onclick=async(e)=>{ e.preventDefault(); const u=AUTH_READY_S256?AUTH_URL_S256:AUTH_URL_PLAIN; try{ await navigator.clipboard.writeText(u); alert("コピーしました"); }catch(_){ prompt("URLをコピー",u); } };
   $("aHard").onclick=(e)=>{ e.preventDefault(); location.replace(`index.html?v=${BUILD_ID}&bust=${Date.now()}`); };
 }
-
-// ★ 同一タブ遷移に変更（新規タブ由来の code_verifier ロスト対策）
-$("btnConnect").onclick=()=>{
-  const id=currentClientId(); // 保存も兼ねる
-  location.href = (AUTH_READY_S256 && AUTH_URL_S256) ? AUTH_URL_S256 : AUTH_URL_PLAIN;
-};
 
 window.addEventListener("DOMContentLoaded",()=>{ prepareAuthLinks(); makeAuthURLS256(); $("btnConnect").disabled=false; });
 window.addEventListener("focus",()=>{ makeAuthURLS256(); });
@@ -266,7 +260,7 @@ window.addEventListener("focus",()=>{ makeAuthURLS256(); });
 async function refreshTokenIfNeeded(){
   const exp=+(localStorage.getItem(LS.exp)||0);
   if(Date.now()<exp-5000) return;
-  const CLIENT_ID = currentClientId(); const rt=localStorage.getItem(LS.ref); if(!rt) return;
+  const CLIENT_ID = getClientId(); const rt=localStorage.getItem(LS.ref); if(!rt) return;
   const body=new URLSearchParams(); body.set("grant_type","refresh_token"); body.set("refresh_token",rt); body.set("client_id",CLIENT_ID);
   const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
   if(!r.ok){ log("refresh失敗 "+r.status); return; }
@@ -295,7 +289,6 @@ async function spFetch(path,method="GET",body=null){
 
 let _me=null; async function getMe(){ if(_me) return _me; _me=await spFetch("/v1/me","GET"); return _me; }
 
-// ==== ビルド系（元のまま） ====
 let csvRows=[]; function readCSV(file){return new Promise((res,rej)=>Papa.parse(file,{header:true,skipEmptyLines:true,complete:r=>res(r.data),error:rej}));}
 const ISRC_RE=/^[A-Z]{2}-?[A-Z0-9]{3}-?\d{2}-?\d{5}$/i;
 const extractTrackId=(raw)=>{const s=String(raw||"").trim(); if(!s) return ""; let m=s.match(/spotify:track:([A-Za-z0-9]{22})/); if(m) return m[1]; m=s.match(/open\.spotify\.com\/track\/([A-Za-z0-9]{22})/); if(m) return m[1]; m=s.match(/\/track\/([A-Za-z0-9]{22})(?:\?|$)/); if(m) return m[1]; m=s.match(/^([A-Za-z0-9]{22})$/); if(m) return m[1]; return ""; }
@@ -361,7 +354,7 @@ function nextCost(a,b,preset){
   return               0.40*dTempo+0.25*dKey+0.25*dEner+0.10*dVal;
 }
 
-function seedHash(s){ let h=2169136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0; } return h>>>0; } /* typo修正: 216913… → (元の216613?) 影響軽微 */
+function seedHash(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0; } return h>>>0; }
 function rng(seed){ let x=seedHash(String(seed))||1; return ()=>{ x^=x<<13; x^=x>>>17; x^=x<<5; return (x>>>0)/4294967296; } }
 function seededShuffle(arr, seed){ const r=rng(seed); const a=arr.slice(0); for(let i=a.length-1;i>0;i--){ const j=Math.floor(r()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
 
@@ -373,7 +366,8 @@ function buildTailByPreset(prev, tail, feats, preset, editionSeed){
                  :(preset==="drop")? (0.7*(f.energy??0.5)+0.3*((f.tempo??120)/200))
                  :((f.energy??0.5)*0.75 + (f.tempo??120)/260*0.25);
       return {u,score:base + ((parseInt(id8(u),36)%997)/997-0.5)*0.06 + (editionSeed%100)/5000}; });
-    scored.sort((a,b)=> (preset==="rise")? (a.score-b.score) : (b.score-a.score)); return scored.map(x=>x.u);
+    scored.sort((a,b)=> (p
+reset==="rise")? (a.score-b.score) : (b.score-a.score)); return scored.map(x=>x.u);
   }
   if(preset==="dj"){
     const seq=[]; const pool=tail.slice(0); let cur=prev||pool[0];
@@ -717,18 +711,28 @@ async function resolveAndWrite(packs){
   }catch(e){ log("ERROR(resolveAndWrite): "+(e.message||e)); }
 }
 
-// ======= UIイベント =======
 $("modeCsv").onchange=()=>{ setHidden("boxCsv",!$("modeCsv").checked); setHidden("boxAuto",$("modeCsv").checked); };
 $("modeAuto").onchange=$("modeCsv").onchange; $("modeCsv").onchange();
+
+// ★ 同一タブで遷移
+$("btnConnect").onclick=(e)=>{
+  e.preventDefault();
+  const u=AUTH_READY_S256?AUTH_URL_S256:AUTH_URL_PLAIN;
+  if(!u || u==="#"){ log("サインインURL未準備（Client ID を確認）"); return; }
+  location.href=u;
+};
 
 $("btnReset").onclick=()=>{ for(const k in LS) localStorage.removeItem(LS[k]); _me=null; setStatus(); log("ローカルトークン削除"); };
 $("btnCheck").onclick=async()=>{ try{ await refreshTokenIfNeeded(); const me=await spFetch("/v1/me","GET"); if(me) {$("status").textContent="接続中（"+(me.display_name||me.id)+")"; log("API確認 OK"); if(_pending) await resolveAndWrite(_pending);} else {$("status").textContent="接続中（OK）";} }catch(e){ log("接続エラー: "+(e.message||e)); } };
 
+// ★ 未接続/未定義時のガードを追加
 $("fileCSV").addEventListener("change", async () => {
   if(!$("modeCsv").checked) return;
   $("log").textContent="";
   progress(3,"CSV読み込み…");
   if(!$("fileCSV").files.length){ log("CSV未選択"); return; }
+  if(!isAuthed()){ log("未接続：先に『Spotifyにサインイン』→『接続チェック』を実施してください"); return; }
+  if(typeof runCsvOnly!=="function"){ log("内部準備未完了（ハードリロードして再試行）"); return; }
   csvRows = await readCSV($("fileCSV").files[0]);
   log("CSV: "+csvRows.length+" 行");
   progress(6,"分析開始…");
@@ -738,7 +742,7 @@ $("fileCSV").addEventListener("change", async () => {
 $("btnRun").onclick=async()=>{
   $("log").textContent="";
   progress(1,"開始…");
-  if(!isAuthed()){ $("status").textContent="未接続（サインインしてください）"; return; }
+  if(!isAuthed()){ $("status").textContent="未接続（サインインしてください）"; log("未接続：『Spotifyにサインイン』→『接続チェック』を押してください"); return; }
   const useCsv = $("modeCsv").checked && $("fileCSV").files.length>0;
   try{ if(useCsv){ await runCsvOnly(); } else { $("modeAuto").checked=true; $("modeCsv").onchange(); await runAutoOnly(); } }
   catch(e){ log("ERROR: "+(e.message||e)); }
@@ -746,12 +750,5 @@ $("btnRun").onclick=async()=>{
 
 setStatus();
 document.getElementById("buildBadge").textContent="BUILD "+BUILD_ID;
-
-// ★ グローバル公開（runCsvOnly 未定義エラーの根絶）
-window.readCSV = readCSV;
-window.runCsvOnly = runCsvOnly;
-window.runAutoOnly = runAutoOnly;
-window.exportPrepAndWrite = exportPrepAndWrite;
-window.resolveAndWrite = resolveAndWrite;
 </script>
 </body></html>
