@@ -35,12 +35,12 @@ a.btn{display:inline-block;padding:9px 12px;border:1px solid #bbb;border-radius:
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
-<h1>TDCS Editions Builder <span class="badge" id="buildBadge">BUILD v10.10</span><span class="badge">Auth-Hardening</span><span class="badge">Latest20</span><span class="badge">Divergence++</span></h1>
+<h1>TDCS Editions Builder <span class="badge" id="buildBadge">BUILD v10.10</span><span class="badge">Auth-Force</span><span class="badge">Latest20</span><span class="badge">Divergence++</span></h1>
 <p id="status">未接続</p>
 <div>
-  <button id="btnConnect" disabled>Spotifyにサインイン</button>
-  <a id="aConnectS256" class="btn" href="#" target="_blank">サインイン(S256)</a>
-  <a id="aConnectPLAIN" class="btn" href="#" target="_blank">サインイン(PLAIN直リンク)</a>
+  <button id="btnConnect">Spotifyにサインイン</button>
+  <a id="aConnectS256" class="btn" href="#" target="_self">S256リンク</a>
+  <a id="aConnectPLAIN" class="btn" href="#" target="_self">PLAINリンク</a>
   <a id="aCopy" class="btn" href="#">URLをコピー</a>
   <a id="aHard" class="btn" href="#">ハードリロード</a>
   <button id="btnReset">初期化（保存トークン削除）</button>
@@ -181,16 +181,10 @@ window.addEventListener("unhandledrejection",e=>{e.preventDefault();log("Unhandl
 
 if($("redir")) $("redir").value=FIXED_REDIRECT_URI;
 
-let AUTH_READY_S256=false, AUTH_URL_S256="", AUTH_URL_PLAIN="";
-const isAuthed=()=> !!localStorage.getItem(LS.acc) && Date.now() < (+localStorage.getItem(LS.exp)||0)-5000;
-function setStatus(){ $("status").textContent=isAuthed()?"接続中（OK）":"未接続"; if(isAuthed() && _pending) resolveAndWrite(_pending); }
-
-function setVerifier(v){ try{ localStorage.setItem(LS.ver,v); }catch(_){}
-  try{ sessionStorage.setItem(LS.ver,v); }catch(_){}
-  try{ document.cookie=`${LS.ver}=${encodeURIComponent(v)}; Max-Age=900; SameSite=Lax; Path=/spotify-auth/`; }catch(_){} }
-
-function b64url(buf){ let b=""; const u8=new Uint8Array(buf); for(let i=0;i<u8.length;i++) b+=String.fromCharCode(u8[i]); return btoa(b).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); }
-function randAlpha(n){ const a="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"; let s=""; for(let i=0;i<n;i++) s+=a[Math.floor(Math.random()*a.length)]; return s; }
+function setVerifier(v){try{localStorage.setItem(LS.ver,v)}catch(_){}try{sessionStorage.setItem(LS.ver,v)}catch(_){}try{document.cookie=`${LS.ver}=${encodeURIComponent(v)}; Max-Age=900; SameSite=Lax; Path=/spotify-auth/`}catch(_){}}
+function getCookie(k){return document.cookie.split(";").map(s=>s.trim()).map(s=>s.split("=")).reduce((a,[kk,v])=>{a[kk]=decodeURIComponent(v||"");return a},{})[k]||""}
+function b64url(buf){let b="";const u8=new Uint8Array(buf);for(let i=0;i<u8.length;i++)b+=String.fromCharCode(u8[i]);return btoa(b).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"")}
+function randAlpha(n){const a="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";let s="";for(let i=0;i<n;i++)s+=a[Math.floor(Math.random()*a.length)];return s}
 
 function makeAuthURLPlain(){
   const CLIENT_ID = val("clientId").replace(zws,"").trim();
@@ -207,34 +201,47 @@ function makeAuthURLPlain(){
 }
 
 async function makeAuthURLS256(){
-  try{
-    const CLIENT_ID = val("clientId").replace(zws,"").trim();
-    let v=""; crypto.getRandomValues(new Uint8Array(64)).forEach(x=>v+=String.fromCharCode(97+(x%26)));
-    setVerifier(v);
-    const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v));
-    const ch=b64url(buf);
-    const u=new URL("https://accounts.spotify.com/authorize");
-    u.searchParams.set("response_type","code");
-    u.searchParams.set("client_id",CLIENT_ID);
-    u.searchParams.set("redirect_uri",FIXED_REDIRECT_URI);
-    u.searchParams.set("code_challenge_method","S256");
-    u.searchParams.set("code_challenge",ch);
-    u.searchParams.set("scope",SCOPES);
-    u.searchParams.set("state","s2."+Date.now());
-    AUTH_URL_S256=u.toString(); AUTH_READY_S256=true;
-    $("aConnectS256").href=AUTH_URL_S256;
-  }catch(_){ AUTH_READY_S256=false; $("aConnectS256").href="#"; }
+  const CLIENT_ID = val("clientId").replace(zws,"").trim();
+  let v=""; const u8=new Uint8Array(64); crypto.getRandomValues(u8); for(let i=0;i<u8.length;i++) v+=String.fromCharCode(97+(u8[i]%26));
+  setVerifier(v);
+  const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v));
+  const ch=b64url(buf);
+  const u=new URL("https://accounts.spotify.com/authorize");
+  u.searchParams.set("response_type","code");
+  u.searchParams.set("client_id",CLIENT_ID);
+  u.searchParams.set("redirect_uri",FIXED_REDIRECT_URI);
+  u.searchParams.set("code_challenge_method","S256");
+  u.searchParams.set("code_challenge",ch);
+  u.searchParams.set("scope",SCOPES);
+  u.searchParams.set("state","s2."+Date.now());
+  return u.toString();
 }
 
+let AUTH_URL_S256="", AUTH_URL_PLAIN="";
 function prepareAuthLinks(){
   AUTH_URL_PLAIN = makeAuthURLPlain();
   $("aConnectPLAIN").href = AUTH_URL_PLAIN;
-  $("aCopy").onclick=async(e)=>{ e.preventDefault(); const u=AUTH_READY_S256?AUTH_URL_S256:AUTH_URL_PLAIN; try{ await navigator.clipboard.writeText(u); alert("コピーしました"); }catch(_){ prompt("URLをコピー",u); } };
+  $("aCopy").onclick=async(e)=>{ e.preventDefault(); const u=AUTH_URL_S256||AUTH_URL_PLAIN; try{ await navigator.clipboard.writeText(u); alert("コピーしました"); }catch(_){ prompt("URLをコピー",u); } };
   $("aHard").onclick=(e)=>{ e.preventDefault(); location.replace(`index.html?v=${BUILD_ID}&bust=${Date.now()}`); };
 }
 
-window.addEventListener("DOMContentLoaded",()=>{ prepareAuthLinks(); makeAuthURLS256(); $("btnConnect").disabled=false; });
-window.addEventListener("focus",()=>{ makeAuthURLS256(); });
+async function startAuth(){
+  try{
+    AUTH_URL_S256 = await makeAuthURLS256();
+    $("aConnectS256").href = AUTH_URL_S256;
+    location.href = AUTH_URL_S256;
+  }catch(_){
+    AUTH_URL_PLAIN = makeAuthURLPlain();
+    $("aConnectPLAIN").href = AUTH_URL_PLAIN;
+    location.href = AUTH_URL_PLAIN;
+  }
+}
+
+window.addEventListener("DOMContentLoaded",()=>{ prepareAuthLinks(); });
+window.addEventListener("focus",async()=>{ try{AUTH_URL_S256=await makeAuthURLS256();$("aConnectS256").href=AUTH_URL_S256}catch(_){AUTH_URL_PLAIN=makeAuthURLPlain();$("aConnectPLAIN").href=AUTH_URL_PLAIN} });
+
+const isAuthed=()=> !!localStorage.getItem(LS.acc) && Date.now() < (+localStorage.getItem(LS.exp)||0)-5000;
+function setStatus(){ $("status").textContent=isAuthed()?"接続中（OK）":"未接続"; if(isAuthed() && _pending) resolveAndWrite(_pending); }
 
 async function refreshTokenIfNeeded(){
   const exp=+(localStorage.getItem(LS.exp)||0);
@@ -268,61 +275,62 @@ async function spFetch(path,method="GET",body=null){
 
 let _me=null; async function getMe(){ if(_me) return _me; _me=await spFetch("/v1/me","GET"); return _me; }
 
-let csvRows=[]; function readCSV(file){return new Promise((res,rej)=>Papa.parse(file,{header:true,skipEmptyLines:true,complete:r=>res(r.data),error:rej}));}
+let csvRows=[];
+function readCSV(file){return new Promise((res,rej)=>Papa.parse(file,{header:true,skipEmptyLines:true,complete:r=>res(r.data),error:rej}))}
 const ISRC_RE=/^[A-Z]{2}-?[A-Z0-9]{3}-?\d{2}-?\d{5}$/i;
-const extractTrackId=(raw)=>{const s=String(raw||"").trim(); if(!s) return ""; let m=s.match(/spotify:track:([A-Za-z0-9]{22})/); if(m) return m[1]; m=s.match(/open\.spotify\.com\/track\/([A-Za-z0-9]{22})/); if(m) return m[1]; m=s.match(/\/track\/([A-Za-z0-9]{22})(?:\?|$)/); if(m) return m[1]; m=s.match(/^([A-Za-z0-9]{22})$/); if(m) return m[1]; return ""; }
-function columns(rows){const s={},out=[]; for(let i=0;i<Math.min(400,rows.length);i++){ for(const k of Object.keys(rows[i])) if(!s[k]){s[k]=1; out.push(k);} } return out;}
-function pickByName(cols,pref){ const L=cols.map(c=>[c,c.toLowerCase()]); for(const p of pref){const n=p.toLowerCase(); const hit=L.find(([,m])=>m===n||m.includes(n)); if(hit) return hit[0];} return ""; }
+const extractTrackId=(raw)=>{const s=String(raw||"").trim(); if(!s) return ""; let m=s.match(/spotify:track:([A-Za-z0-9]{22})/); if(m) return m[1]; m=s.match(/open\.spotify\.com\/track\/([A-Za-z0-9]{22})/); if(m) return m[1]; m=s.match(/\/track\/([A-Za-z0-9]{22})(?:\?|$)/); if(m) return m[1]; m=s.match(/^([A-Za-z0-9]{22})$/); if(m) return m[1]; return "" }
+function columns(rows){const s={},out=[]; for(let i=0;i<Math.min(400,rows.length);i++){ for(const k of Object.keys(rows[i])) if(!s[k]){s[k]=1; out.push(k);} } return out}
+function pickByName(cols,pref){ const L=cols.map(c=>[c,c.toLowerCase()]); for(const p of pref){const n=p.toLowerCase(); const hit=L.find(([,m])=>m===n||m.includes(n)); if(hit) return hit[0];} return "" }
 function guessCsvColumns(rows){
   const cols=columns(rows);
-  const scId=c=>{let m=0,n=0; for(let i=0;i<rows.length&&i<1500;i++){const v=String(rows[i][c]||""); if(!v)continue; n++; if(/spotify:track:[A-Za-z0-9]{22}/.test(v)||/open\.spotify\.com\/track\/[A-Za-z0-9]{22}/.test(v)||/^[A-Za-z0-9]{22}$/.test(v))m++;} return n?m/n:0;}
-  const scIsrc=c=>{let m=0,n=0; for(let i=0;i<rows.length&&i<1500;i++){const v=String(rows[i][c]||""); if(!v)continue; n++; if(ISRC_RE.test(v))m++;} return n?m/n:0;}
+  const scId=c=>{let m=0,n=0; for(let i=0;i<rows.length&&i<1500;i++){const v=String(rows[i][c]||""); if(!v)continue; n++; if(/spotify:track:[A-Za-z0-9]{22}/.test(v)||/open\.spotify\.com\/track\/[A-Za-z0-9]{22}/.test(v)||/^[A-Za-z0-9]{22}$/.test(v))m++;} return n?m/n:0}
+  const scIsrc=c=>{let m=0,n=0; for(let i=0;i<rows.length&&i<1500;i++){const v=String(rows[i][c]||""); if(!v)continue; n++; if(ISRC_RE.test(v))m++;} return n?m/n:0}
   let idCol=""; let best=-1; for(const c of cols){const sc=scId(c); if(sc>best){best=sc; idCol=c;}}
   const isrcCol=cols.reduce((a,c)=> (scIsrc(c)>(a.score||-1)?{c,score:scIsrc(c)}:a),{}).c || pickByName(cols,["isrc","isrc_code"]);
   const tCol=pickByName(cols,["title","track","name","曲名","タイトル"])||cols[0];
   const vCol=pickByName(cols,["version","バージョン","mix","remix","edit"]);
   const aCol=pickByName(cols,["artist","artists","アーティスト"])||cols[0];
-  return {idCol,isrcCol,tCol,vCol,aCol};
+  return {idCol,isrcCol,tCol,vCol,aCol}
 }
 
 const _isrcCache=new Map();
-async function searchOnce(q,m,limit=10,offset=0){ const r=await spFetch(`/v1/search?q=${encodeURIComponent(q)}&type=track&limit=${limit}&offset=${offset}&market=${m}`,"GET"); return (r&&r.tracks&&r.tracks.items)?r.tracks.items:[]; }
-async function searchMany(q,m,need=60){ const out=[]; const step=50; for(let off=0; off<need; off+=step){ const items=await searchOnce(q,m,Math.min(step,need-off),off); if(!items||!items.length) break; out.push(...items);} return out; }
-function isrcVariants(s){ s=String(s||"").trim(); if(!s) return []; const up=s.toUpperCase(); const no=up.replace(/-/g,""); const hy=up.indexOf("-")>=0?up:up.replace(/^(.{2})(.{3})(.{2})(.{5})$/,"$1-$2-$3-$4"); return Array.from(new Set([up,no,hy])); }
+async function searchOnce(q,m,limit=10,offset=0){ const r=await spFetch(`/v1/search?q=${encodeURIComponent(q)}&type=track&limit=${limit}&offset=${offset}&market=${m}`,"GET"); return (r&&r.tracks&&r.tracks.items)?r.tracks.items:[] }
+async function searchMany(q,m,need=60){ const out=[]; const step=50; for(let off=0; off<need; off+=step){ const items=await searchOnce(q,m,Math.min(step,need-off),off); if(!items||!items.length) break; out.push(...items);} return out }
+function isrcVariants(s){ s=String(s||"").trim(); if(!s) return []; const up=s.toUpperCase(); const no=up.replace(/-/g,""); const hy=up.indexOf("-")>=0?up:up.replace(/^(.{2})(.{3})(.{2})(.{5})$/,"$1-$2-$3-$4"); return Array.from(new Set([up,no,hy])) }
 function makeQueriesFromRow(row,cols){
   const id=cols.idCol?extractTrackId(row[cols.idCol]):""; const isrc=String(cols.isrcCol?row[cols.isrcCol]:"").trim();
   const title=(row[cols.tCol]||"").toString().trim(); const version=(cols.vCol? (row[cols.vCol]||"") : "").toString().trim(); const artist=(row[cols.aCol]||"").toString().trim();
   const q=[]; if(id) q.push({type:"id",q:id}); if(isrc && ISRC_RE.test(isrc)) for(const v of isrcVariants(isrc)) q.push({type:"isrc",q:"isrc:"+v});
   if(title && artist){ const base=title.split(/\s+-\s+/)[0]; q.push({type:"field",q:`track:"${base}" artist:"${artist}"`}); if(version) q.push({type:"field",q:`track:"${title}" artist:"${artist}"`}); q.push({type:"free",q:`"${base}" ${artist}`}); }
   else if(title){ q.push({type:"free",q:title}); }
-  return {q,isrc,id};
+  return {q,isrc,id}
 }
 async function resolveOne(row,cols,markets){
   const {q,isrc,id}=makeQueriesFromRow(row,cols);
   if(id) return "spotify:track:"+id;
   if(isrc){ for(const v of isrcVariants(isrc)) if(_isrcCache.has(v)) return _isrcCache.get(v); }
   for(const qq of q){ for(const m of markets){ try{ const items=await searchOnce(qq.q,m,10,0); if(items&&items.length){ const u="spotify:track:"+items[0].id; if(isrc) for(const v of isrcVariants(isrc)) _isrcCache.set(v,u); return u; } }catch(_){}} }
-  return "";
+  return ""
 }
 
 async function fetchTrackDetailsByUris(uris){
   const ids=[], map=new Map(); for(const u of uris){ if(u) ids.push(u.replace("spotify:track:","")); }
   for(let i=0;i<ids.length;i+=50){ const slice=ids.slice(i,i+50); if(!slice.length) continue; const r=await spFetch("/v1/tracks?ids="+slice.join(","),"GET"); const arr=(r&&r.tracks)||[]; for(const t of arr){ if(t&&t.id) map.set("spotify:track:"+t.id,t); } }
-  return map;
+  return map
 }
 async function fetchAudioFeaturesByUris(uris){
   const ids=[], feats=new Map(); for(const u of uris){ if(u) ids.push(u.replace("spotify:track:","")); }
   for(let i=0;i<ids.length;i+=100){ const slice=ids.slice(i,i+100); if(!slice.length) continue; const r=await spFetch("/v1/audio-features?ids="+slice.join(","),"GET"); const arr=(r&&r.audio_features)||[]; for(const f of arr){ if(f&&f.id) feats.set("spotify:track:"+f.id,f); } }
-  return feats;
+  return feats
 }
 async function fetchAlbumsForTracks(tracksMap){
   const albumIds=uniq(Array.from(tracksMap.values()).map(t=>t?.album?.id).filter(Boolean)); const map=new Map();
   for(let i=0;i<albumIds.length;i+=20){ const slice=albumIds.slice(i,i+20); if(!slice.length) continue; const r=await spFetch("/v1/albums?ids="+slice.join(","),"GET"); const arr=(r&&r.albums)||[]; for(const a of arr){ if(a&&a.id) map.set(a.id,a); } }
-  return map;
+  return map
 }
 
 const camelot=(key,mode)=>({num:[8,3,10,5,0,7,2,9,4,11,6,1][(key||0)%12],isMinor:mode===0});
-const keyDistance=(a,b)=>{ if(!a||!b||a.key==null||b.key==null) return 2; const A=camelot(a.key,a.mode), B=camelot(b.key,b.mode); let d=Math.abs(A.num-B.num); d=Math.min(d,12-d); let pen=d/6; if(A.isMinor!==B.isMinor) pen+=0.4; return pen; }
+const keyDistance=(a,b)=>{ if(!a||!b||a.key==null||b.key==null) return 2; const A=camelot(a.key,a.mode), B=camelot(b.key,b.mode); let d=Math.abs(A.num-B.num); d=Math.min(d,12-d); let pen=d/6; if(A.isMinor!==B.isMinor) pen+=0.4; return pen }
 function nextCost(a,b,preset){
   const dTempo=(a&&b&&a.tempo&&b.tempo)?Math.min(1,Math.abs(a.tempo-b.tempo)/16):0.5;
   const dKey=keyDistance(a,b), dEner=(a&&b)?Math.abs((a.energy||0)-(b.energy||0)):0.5, dVal=(a&&b)?Math.abs((a.valence||0)-(b.valence||0)):0.5;
@@ -330,12 +338,12 @@ function nextCost(a,b,preset){
   if(preset==="rise") return 0.35*dTempo+0.20*dKey+0.35*dEner+0.10*dVal;
   if(preset==="drop") return 0.35*dTempo+0.20*dKey+0.35*dEner+0.10*dVal;
   if(preset==="bp")   return 0.25*dTempo+0.25*dKey+0.45*dEner+0.05*dVal;
-  return               0.40*dTempo+0.25*dKey+0.25*dEner+0.10*dVal;
+  return               0.40*dTempo+0.25*dKey+0.25*dEner+0.10*dVal
 }
 
-function seedHash(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0; } return h>>>0; }
+function seedHash(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0; } return h>>>0 }
 function rng(seed){ let x=seedHash(String(seed))||1; return ()=>{ x^=x<<13; x^=x>>>17; x^=x<<5; return (x>>>0)/4294967296; } }
-function seededShuffle(arr, seed){ const r=rng(seed); const a=arr.slice(0); for(let i=a.length-1;i>0;i--){ const j=Math.floor(r()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+function seededShuffle(arr, seed){ const r=rng(seed); const a=arr.slice(0); for(let i=a.length-1;i>0;i--){ const j=Math.floor(r()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a }
 
 function buildTailByPreset(prev, tail, feats, preset, editionSeed){
   tail = Array.isArray(tail) ? tail : []; if(tail.length===0) return [];
@@ -362,10 +370,10 @@ function buildTailByPreset(prev, tail, feats, preset, editionSeed){
 }
 
 let URI_META=new Map();
-function normalizeRemixer(s){ s=String(s||"").trim(); if(!s) return ""; s=s.replace(/\b(original|radio|extended|club)\b.*$/i,"").trim(); return s.toLowerCase(); }
-function parseRemixerFromName(name){ name=String(name||""); const pats=[/\(([^)]+?)\s+(?:re-?mix|mix|edit|version)\)/i, /-\s*([^-\(\[]+?)\s+(?:re-?mix|mix|edit|version)\b/i]; for(const re of pats){ const m=name.match(re); if(m){ const r=m[1].trim(); if(/original|radio|extended/i.test(r)) return ""; return r; } } return ""; }
-function normLabel(s){ s=String(s||"").toLowerCase(); s=s.replace(/[.,()[\]\-]/g," ").replace(/\b(records?|recordings?|music|ltd|limited|inc|corp|company|co|the)\b/g,"").replace(/\s+/g," ").trim(); return s; }
-function parseCatNo(albumName, trackName, labelName){ const S=(albumName+" "+trackName+" "+labelName).toUpperCase(); const m=S.match(/\b([A-Z]{2,5}\d{3,6}[A-Z]?)\b/); return m?m[1]:""; }
+function normalizeRemixer(s){ s=String(s||"").trim(); if(!s) return ""; s=s.replace(/\b(original|radio|extended|club)\b.*$/i,"").trim(); return s.toLowerCase() }
+function parseRemixerFromName(name){ name=String(name||""); const pats=[/\(([^)]+?)\s+(?:re-?mix|mix|edit|version)\)/i, /-\s*([^-\(\[]+?)\s+(?:re-?mix|mix|edit|version)\b/i]; for(const re of pats){ const m=name.match(re); if(m){ const r=m[1].trim(); if(/original|radio|extended/i.test(r)) return ""; return r; } } return "" }
+function normLabel(s){ s=String(s||"").toLowerCase(); s=s.replace(/[.,()[\]\-]/g," ").replace(/\b(records?|recordings?|music|ltd|limited|inc|corp|company|co|the)\b/g,"").replace(/\s+/g," ").trim(); return s }
+function parseCatNo(albumName, trackName, labelName){ const S=(albumName+" "+trackName+" "+labelName).toUpperCase(); const m=S.match(/\b([A-Z]{2,5}\d{3,6}[A-Z]?)\b/); return m?m[1]:"" }
 function buildUriMeta(uriList, tracksMap, albumsMap, hintRows=null, cols=null){
   const meta=new Map();
   for(let i=0;i<uriList.length;i++){
@@ -384,9 +392,9 @@ function buildUriMeta(uriList, tracksMap, albumsMap, hintRows=null, cols=null){
   return meta;
 }
 
-function getMarkets(){ const raw=(val("markets","")||"").toUpperCase(); const arr=raw.split(",").map(s=>s.trim()).filter(Boolean); return arr.length?uniq(arr):["ES","US","GB","NZ"]; }
-function marketScore(t,tags){ const mk=new Set((t?.available_markets)||[]); let sc=0; for(const [code,w] of tags){ if(mk.has(code)) sc+=w; } return Math.min(sc,1); }
-function gauss(x,c,w){ if(x==null) return 0.3; const z=(x-c)/w; return Math.exp(-0.5*z*z); }
+function getMarkets(){ const raw=(val("markets","")||"").toUpperCase(); const arr=raw.split(",").map(s=>s.trim()).filter(Boolean); return arr.length?uniq(arr):["ES","US","GB","NZ"] }
+function marketScore(t,tags){ const mk=new Set((t?.available_markets)||[]); let sc=0; for(const [code,w] of tags){ if(mk.has(code)) sc+=w; } return Math.min(sc,1) }
+function gauss(x,c,w){ if(x==null) return 0.3; const z=(x-c)/w; return Math.exp(-0.5*z*z) }
 
 function editionWeight(u,feats,tracksMap,edition){
   const f=feats.get(u)||{}, t=tracksMap.get(u)||{}; let feat=0, mkt=0;
@@ -394,7 +402,7 @@ function editionWeight(u,feats,tracksMap,edition){
   else if(edition==="US"){ feat=0.5*gauss(f.tempo,170,6)+0.3*gauss(f.energy,0.7,0.2)+0.2*gauss(f.valence,0.6,0.25); mkt=marketScore(t,[["US",1]]); }
   else if(edition==="EU"){ feat=0.45*gauss(f.tempo,172,5)+0.4*gauss(f.energy,0.8,0.2)+0.15*gauss(f.valence,0.35,0.25)+(f.mode===0?0.08:0); mkt=marketScore(t,[["ES",0.7],["NL",0.3]]); }
   else { feat=0.5*gauss(f.tempo,170,8)+0.3*gauss(f.energy,0.7,0.25)+0.2*gauss(f.valence,0.5,0.3); mkt=marketScore(t,[["ES",0.25],["US",0.25],["GB",0.25],["NZ",0.25]]); }
-  const noRemixBonus=(URI_META.get(u)?.remixer)?0:0.05; return 0.55*feat + 0.45*mkt + noRemixBonus;
+  const noRemixBonus=(URI_META.get(u)?.remixer)?0:0.05; return 0.55*feat + 0.45*mkt + noRemixBonus
 }
 
 function fitsProfile(feat,prof,gate){
@@ -407,7 +415,7 @@ function fitsProfile(feat,prof,gate){
   const okSpeech=prof.speechiness?_in(feat.speechiness,prof.speechiness,gate):true;
   const okInstr=prof.instrumentalness?_in(feat.instrumentalness,prof.instrumentalness,gate):true;
   const okMode=(typeof prof.mode==="number")?(gate>=0.9?(feat.mode===prof.mode):true):true;
-  return okTempo && okEner && okVal && okDance && okSpeech && okInstr && okMode;
+  return okTempo && okEner && okVal && okDance && okSpeech && okInstr && okMode
 }
 
 const DIV_LEVELS={
@@ -416,7 +424,7 @@ const DIV_LEVELS={
   low:{gate:0.55, artistCap:4, remixerCap:2, albumCap:4, catalogCap:5, catNoCap:4, winRem:10, winRemMax:2, winCatNo:10, winCatNoMax:2}
 };
 
-function buildBasePool(list,preferred){ const used=new Set(),seq=[]; const push=(u)=>{ if(u&&!used.has(u)){used.add(u);seq.push(u);} }; for(const u of preferred) push(u); for(const u of list) push(u); return seq; }
+function buildBasePool(list,preferred){ const used=new Set(),seq=[]; const push=(u)=>{ if(u&&!used.has(u)){used.add(u);seq.push(u);} }; for(const u of preferred) push(u); for(const u of list) push(u); return seq }
 
 function postProcessNoAdjacencyAndDispersion(fullSeq,pinnedLen,level){
   const remKey =(u)=> (URI_META.get(u)?.remixer)||"";
@@ -424,11 +432,11 @@ function postProcessNoAdjacencyAndDispersion(fullSeq,pinnedLen,level){
   const albKey =(u)=> (URI_META.get(u)?.albumId)||"";
   const catKey =(u)=> (URI_META.get(u)?.catalog)||"";
   const catNoKey=(u)=> (URI_META.get(u)?.catNo)||"";
-  function deAdj(keyFn){ let swaps=0, prevKey = pinnedLen>0 ? keyFn(fullSeq[pinnedLen-1]) : ""; for(let i=pinnedLen;i<fullSeq.length;i++){ const k=keyFn(fullSeq[i]); if(prevKey && k && k===prevKey){ let j=i+1; while(j<fullSeq.length && keyFn(fullSeq[j])===k) j++; if(j<fullSeq.length){ const tmp=fullSeq[i]; fullSeq[i]=fullSeq[j]; fullSeq[j]=tmp; swaps++; } } prevKey = keyFn(fullSeq[i]); } return swaps; }
-  function winDisp(keyFn,ws,max){ let swaps=0; for(let i=pinnedLen;i<fullSeq.length;i++){ const k=keyFn(fullSeq[i]); if(!k) continue; const a=Math.max(pinnedLen, i-ws+1), b=i-1; let c=0; for(let p=a;p<=b;p++) if(keyFn(fullSeq[p])===k) c++; if(c>=max){ let j=i+1; while(j<fullSeq.length && keyFn(fullSeq[j])===k) j++; if(j<fullSeq.length){ const tmp=fullSeq[i]; fullSeq[i]=fullSeq[j]; fullSeq[j]=tmp; swaps++; } } } return swaps; }
+  function deAdj(keyFn){ let swaps=0, prevKey = pinnedLen>0 ? keyFn(fullSeq[pinnedLen-1]) : ""; for(let i=pinnedLen;i<fullSeq.length;i++){ const k=keyFn(fullSeq[i]); if(prevKey && k && k===prevKey){ let j=i+1; while(j<fullSeq.length && keyFn(fullSeq[j])===k) j++; if(j<fullSeq.length){ const tmp=fullSeq[i]; fullSeq[i]=fullSeq[j]; fullSeq[j]=tmp; swaps++; } } prevKey = keyFn(fullSeq[i]); } return swaps }
+  function winDisp(keyFn,ws,max){ let swaps=0; for(let i=pinnedLen;i<fullSeq.length;i++){ const k=keyFn(fullSeq[i]); if(!k) continue; const a=Math.max(pinnedLen, i-ws+1), b=i-1; let c=0; for(let p=a;p<=b;p++) if(keyFn(fullSeq[p])===k) c++; if(c>=max){ let j=i+1; while(j<fullSeq.length && keyFn(fullSeq[j])===k) j++; if(j<fullSeq.length){ const tmp=fullSeq[i]; fullSeq[i]=fullSeq[j]; fullSeq[j]=tmp; swaps++; } } } return swaps }
   const s1=deAdj(remKey), s2=deAdj(artKey), s3=deAdj(albKey), s4=deAdj(catKey), s5=deAdj(catNoKey);
   const d1=winDisp(remKey,level.winRem,level.winRemMax), d2=winDisp(catNoKey,level.winCatNo,level.winCatNoMax);
-  return {remix_swaps:s1, artist_swaps:s2, album_swaps:s3, catalog_swaps:s4, catno_swaps:s5, win_remix_swaps:d1, win_catno_swaps:d2};
+  return {remix_swaps:s1, artist_swaps:s2, album_swaps:s3, catalog_swaps:s4, catno_swaps:s5, win_remix_swaps:d1, win_catno_swaps:d2}
 }
 
 function enforceUniqueWithin(seq,pinnedLen,primaryPool,fallbackPool,label="",banSet=null,caps=null){
@@ -442,13 +450,13 @@ function enforceUniqueWithin(seq,pinnedLen,primaryPool,fallbackPool,label="",ban
     if(m.albumId && (cnt.album.get(m.albumId)||0)>=cap.album) return false;
     if(m.catalog && (cnt.catalog.get(m.catalog)||0)>=cap.catalog) return false;
     if(m.catNo && (cnt.catno.get(m.catNo)||0)>=cap.catno) return false;
-    if(banSet && banSet.has(u)) return false; return true;}
+    if(banSet && banSet.has(u)) return false; return true}
   function push(u){ uniqTail.push(u); seen.add(u); const m=meta(u);
     if(m.artistId) cnt.artist.set(m.artistId,(cnt.artist.get(m.artistId)||0)+1);
     if(m.remixer)   cnt.rem.set(m.remixer,(cnt.rem.get(m.remixer)||0)+1);
     if(m.albumId)   cnt.album.set(m.albumId,(cnt.album.get(m.albumId)||0)+1);
     if(m.catalog)   cnt.catalog.set(m.catalog,(cnt.catalog.get(m.catalog)||0)+1);
-    if(m.catNo)     cnt.catno.set(m.catno,(cnt.catno.get(m.catno)||0)+1); }
+    if(m.catNo)     cnt.catno.set(m.catno,(cnt.catno.get(m.catno)||0)+1) }
   for(const u of tail){ if(canPush(u)) push(u); else drop++; }
   const want = Math.floor(tail.length);
   function refill(fromPool){ const src=Array.isArray(fromPool)?fromPool:[]; for(const u of src){ if(uniqTail.length>=want) break; if(!u) continue; if(canPush(u)) push(u); } }
@@ -471,7 +479,7 @@ function makeEditionPacksFallback(baseUris,feats,pinned,tracksMap){
   const remain=baseUris.filter(u=>!fixed.includes(u));
   const seeds={UK:11,US:22,EU:33,WORLD:44};
   function build(ed){ const shuffled=seededShuffle(remain,seeds[ed]); const tail=buildTailByPreset(fixed[fixed.length-1]||shuffled[0], shuffled, feats, val("preset"+ed,"waves"), seeds[ed]).slice(0,tailN); return fixed.concat(tail); }
-  return {UK:build("UK"),US:build("US"),EU:build("EU"),WORLD:build("WORLD")};
+  return {UK:build("UK"),US:build("US"),EU:build("EU"),WORLD:build("WORLD")}
 }
 
 function makeEditionPacksV3(baseUris,feats,pinned,tracksMap){
@@ -517,8 +525,6 @@ function makeEditionPacksV3(baseUris,feats,pinned,tracksMap){
       const tail=pickByProfile(home,others,edition);
       const prev=fixed[fixed.length-1]||tail[0];
       let orderedTail=buildTailByPreset(prev,tail,feats,val("preset"+edition,edition==="US"?"rise":edition==="EU"?"drop":edition==="WORLD"?"dj":"waves"),seed);
-      const fixedSet = new Set(fixed);
-      orderedTail = orderedTail.filter(u=>!fixedSet.has(u));
       const seq0=fixed.concat(orderedTail);
       if(!withinDupAllowed){
         const level=DIV_LEVELS[(document.getElementById("diverge")?.value)||"high"]||DIV_LEVELS.high;
@@ -533,18 +539,7 @@ function makeEditionPacksV3(baseUris,feats,pinned,tracksMap){
     }
     const packs={}; packs.UK=buildOne("UK"); packs.US=buildOne("US"); packs.EU=buildOne("EU"); packs.WORLD=buildOne("WORLD");
     const need=Math.floor(val("finalN","130")||130);
-    for(const k of ["UK","US","EU","WORLD"]){
-      if(packs[k].length>need) packs[k]=packs[k].slice(0,need);
-      if(packs[k].length<need){
-        const already=new Set(packs[k]);
-        const fill1=remainder.filter(u=>!already.has(u)).slice(0,need-packs[k].length);
-        packs[k]=packs[k].concat(fill1);
-        if(packs[k].length<need){
-          const more=seededShuffle(remainder, (k==="UK"?101:k==="US"?202:k==="EU"?303:404)).filter(u=>!already.has(u)&&!packs[k].includes(u)).slice(0,need-packs[k].length);
-          packs[k]=packs[k].concat(more);
-        }
-      }
-    }
+    for(const k of ["UK","US","EU","WORLD"]){ if(packs[k].length>need) packs[k]=packs[k].slice(0,need); if(packs[k].length<need) packs[k]=packs[k].concat(baseUris.slice(0,need-packs[k].length)); }
     return packs;
   }catch(e){
     log("V3分配で例外 → Fallback適用: "+(e.message||e));
@@ -554,12 +549,10 @@ function makeEditionPacksV3(baseUris,feats,pinned,tracksMap){
 
 function analyzePinnedAdjacency(pinned){
   const remKey=(u)=>(URI_META.get(u)?.remixer)||""; const albKey=(u)=>(URI_META.get(u)?.albumId)||""; const catKey=(u)=>(URI_META.get(u)?.catalog)||""; const catNoKey=(u)=>(URI_META.get(u)?.catNo)||"";
-  function countAdj(fn){ let a=0; for(let i=1;i<pinned.length;i++){ if(fn(pinned[i]) && fn(pinned[i])===fn(pinned[i-1])) a++; } return a; }
+  function countAdj(fn){ let a=0; for(let i=1;i<pinned.length;i++){ if(fn(pinned[i]) && fn(pinned[i])===fn(pinned[i-1])) a++; } return a }
   const rep={rem:countAdj(remKey), alb:countAdj(albKey), cat:countAdj(catKey), catno:countAdj(catNoKey)};
   if(rep.rem||rep.alb||rep.cat||rep.catno){ log("イントロ固定内に連打 rem="+rep.rem+" album="+rep.alb+" catalog="+rep.cat+" catNo="+rep.catno+"（固定部は順序維持）"); }
 }
-
-const EDITION_PROFILES_DEF=EDITION_PROFILES;
 
 async function fetchPlaylistNewestUris(pid,want){
   const items=[]; let off=0;
@@ -570,7 +563,7 @@ async function fetchPlaylistNewestUris(pid,want){
     off+=r.items.length; if(r.items.length<100) break;
   }
   items.sort((a,b)=>b.ts-a.ts);
-  return uniq(items.map(x=>x.u)).slice(0,want);
+  return uniq(items.map(x=>x.u)).slice(0,want)
 }
 async function getPinnedIntroLatest20(basePool){
   const want=Math.max(10,Math.min(20,+(val("introLen","20")||20))); const tpl=(val("introTpl","")||"").trim();
@@ -580,17 +573,17 @@ async function getPinnedIntroLatest20(basePool){
   if(!pid){ log("イントロ: プレイリストID不可 → ベースから補完"); return pool.slice(0,want); }
   const newest=await fetchPlaylistNewestUris(pid,want*3); const pinned=[]; for(const u of newest){ if(pinned.length>=want) break; if(poolSet.has(u)) pinned.push(u); }
   if(pinned.length<want){ for(const u of pool){ if(pinned.length>=want) break; if(!pinned.includes(u)) pinned.push(u); } }
-  log("最新固定 "+pinned.length+"曲（目標"+want+"）"); return pinned.slice(0,want);
+  log("最新固定 "+pinned.length+"曲（目標"+want+"）"); return pinned.slice(0,want)
 }
 
-const extractPlaylistId=(s)=>{s=String(s||""); let m=s.match(/playlist\/([A-Za-z0-9]{22})/); if(m) return m[1]; m=s.match(/^([A-Za-z0-9]{22})$/); if(m) return m[1]; return ""; }
+const extractPlaylistId=(s)=>{s=String(s||""); let m=s.match(/playlist\/([A-Za-z0-9]{22})/); if(m) return m[1]; m=s.match(/^([A-Za-z0-9]{22})$/); if(m) return m[1]; return "" }
 async function replacePlaylist(pid,uris){
   const chunks=[]; for(let i=0;i<uris.length;i+=100) chunks.push(uris.slice(i,i+100));
   if(!chunks.length) chunks.push([]);
   await spFetch("/v1/playlists/"+pid+"/tracks","PUT",{uris:chunks[0]}); log("置換: "+chunks[0].length+"件");
   for(let k=1;k<chunks.length;k++){ await spFetch(`/v1/playlists/${pid}/tracks`,"POST",{uris:chunks[k]}); log("追加: "+chunks[k].length+"件"); }
 }
-async function createPlaylistAndFill(name,desc,isPublic,uris){ const me=await getMe(); const pl=await spFetch("/v1/users/"+encodeURIComponent(me.id)+"/playlists","POST",{name,description:desc,public:!!isPublic}); const pid=(pl&&pl.id)?pl.id:""; await replacePlaylist(pid,uris); return pid; }
+async function createPlaylistAndFill(name,desc,isPublic,uris){ const me=await getMe(); const pl=await spFetch("/v1/users/"+encodeURIComponent(me.id)+"/playlists","POST",{name,description:desc,public:!!isPublic}); const pid=(pl&&pl.id)?pl.id:""; await replacePlaylist(pid,uris); return pid }
 async function ensureWrite(which,uris){
   const inputId=(which==="BEATPORT")?"plBP":("pl"+which); const inputVal=val(inputId,"").trim(); const pid=extractPlaylistId(inputVal);
   const base=val("baseName","TDCS Editions").trim()||"TDCS Editions"; const descNote=val("descNote",""); const isPub=val("pub","0")==="1";
@@ -705,7 +698,7 @@ async function resolveAndWrite(packs){
 $("modeCsv").onchange=()=>{ setHidden("boxCsv",!$("modeCsv").checked); setHidden("boxAuto",$("modeCsv").checked); };
 $("modeAuto").onchange=$("modeCsv").onchange; $("modeCsv").onchange();
 
-$("btnConnect").onclick=()=>{ if($("aConnectS256").href && $("aConnectS256").href!=="#") $("aConnectS256").click(); else $("aConnectPLAIN").click(); };
+$("btnConnect").onclick=startAuth;
 
 $("btnReset").onclick=()=>{ for(const k in LS) localStorage.removeItem(LS[k]); _me=null; setStatus(); log("ローカルトークン削除"); };
 $("btnCheck").onclick=async()=>{ try{ await refreshTokenIfNeeded(); const me=await spFetch("/v1/me","GET"); if(me) {$("status").textContent="接続中（"+(me.display_name||me.id)+")"; log("API確認 OK"); if(_pending) await resolveAndWrite(_pending);} else {$("status").textContent="接続中（OK）";} }catch(e){ log("接続エラー: "+(e.message||e)); } };
