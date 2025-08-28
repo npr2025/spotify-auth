@@ -1,6 +1,5 @@
 <!doctype html>
-<html lang="ja">
-<head>
+<html lang="ja"><head>
 <meta charset="utf-8">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
@@ -16,21 +15,20 @@ input[type="text"]{width:100%;padding:6px 8px;border:1px solid #ccc;border-radiu
 <h1>Spotify サインイン（PKCE）</h1>
 <p>ボタンを押すとサインイン用のトップへ遷移します。</p>
 <div>
-  <label>CLIENT_ID <input id="cid" type="text" value=""></label>
+  <label>CLIENT_ID
+    <input id="cid" type="text" value="1fd6350fcf4945a0b3ddffa2d5730d4e">
+  </label>
 </div>
 <button id="go">Spotifyにサインイン</button>
 <script>
 const BUILD_ID="v10.9";
-document.addEventListener("DOMContentLoaded", ()=>{
-  const saved = localStorage.getItem("client_id_pref") || "";
-  document.getElementById("cid").value = saved || "YOUR_CLIENT_ID_HERE";
-});
+const LS_CID="client_id_pref";
+/* 既存の値があれば表示 */
+try{const pref=localStorage.getItem(LS_CID)||""; if(pref) document.getElementById("cid").value=pref;}catch(_){}
 document.getElementById("go").onclick=()=>{
   const id=(document.getElementById("cid").value||"").trim();
-  if(!id){ alert("CLIENT_ID を入力してください"); return; }
-  try{localStorage.setItem("client_id_pref",id)}catch(_){}
+  try{localStorage.setItem(LS_CID,id)}catch(_){}
   location.href="index.html?v="+BUILD_ID+"&bust="+Date.now();
 };
 </script>
-</body>
-</html>
+</body></html>
