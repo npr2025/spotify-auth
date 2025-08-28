@@ -4,24 +4,21 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spotify サインイン</title>
+<title>Spotify サインイン — BUILD v10.10</title>
 <style>
 body{font-family:system-ui;max-width:720px;margin:40px auto;padding:0 14px}
 button{padding:10px 14px;border:1px solid #bbb;border-radius:8px;background:#fff;cursor:pointer}
 input[type="text"]{width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px}
-a.btn{display:inline-block;padding:10px 14px;border:1px solid #bbb;border-radius:8px;background:#fff;text-decoration:none;color:#000;margin:8px 8px 0 0}
 </style>
 </head>
 <body>
-<h1>Spotify サインイン（PKCE）</h1>
-<p>ボタンを押すと <code>index.html</code> に移動します。</p>
+<h1>Spotify サインイン</h1>
+<p><a href="index.html?v=v10.10&bust=${Date.now()}" id="back">index.html に戻る</a></p>
 <div>
   <label>CLIENT_ID <input id="cid" type="text" value="1fd6350fcf4945a0b3ddffa2d5730d4e"></label>
 </div>
-<div>
-  <a class="btn" id="go" href="index.html?v=v10.10&bust=">index.html へ</a>
-</div>
+<button id="go">Spotifyにサインイン</button>
 <script>
-document.getElementById("go").href="index.html?v=v10.10&bust="+Date.now();
+document.getElementById("go").onclick=()=>{ location.href="index.html?v=v10.10&bust="+Date.now(); };
 </script>
 </body></html>
