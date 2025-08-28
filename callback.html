@@ -7,86 +7,54 @@
 <meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Spotify 認可コールバック — v10.9</title>
-<style>
-body{font-family:system-ui;margin:24px}
-pre{white-space:pre-wrap}
-button{padding:8px 12px;border:1px solid #bbb;border-radius:8px;background:#fff;cursor:pointer}
-a{color:#0366d6}
-</style>
+<style>body{font-family:system-ui;margin:24px}pre{white-space:pre-wrap}button{padding:8px 12px;border:1px solid #bbb;border-radius:8px;background:#fff;cursor:pointer}</style>
 </head>
 <body>
 <h2>処理中…</h2>
 <pre id="out"></pre>
-<p>
-  <button id="retry" style="display:none">再試行</button>
-  <a id="back" href="index.html">戻る</a>
-</p>
+<p><button id="retry" style="display:none">再試行</button></p>
 <script>
 const BUILD_ID="v10.9";
 const FIXED_REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
-const FALLBACK_CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e";
+const CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e";
 const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier"};
-function out(s){const e=document.getElementById("out"); e.textContent+=(e.textContent?"\n":"")+s}
-function readKV(key){ try{ const v1=localStorage.getItem(key); if(v1) return v1; }catch(_){} try{ const v2=sessionStorage.getItem(key); if(v2) return v2; }catch(_){} try{ const m=document.cookie.split(";").map(s=>s.trim().split("=")).find(a=>a[0]===key); if(m&&m[1]) return decodeURIComponent(m[1]); }catch(_){} return ""; }
-function clearKV(key){ try{localStorage.removeItem(key)}catch(_){} try{sessionStorage.removeItem(key)}catch(_){} try{document.cookie=key+"=; Max-Age=0; Path=/spotify-auth/"}catch(_){} }
-function getVerifierFromState(state){
-  if(!state) return "";
-  const k="sp_cv_"+state;
-  const v=readKV(k);
-  if(v) return v;
-  // fallback
-  return readKV(LS.ver);
+function out(s){const e=document.getElementById("out");e.textContent+=(e.textContent?"\n":"")+s}
+function readVerifier(){try{const v1=localStorage.getItem(LS.ver);if(v1)return v1}catch(_){}
+try{const v2=sessionStorage.getItem(LS.ver);if(v2)return v2}catch(_){}
+try{const m=document.cookie.split(";").map(s=>s.trim().split("=")).find(a=>a[0]===LS.ver);if(m&&m[1])return decodeURIComponent(m[1])}catch(_){}
+return ""}
+function clearVerifier(){try{localStorage.removeItem(LS.ver)}catch(_){}
+try{sessionStorage.removeItem(LS.ver)}catch(_){}
+try{document.cookie=LS.ver+"=; Max-Age=0; Path=/spotify-auth/"}catch(_){}
 }
 window.addEventListener("unhandledrejection",e=>{e.preventDefault();out("unhandled: "+(e.reason&&e.reason.message?e.reason.message:String(e.reason)))});
 async function tokenExchange(){
-  const url=new URL(location.href);
-  const code=url.searchParams.get("code");
-  const err=url.searchParams.get("error");
-  const state=url.searchParams.get("state")||"";
-  if(err){ out("error="+err); document.getElementById("retry").style.display="inline-block"; return; }
-  if(!code){ out("no code"); document.getElementById("retry").style.display="inline-block"; return; }
-
-  const cv=getVerifierFromState(state);
-  if(!cv){ out("no code_verifier"); document.getElementById("retry").style.display="inline-block"; return; }
-
-  const clientPref=(localStorage.getItem("client_id_pref")||"").trim();
-  const CLIENT_ID = clientPref || FALLBACK_CLIENT_ID;
-
-  const body=new URLSearchParams();
-  body.set("grant_type","authorization_code");
-  body.set("code",code);
-  body.set("redirect_uri",FIXED_REDIRECT_URI);
-  body.set("client_id",CLIENT_ID);
-  body.set("code_verifier",cv);
-
+  const url=new URL(location.href);const code=url.searchParams.get("code");const err=url.searchParams.get("error");
+  if(err){out("error="+err);document.getElementById("retry").style.display="inline-block";return}
+  if(!code){out("no code");document.getElementById("retry").style.display="inline-block";return}
+  const cv=readVerifier();if(!cv){out("no code_verifier");document.getElementById("retry").style.display="inline-block";return}
+  const body=new URLSearchParams();body.set("grant_type","authorization_code");body.set("code",code);body.set("redirect_uri",FIXED_REDIRECT_URI);body.set("client_id",CLIENT_ID);body.set("code_verifier",cv);
   for(let a=0;a<4;a++){
     try{
-      const r=await fetch("https://accounts.spotify.com/api/token",
-        {method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body,cache:"no-store",credentials:"omit"});
+      const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body,cache:"no-store",redirect:"follow",mode:"cors"});
       if(!r.ok){
-        let msg="token "+r.status;
-        try{ const j=await r.json(); if(j.error||j.error_description) msg+=": "+(j.error_description||j.error); }
-        catch(_){ const t=await r.text(); if(t) msg+=": "+t.slice(0,200); }
-        throw new Error(msg);
+        let msg="token "+r.status;try{const j=await r.json();if(j.error||j.error_description)msg+=": "+(j.error_description||j.error)}catch(_){const t=await r.text();if(t)msg+=": "+t.slice(0,200)}
+        throw new Error(msg)
       }
       const j=await r.json();
-      try{
-        localStorage.setItem(LS.acc,j.access_token);
-        localStorage.setItem(LS.exp,String(Date.now()+j.expires_in*1000));
-        if(j.refresh_token) localStorage.setItem(LS.ref,j.refresh_token);
-        sessionStorage.setItem(LS.acc,j.access_token);
-      }catch(_){}
-      // stateキー片付け
-      if(state) clearKV("sp_cv_"+state);
-      clearKV(LS.ver);
-      location.href="https://npr2025.github.io/spotify-auth/index.html?ok=1&bust="+Date.now();
-      return;
+      try{localStorage.setItem(LS.acc,j.access_token)}catch(_){}
+      try{localStorage.setItem(LS.exp,String(Date.now()+j.expires_in*1000))}catch(_){}
+      try{if(j.refresh_token)localStorage.setItem(LS.ref,j.refresh_token)}catch(_){}
+      try{sessionStorage.setItem(LS.acc,j.access_token)}catch(_){}
+      clearVerifier();
+      location.href="https://npr2025.github.io/spotify-auth/index.html?v="+BUILD_ID+"&ok=1&bust="+Date.now();
+      return
     }catch(e){
       out("retry "+(a+1)+": "+(e.message||e));
-      await new Promise(r=>setTimeout(r,700*(a+1)));
+      await new Promise(r=>setTimeout(r,700*(a+1)))
     }
   }
-  document.getElementById("retry").style.display="inline-block";
+  document.getElementById("retry").style.display="inline-block"
 }
 document.getElementById("retry").onclick=()=>{document.getElementById("retry").style.display="none";tokenExchange()};
 tokenExchange();
