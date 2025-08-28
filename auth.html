@@ -21,10 +21,17 @@ input[type="text"]{width:100%;padding:6px 8px;border:1px solid #ccc;border-radiu
 <button id="go">Spotifyにサインイン</button>
 <script>
 const BUILD_ID="v10.9";
+// 既存値があれば表示
+try{
+  const saved = localStorage.getItem("client_id_pref");
+  if(saved) document.getElementById("cid").value = saved;
+}catch(_){}
 document.getElementById("go").onclick=()=>{
   const id=(document.getElementById("cid").value||"").trim();
   try{localStorage.setItem("client_id_pref",id)}catch(_){}
-  location.href="index.html?v="+BUILD_ID+"&bust="+Date.now();
+  // 同一ディレクトリの index.html に移動
+  const base = location.pathname.replace(/\/[^\/]*$/,"");
+  location.href = base + "/index.html?v="+BUILD_ID+"&bust="+Date.now();
 };
 </script>
 </body></html>
