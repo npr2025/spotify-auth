@@ -42,6 +42,7 @@ function readClientId(){
   return d;
 }
 function parseStateCID(st){
+  // state: s2.<epochMs>.<client_id>
   const m = String(st||"").split(".");
   if(m.length>=3) return m[2];
   return null;
@@ -126,15 +127,8 @@ async function tokenExchange(){
       try{if(j.refresh_token)localStorage.setItem(LS.ref,j.refresh_token)}catch(_){}
       try{sessionStorage.setItem(LS.acc,j.access_token)}catch(_){}
       clearVerifier();
-
-      // URL掃除（Chrome戻る対策）
-      try{
-        const clean = new URL(FIXED_REDIRECT_URI);
-        history.replaceState(null,"",clean.toString());
-      }catch(_){}
-
       document.getElementById("home").style.display="inline-block";
-      location.replace("https://npr2025.github.io/spotify-auth/index.html?v="+BUILD_ID+"&ok=1&bust="+Date.now());
+      location.assign("https://npr2025.github.io/spotify-auth/index.html?v="+BUILD_ID+"&ok=1&bust="+Date.now());
       return;
     }catch(e){
       out("retry "+(a+1)+": "+(e.message||e));
