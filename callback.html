@@ -6,105 +6,75 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spotify 認可コールバック — v10.18</title>
+<title>Spotify 認可コールバック — v10.19</title>
 <style>
 body{font-family:system-ui;margin:24px}
-pre{white-space:pre-wrap}
+pre{white-space:pre-wrap;background:#0b1220;color:#cfe3ff;padding:12px;border-radius:8px}
 button{padding:8px 12px;border:1px solid #bbb;border-radius:8px;background:#fff;cursor:pointer}
 </style>
 </head>
 <body>
 <h2>処理中…</h2>
-<pre id="out"></pre>
+<pre id="out">Booting…</pre>
 <p>
   <button id="retry" style="display:none">再試行</button>
   <button id="home" style="display:none">トップへ戻る</button>
 </p>
 <script>
-const BUILD_ID="v10.18";
-const FIXED_REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
+const out=(...a)=>{const e=document.getElementById("out");e.textContent+=(e.textContent?'\n':'')+a.join(' ')};
 const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier",cid:"sp_client_id",st:"sp_state"};
-function out(s){const e=document.getElementById("out");e.textContent+=(e.textContent?"\n":"")+s}
+const FIXED_REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
+const SCOPES="playlist-modify-public playlist-modify-private ugc-image-upload";
+
 function readVerifier(){
   try{const v1=localStorage.getItem(LS.ver);if(v1)return v1}catch(_){}
   try{const v2=sessionStorage.getItem(LS.ver);if(v2)return v2}catch(_){}
   try{const m=document.cookie.split(";").map(s=>s.trim().split("=")).find(a=>a[0]===LS.ver);if(m&&m[1])return decodeURIComponent(m[1])}catch(_){}
-  return ""
+  return "";
 }
 function clearVerifier(){
   try{localStorage.removeItem(LS.ver)}catch(_){}
   try{sessionStorage.removeItem(LS.ver)}catch(_){}
   try{document.cookie=LS.ver+"=; Max-Age=0; Path=/spotify-auth/"}catch(_){}
 }
-function readClientId(){
-  const d="1fd6350fcf4945a0b3ddffa2d5730d4e";
-  try{const s = localStorage.getItem(LS.cid) || sessionStorage.getItem(LS.cid); if(s) return s}catch(_){}
-  return d;
+function parseStateCV(st){
+  // s3.<base64url(JSON: {t,cid,cv})>
+  try{
+    if(!st||!st.startsWith("s3.")) return {cid:null,cv:null};
+    const b64=st.slice(3);
+    const b=b64.replace(/-/g,"+").replace(/_/g,"/");
+    const json=atob(b);
+    const o=JSON.parse(json);
+    return {cid:o.cid||null, cv:o.cv||null};
+  }catch(_){return {cid:null,cv:null}}
 }
-function parseStateCID(st){
-  const m = String(st||"").split(".");
-  if(m.length>=3) return m[2];
-  return null;
+function pickCID(st){
+  const {cid}=parseStateCV(st);
+  if(cid) return cid;
+  try{const s=localStorage.getItem(LS.cid)||sessionStorage.getItem(LS.cid); if(s) return s}catch(_){}
+  return "1fd6350fcf4945a0b3ddffa2d5730d4e";
 }
-function genRandom(n){const a="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";let s="";for(let i=0;i<n;i++) s+=a[Math.floor(Math.random()*a.length)];return s;}
-async function buildAuthURL_S256(cid){
-  if(!(window.crypto&&crypto.subtle)) throw new Error("no subtle crypto");
-  let v=""; crypto.getRandomValues(new Uint8Array(64)).forEach(x=>v+=String.fromCharCode(97+(x%26)));
-  try{localStorage.setItem(LS.ver,v);sessionStorage.setItem(LS.ver,v);document.cookie=`${LS.ver}=${encodeURIComponent(v)}; Max-Age=900; SameSite=Lax; Path=/spotify-auth/`;}catch(_){}
-  try{localStorage.setItem(LS.cid,cid);sessionStorage.setItem(LS.cid,cid);}catch(_){}
-  const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v));
-  const ch=btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
-  const st=`s2.${Date.now()}.${cid}`; try{localStorage.setItem(LS.st,st);sessionStorage.setItem(LS.st,st)}catch(_){}
-  const u=new URL("https://accounts.spotify.com/authorize");
-  u.searchParams.set("response_type","code");
-  u.searchParams.set("client_id",cid);
-  u.searchParams.set("redirect_uri",FIXED_REDIRECT_URI);
-  u.searchParams.set("code_challenge_method","S256");
-  u.searchParams.set("code_challenge",ch);
-  u.searchParams.set("scope","playlist-modify-public playlist-modify-private ugc-image-upload");
-  u.searchParams.set("state",st);
-  return u.toString();
-}
-function buildAuthURL_PLAIN(cid){
-  const v=genRandom(64);
-  try{localStorage.setItem(LS.ver,v);sessionStorage.setItem(LS.ver,v);document.cookie=`${LS.ver}=${encodeURIComponent(v)}; Max-Age=900; SameSite=Lax; Path=/spotify-auth/`;}catch(_){}
-  try{localStorage.setItem(LS.cid,cid);sessionStorage.setItem(LS.cid,cid);}catch(_){}
-  const st=`s2.${Date.now()}.${cid}`; try{localStorage.setItem(LS.st,st);sessionStorage.setItem(LS.st,st)}catch(_){}
-  const u=new URL("https://accounts.spotify.com/authorize");
-  u.searchParams.set("response_type","code");
-  u.searchParams.set("client_id",cid);
-  u.searchParams.set("redirect_uri",FIXED_REDIRECT_URI);
-  u.searchParams.set("code_challenge_method","plain");
-  u.searchParams.set("code_challenge",v);
-  u.searchParams.set("scope","playlist-modify-public playlist-modify-private ugc-image-upload");
-  u.searchParams.set("state",st);
-  return u.toString();
+function ensureCV(st){
+  const stored=readVerifier();
+  if(stored) return stored;
+  const parsed=parseStateCV(st);
+  return parsed.cv||"";
 }
 
 async function tokenExchange(){
   const url=new URL(location.href);
   const code=url.searchParams.get("code");
   const err=url.searchParams.get("error");
-  const st=url.searchParams.get("state");
-  const cidFromState = parseStateCID(st);
-  const cid = cidFromState || readClientId();
+  const st=url.searchParams.get("state")||"";
+  const cid=pickCID(st);
 
   out(`STATE=${st||"(なし)"} / CID=${cid||"(不明)"}`);
 
   if(err){ out("error="+err); document.getElementById("retry").style.display="inline-block"; return; }
-  if(!code){
-    out("no code");
-    out("ヒント: Redirect URI 登録が正しいか？ → "+FIXED_REDIRECT_URI);
-    out("ヒント: 認可URLを同一タブで開いているか？");
-    document.getElementById("retry").style.display="inline-block";
-    return;
-  }
-  const cv=readVerifier();
-  if(!cv){
-    out("no code_verifier");
-    document.getElementById("retry").style.display="inline-block";
-    return;
-  }
+  if(!code){ out("no code"); out("ヒント: Redirect URI が完全一致しているか / 同一タブ遷移か"); document.getElementById("retry").style.display="inline-block"; return; }
+
+  const cv=ensureCV(st);
+  if(!cv){ out("no code_verifier（ストレージ・cookie・state すべて空）"); document.getElementById("retry").style.display="inline-block"; return; }
 
   const body=new URLSearchParams();
   body.set("grant_type","authorization_code");
@@ -127,8 +97,9 @@ async function tokenExchange(){
       try{if(j.refresh_token)localStorage.setItem(LS.ref,j.refresh_token)}catch(_){}
       try{sessionStorage.setItem(LS.acc,j.access_token)}catch(_){}
       clearVerifier();
+      out("OK: token stored");
       document.getElementById("home").style.display="inline-block";
-      location.assign("https://npr2025.github.io/spotify-auth/index.html?v="+BUILD_ID+"&ok=1&bust="+Date.now());
+      location.assign("index.html?ok=1&bust="+Date.now());
       return;
     }catch(e){
       out("retry "+(a+1)+": "+(e.message||e));
@@ -137,18 +108,29 @@ async function tokenExchange(){
   }
   document.getElementById("retry").style.display="inline-block";
 }
+
 document.getElementById("retry").onclick=async()=>{
   document.getElementById("retry").disabled=true;
   const st = new URL(location.href).searchParams.get("state") || "";
-  const cid = parseStateCID(st) || readClientId();
-  try{
-    const url = await buildAuthURL_S256(cid);
-    location.assign(url);
-  }catch(_){
-    location.assign(buildAuthURL_PLAIN(cid));
-  }
+  const {cid}=parseStateCV(st);
+  // 失敗時は PLAIN で再試行（cvを新規発行し state にも再封入）
+  function randAlpha(n){const a="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";let s="";for(let i=0;i<n;i++) s+=a[Math.floor(Math.random()*a.length)];return s;}
+  const v=randAlpha(64);
+  try{localStorage.setItem(LS.ver,v);sessionStorage.setItem(LS.ver,v);document.cookie=`${LS.ver}=${encodeURIComponent(v)}; Max-Age=900; SameSite=Lax; Path=/spotify-auth/`;}catch(_){}
+  const payload=`{"t":${Date.now()},"cid":"${cid||"1fd6...d4e"}","cv":"${v}"}`;
+  const b64= btoa(payload).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+  const state="s3."+b64;
+  const u=new URL("https://accounts.spotify.com/authorize");
+  u.searchParams.set("response_type","code");
+  u.searchParams.set("client_id",cid||"1fd6350fcf4945a0b3ddffa2d5730d4e");
+  u.searchParams.set("redirect_uri",FIXED_REDIRECT_URI);
+  u.searchParams.set("code_challenge_method","plain");
+  u.searchParams.set("code_challenge",v);
+  u.searchParams.set("scope",SCOPES);
+  u.searchParams.set("state",state);
+  location.assign(u.toString());
 };
-document.getElementById("home").onclick=()=>{location.assign("https://npr2025.github.io/spotify-auth/index.html?v="+BUILD_ID+"&bust="+Date.now())};
+document.getElementById("home").onclick=()=>{location.assign("index.html?bust="+Date.now())};
 tokenExchange();
 </script>
 </body>
