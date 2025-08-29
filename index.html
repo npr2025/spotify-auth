@@ -6,7 +6,7 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TDCS Editions Builder — BUILD v10.20</title>
+<title>TDCS Editions Builder — BUILD v10.21</title>
 <style>
 :root{--bg:#0b1220;--fg:#cfe3ff}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1180px;margin:32px auto;padding:0 12px}
@@ -37,7 +37,7 @@ a.btn{display:inline-block;padding:9px 12px;border:1px solid #bbb;border-radius:
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
-<h1>TDCS Editions Builder <span class="badge" id="buildBadge">BUILD v10.20</span><span class="badge">Auth-Hardening</span><span class="badge">Latest20</span><span class="badge">Divergence++</span></h1>
+<h1>TDCS Editions Builder <span class="badge" id="buildBadge">BUILD v10.21</span><span class="badge">Auth-Hardening</span><span class="badge">Latest20</span><span class="badge">Divergence+++</span></h1>
 <p id="status">未接続</p>
 <div>
   <button id="btnConnect">Spotifyにサインイン</button>
@@ -164,7 +164,7 @@ a.btn{display:inline-block;padding:9px 12px;border:1px solid #bbb;border-radius:
 
 <script>
 /* ===== Build / Storage Keys ===== */
-const BUILD_ID="v10.20";
+const BUILD_ID="v10.21";
 const DYN_REDIRECT_URI=(function(){
   try{
     var base = location.origin + location.pathname.replace(/\/[^\/]*$/, "");
@@ -448,15 +448,14 @@ function editionWeight(u,feats,tracksMap,edition){
   var meta=URI_META.get(u)||{};
   var isSingle = (meta.albumType==="single") || ((meta.totalTracks||0)<=4);
   var isLong   = (meta.totalTracks||0)>=10;
-  var singleBoost = isSingle? 0.08 : 0;
-  var longPenalty = isLong? -0.07 : 0;
+  var singleBoost = isSingle? 0.06 : 0;
+  var longPenalty = isLong? -0.08 : 0;
 
   if(edition==="UK"){ feat=0.5*gauss(f.tempo,170,7)+0.3*gauss(f.energy,0.65,0.2)+0.2*gauss(f.valence,0.45,0.25); mkt=marketScore(t,[["GB",1]]); }
   else if(edition==="US"){ feat=0.5*gauss(f.tempo,170,6)+0.3*gauss(f.energy,0.7,0.2)+0.2*gauss(f.valence,0.6,0.25); mkt=marketScore(t,[["US",1]]); }
   else if(edition==="EU"){ feat=0.45*gauss(f.tempo,172,5)+0.4*gauss(f.energy,0.8,0.2)+0.15*gauss(f.valence,0.35,0.25)+(f.mode===0?0.08:0); mkt=marketScore(t,[["ES",0.7],["NL",0.3]]); }
   else { feat=0.5*gauss(f.tempo,170,8)+0.3*gauss(f.energy,0.7,0.25)+0.2*gauss(f.valence,0.5,0.3); mkt=marketScore(t,[["ES",0.25],["US",0.25],["GB",0.25],["NZ",0.25]]); }
-  var mmeta=URI_META.get(u);
-  var noRemixBonus=(mmeta && mmeta.remixer)?0:0.05;
+  var noRemixBonus=(meta && meta.remixer)?0:0.04;
 
   var micro=((seedHash(u)%997)/9970);
   return 0.55*feat + 0.45*mkt + noRemixBonus + singleBoost + longPenalty + micro;
@@ -472,12 +471,12 @@ var EDITION_PROFILES={
 
 /* ===== Divergence caps ===== */
 var DIV_LEVELS={
-  high:{gate:1.00, artistCap:2, remixerCap:1, albumCap:2, catalogCap:3, catNoCap:1, winRem:16, winRemMax:1, winCatNo:16, winCatNoMax:1},
-  medium:{gate:0.75, artistCap:3, remixerCap:2, albumCap:3, catalogCap:4, catNoCap:2, winRem:12, winRemMax:2, winCatNo:12, winCatNoMax:2},
-  low:{gate:0.55, artistCap:4, remixerCap:2, albumCap:4, catalogCap:5, catNoCap:3, winRem:10, winRemMax:2, winCatNo:10, winCatNoMax:2}
+  high:{gate:1.00, artistCap:2, remixerCap:1, albumCap:1, catalogCap:3, catNoCap:1, winRem:16, winRemMax:1, winAlb:14, winAlbMax:1, winCatNo:16, winCatNoMax:1},
+  medium:{gate:0.75, artistCap:3, remixerCap:2, albumCap:2, catalogCap:4, catNoCap:1, winRem:12, winRemMax:2, winAlb:12, winAlbMax:2, winCatNo:12, winCatNoMax:1},
+  low:{gate:0.55, artistCap:4, remixerCap:2, albumCap:3, catalogCap:5, catNoCap:2, winRem:10, winRemMax:2, winAlb:10, winAlbMax:2, winCatNo:10, winCatNoMax:2}
 };
 
-/* ===== Base pool (single-first, optional LP exclude) ===== */
+/* ===== Base pool (single-first, optional LP exclude) with interleave 2:1 ===== */
 function buildBasePoolSmart(allUris, pinnedSet){
   var cb=$("excludeLP"); var excludeLP = !!(cb && cb.checked);
   var keep = [];
@@ -490,10 +489,14 @@ function buildBasePoolSmart(allUris, pinnedSet){
   }
   var singles = keep.filter(function(u){ var m=URI_META.get(u)||{}; return (m.albumType==="single") || ((m.totalTracks||0)<=4); });
   var others  = keep.filter(function(u){ return singles.indexOf(u)<0; });
+
+  // Interleave: 2 singles : 1 other（同じシングル固め打ちを回避）
   var used=new Set(), seq=[];
-  function push(u){ if(u && !used.has(u)){ used.add(u); seq.push(u); } }
-  for(var i2=0;i2<singles.length;i2++) push(singles[i2]);
-  for(var j=0;j<others.length;j++)  push(others[j]);
+  var iS=0,iO=0;
+  while(iS<singles.length || iO<others.length){
+    for(var k=0;k<2 && iS<singles.length;k++){ var u1=singles[iS++]; if(u1 && !used.has(u1)){ used.add(u1); seq.push(u1);} }
+    if(iO<others.length){ var u2=others[iO++]; if(u2 && !used.has(u2)){ used.add(u2); seq.push(u2);} }
+  }
   return seq;
 }
 
@@ -507,8 +510,9 @@ function postProcessNoAdjacencyAndDispersion(fullSeq,pinnedLen,level){
   function deAdj(keyFn){ var swaps=0, prevKey = pinnedLen>0 ? keyFn(fullSeq[pinnedLen-1]) : ""; for(var i=pinnedLen;i<fullSeq.length;i++){ var k=keyFn(fullSeq[i]); if(prevKey && k && k===prevKey){ var j=i+1; while(j<fullSeq.length && keyFn(fullSeq[j])===k) j++; if(j<fullSeq.length){ var tmp=fullSeq[i]; fullSeq[i]=fullSeq[j]; fullSeq[j]=tmp; swaps++; } } prevKey = keyFn(fullSeq[i]); } return swaps; }
   function winDisp(keyFn,ws,max){ var swaps=0; for(var i=pinnedLen;i<fullSeq.length;i++){ var k=keyFn(fullSeq[i]); if(!k) continue; var a=Math.max(pinnedLen, i-ws+1), b=i-1; var c=0; for(var p=a;p<=b;p++) if(keyFn(fullSeq[p])===k) c++; if(c>=max){ var j=i+1; while(j<fullSeq.length && keyFn(fullSeq[j])===k) j++; if(j<fullSeq.length){ var tmp=fullSeq[i]; fullSeq[i]=fullSeq[j]; fullSeq[j]=tmp; swaps++; } } } return swaps; }
   var s1=deAdj(remKey), s2=deAdj(artKey), s3=deAdj(albKey), s4=deAdj(catKey), s5=deAdj(catNoKey);
+  var dA=winDisp(albKey,level.winAlb,level.winAlbMax);
   var d1=winDisp(remKey,level.winRem,level.winRemMax), d2=winDisp(catNoKey,level.winCatNo,level.winCatNoMax);
-  return {remix_swaps:s1, artist_swaps:s2, album_swaps:s3, catalog_swaps:s4, catno_swaps:s5, win_remix_swaps:d1, win_catno_swaps:d2};
+  return {remix_swaps:s1, artist_swaps:s2, album_swaps:s3, catalog_swaps:s4, catno_swaps:s5, win_album_swaps:dA, win_remix_swaps:d1, win_catno_swaps:d2};
 }
 
 /* ===== Uniqueness caps ===== */
@@ -618,28 +622,59 @@ function makeEditionPacksV3(baseUris,feats,pinned,tracksMap){
     var tailN=Math.max(0,N-P);
     var withinDupAllowed=!!( $("allowWithinDup") && $("allowWithinDup").checked ); var allowCrossDup=!!( $("allowCrossDup") && $("allowCrossDup").checked );
     var pinnedSet=new Set(fixed); var remainder=baseUris.filter(function(u){return typeof u==="string" && u && !pinnedSet.has(u);}); if(!allowCrossDup) remainder=[].concat(Array.from(new Set(remainder)));
+
+    // 版間で catNo を共有しない（allowCrossDup=false のとき）
+    var GLOBAL_SEEN = {uri:new Set(), catno:new Set()};
     var buckets=[[],[],[],[]]; for(var i=0;i<remainder.length;i++){ var u=remainder[i]; buckets[seedHash(u)%4].push(u); }
     var mapEd={UK:0,US:1,EU:2,WORLD:3};
     var timeSeed=Math.floor(Date.now()/60000);
     var sigSeeds={UK:101+timeSeed,US:202+timeSeed,EU:303+timeSeed,WORLD:404+timeSeed};
     var dv=$("diverge"); var diverge=(dv&&dv.value)||"high"; var level=DIV_LEVELS[diverge]||DIV_LEVELS.high; var packs={}, usedGlobal=new Set();
 
+    function pushGlobalSeen(u){
+      if(!u) return;
+      var m=URI_META.get(u)||{};
+      if(!allowCrossDup) usedGlobal.add(u);
+      if(!allowCrossDup && m.catNo) GLOBAL_SEEN.catno.add(m.catNo);
+    }
+
     function pickByProfile(home,others,edition){
       home=Array.isArray(home)?home:[]; others=Array.isArray(others)?others:[]; var prof=EDITION_PROFILES[edition]||{};
       var gates=[level.gate, Math.max(0.01,level.gate*0.85), Math.max(0.01,level.gate*0.70), Math.max(0.01,level.gate*0.55), Math.max(0.01,level.gate*0.40), 0.30, 0.20];
       var pools=[home,others]; var out=[], artistCount=new Map(), remCount=new Map(), albumCount=new Map(), catalogCount=new Map(), catNoCount=new Map();
+
+      // stratified sampler（エネルギー層を跨いでピック）
+      function stratified(cand,seed){
+        var rr=rng(seed); var low=[],mid=[],high=[];
+        for(var i=0;i<cand.length;i++){ var u=cand[i]; var e=nf((feats.get(u)||{}).energy,0.5); if(e<0.45) low.push(u); else if(e<0.7) mid.push(u); else high.push(u); }
+        var mix=[]; var li=0,mi=0,hi=0; while(li<low.length||mi<mid.length||hi<high.length){
+          if(hi<high.length && rr()>0.3) mix.push(high[hi++]);
+          if(mi<mid.length) mix.push(mid[mi++]);
+          if(li<low.length && rr()>0.2) mix.push(low[li++]);
+        }
+        return mix;
+      }
+
       function pushIf(u,strictCap){
         strictCap = (strictCap!==false);
-        if(!u||out.length>=tailN) return false; if(!allowCrossDup && usedGlobal.has(u)) return false; if(out.indexOf(u)>=0) return false;
+        if(!u||out.length>=tailN) return false; 
+        if(!allowCrossDup && usedGlobal.has(u)) return false; 
+        if(out.indexOf(u)>=0) return false;
+
         var m=URI_META.get(u)||{};
+        // 版間 catNo ブロック（緩和フェーズまでは禁止）
+        if(strictCap && !allowCrossDup && m.catNo && GLOBAL_SEEN.catno.has(m.catNo)) return false;
+
         if(strictCap){
           if(m.artistId&&(artistCount.get(m.artistId)||0)>= (level.artistCap||2)) return false;
           if(m.remixer&&(remCount.get(m.remixer)||0)>= (level.remixerCap||1)) return false;
-          if(m.albumId&&(albumCount.get(m.albumId)||0)>= (level.albumCap||2)) return false;
+          if(m.albumId&&(albumCount.get(m.albumId)||0)>= (level.albumCap||1)) return false;
           if(m.catalog&&(catalogCount.get(m.catalog)||0)>= (level.catalogCap||3)) return false;
           if(m.catNo&&(catNoCount.get(m.catNo)||0)>= (level.catNoCap||1)) return false;
         }
-        out.push(u); if(!allowCrossDup) usedGlobal.add(u);
+        out.push(u); 
+        if(!allowCrossDup) usedGlobal.add(u);
+        if(m.catNo) GLOBAL_SEEN.catno.add(m.catNo);
         if(m.artistId) artistCount.set(m.artistId,(artistCount.get(m.artistId)||0)+1);
         if(m.remixer)  remCount.set(m.remixer,(remCount.get(m.remixer)||0)+1);
         if(m.albumId)  albumCount.set(m.albumId,(albumCount.get(m.albumId)||0)+1);
@@ -647,20 +682,25 @@ function makeEditionPacksV3(baseUris,feats,pinned,tracksMap){
         if(m.catNo)    catNoCount.set(m.catNo,(catNoCount.get(m.catNo)||0)+1);
         return true;
       }
+
       for(var g=0; g<gates.length; g++){
         for(var pi=0; pi<pools.length; pi++){
           var pool=pools[pi];
-          var cand=pool.filter(function(u){return fitsProfile(feats.get(u),prof,gates[g]);});
-          cand.sort(function(a,b){return editionWeight(b,feats,tracksMap,edition)-editionWeight(a,feats,tracksMap,edition);});
+          var cand0=pool.filter(function(u){return fitsProfile(feats.get(u),prof,gates[g]);});
+          // 重みでソート後、層化サンプルに通す
+          cand0.sort(function(a,b){return editionWeight(b,feats,tracksMap,edition)-editionWeight(a,feats,tracksMap,edition);});
+          var cand=stratified(cand0, sigSeeds[edition] + g*17 + pi*7);
           for(var ci=0; ci<cand.length && out.length<tailN; ci++){ pushIf(cand[ci],true); }
           if(out.length>=tailN) break;
         }
         if(out.length>=tailN) break;
       }
+      // 緩和1：strictのまま母集団広げ
       if(out.length<tailN){
         var fb=home.concat(others).filter(function(u){return out.indexOf(u)<0;});
         for(var i2=0;i2<fb.length && out.length<tailN;i2++){ pushIf(fb[i2],true); }
       }
+      // 緩和2：版間 catNo の禁止のみ外して充足
       if(out.length<tailN){
         var fb2=home.concat(others).filter(function(u){return out.indexOf(u)<0;});
         for(var i3=0;i3<fb2.length && out.length<tailN;i3++){ pushIf(fb2[i3],false); }
@@ -682,7 +722,14 @@ function makeEditionPacksV3(baseUris,feats,pinned,tracksMap){
       }
       var seq=fixed.concat(orderedTail);
       var swaps=postProcessNoAdjacencyAndDispersion(seq,fixed.length,level);
-      log("連続/分散 "+edition+": rem="+swaps.remix_swaps+"/"+swaps.win_remix_swaps+" artist="+swaps.artist_swaps+" album="+swaps.album_swaps+" catalog="+swaps.catalog_swaps+" catNo="+swaps.catno_swaps+"/"+swaps.win_catno_swaps);
+      // 版間 catNo 既視への登録
+      for(var q=P;q<seq.length;q++){ pushGlobalSeen(seq[q]); }
+      // 可視化
+      function uniqBy(fn){ var s=new Set(); for(var i=0;i<seq.length;i++){ var k=fn(seq[i]); if(k) s.add(k); } return s.size; }
+      var uAlb=uniqBy(function(u){ var m=URI_META.get(u)||{}; return m.albumId; });
+      var uCat=uniqBy(function(u){ var m=URI_META.get(u)||{}; return m.catNo; });
+      var uRem=uniqBy(function(u){ var m=URI_META.get(u)||{}; return m.remixer; });
+      log("分散 "+edition+": albumU="+uAlb+" catNoU="+uCat+" remixerU="+uRem+" | swaps rem="+swaps.remix_swaps+"/"+swaps.win_remix_swaps+" alb="+swaps.album_swaps+"/"+swaps.win_album_swaps+" catNo="+swaps.catno_swaps+"/"+swaps.win_catno_swaps);
       return seq;
     }
 
@@ -781,7 +828,7 @@ async function exportPrepAndWrite(packs,feats){
     _pending=packs; log("接続待ち：『サインイン』→『接続チェック』");
   }
   progress(100,"完了");
-  log("完了（最新20固定／Single-first／CatNo連打禁止＆分散／リミキサ分散／版内ユニーク＋上限／BP=150保証）");
+  log("完了（最新20固定／Single-first(2:1インタリーブ)／CatNo連打禁止＆分散／リミキサ分散／版内ユニーク＋上限／版間catNoブロック／BP=150保証）");
 }
 
 async function resolveAndWrite(packs){
