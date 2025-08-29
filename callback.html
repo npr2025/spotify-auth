@@ -6,7 +6,7 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spotify 認可コールバック — v10.18</title>
+<title>Spotify 認可コールバック — v10.19</title>
 <style>
 body{font-family:system-ui;margin:24px}
 pre{white-space:pre-wrap}
@@ -21,8 +21,15 @@ button{padding:8px 12px;border:1px solid #bbb;border-radius:8px;background:#fff;
   <button id="home" style="display:none">トップへ戻る</button>
 </p>
 <script>
-const BUILD_ID="v10.18";
-const FIXED_REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
+const BUILD_ID="v10.19";
+const DYN_REDIRECT_URI=(()=>{
+  try{
+    const base = location.origin + location.pathname.replace(/\/[^\/]*$/, "");
+    return (base.endsWith("/")?base.slice(0,-1):base)+"/callback.html";
+  }catch(_){
+    return "https://npr2025.github.io/spotify-auth/callback.html";
+  }
+})();
 const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier",cid:"sp_client_id",st:"sp_state"};
 function out(s){const e=document.getElementById("out");e.textContent+=(e.textContent?"\n":"")+s}
 function readVerifier(){
@@ -34,24 +41,19 @@ function readVerifier(){
 function clearVerifier(){
   try{localStorage.removeItem(LS.ver)}catch(_){}
   try{sessionStorage.removeItem(LS.ver)}catch(_){}
-  try{document.cookie=LS.ver+"=; Max-Age=0; Path=/spotify-auth/"}catch(_){}
+  try{document.cookie=`${LS.ver}=; Max-Age=0; Path=${location.pathname.replace(/\/[^\/]*$/, "/")}`}catch(_){}
 }
 function readClientId(){
   const d="1fd6350fcf4945a0b3ddffa2d5730d4e";
   try{const s = localStorage.getItem(LS.cid) || sessionStorage.getItem(LS.cid); if(s) return s}catch(_){}
   return d;
 }
-function parseStateCID(st){
-  // state: s2.<epochMs>.<client_id>
-  const m = String(st||"").split(".");
-  if(m.length>=3) return m[2];
-  return null;
-}
+function parseStateCID(st){ const m=String(st||"").split("."); return (m.length>=3)?m[2]:null; }
 function genRandom(n){const a="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";let s="";for(let i=0;i<n;i++) s+=a[Math.floor(Math.random()*a.length)];return s;}
 async function buildAuthURL_S256(cid){
+  if(!(crypto&&crypto.subtle&&crypto.getRandomValues)) throw new Error("no subtle");
   let v=""; crypto.getRandomValues(new Uint8Array(64)).forEach(x=>v+=String.fromCharCode(97+(x%26)));
-  // store verifier triple
-  try{localStorage.setItem(LS.ver,v);sessionStorage.setItem(LS.ver,v);document.cookie=`${LS.ver}=${encodeURIComponent(v)}; Max-Age=900; SameSite=Lax; Path=/spotify-auth/`;}catch(_){}
+  try{localStorage.setItem(LS.ver,v);sessionStorage.setItem(LS.ver,v);document.cookie=`${LS.ver}=${encodeURIComponent(v)}; Max-Age=900; SameSite=Lax; Path=${location.pathname.replace(/\/[^\/]*$/, "/")}`}catch(_){}
   try{localStorage.setItem(LS.cid,cid);sessionStorage.setItem(LS.cid,cid);}catch(_){}
   const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v));
   const ch=btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
@@ -59,7 +61,7 @@ async function buildAuthURL_S256(cid){
   const u=new URL("https://accounts.spotify.com/authorize");
   u.searchParams.set("response_type","code");
   u.searchParams.set("client_id",cid);
-  u.searchParams.set("redirect_uri",FIXED_REDIRECT_URI);
+  u.searchParams.set("redirect_uri",DYN_REDIRECT_URI);
   u.searchParams.set("code_challenge_method","S256");
   u.searchParams.set("code_challenge",ch);
   u.searchParams.set("scope","playlist-modify-public playlist-modify-private ugc-image-upload");
@@ -68,13 +70,13 @@ async function buildAuthURL_S256(cid){
 }
 function buildAuthURL_PLAIN(cid){
   const v=genRandom(64);
-  try{localStorage.setItem(LS.ver,v);sessionStorage.setItem(LS.ver,v);document.cookie=`${LS.ver}=${encodeURIComponent(v)}; Max-Age=900; SameSite=Lax; Path=/spotify-auth/`;}catch(_){}
+  try{localStorage.setItem(LS.ver,v);sessionStorage.setItem(LS.ver,v);document.cookie=`${LS.ver}=${encodeURIComponent(v)}; Max-Age=900; SameSite=Lax; Path=${location.pathname.replace(/\/[^\/]*$/, "/")}`}catch(_){}
   try{localStorage.setItem(LS.cid,cid);sessionStorage.setItem(LS.cid,cid);}catch(_){}
   const st=`s2.${Date.now()}.${cid}`; try{localStorage.setItem(LS.st,st);sessionStorage.setItem(LS.st,st)}catch(_){}
   const u=new URL("https://accounts.spotify.com/authorize");
   u.searchParams.set("response_type","code");
   u.searchParams.set("client_id",cid);
-  u.searchParams.set("redirect_uri",FIXED_REDIRECT_URI);
+  u.searchParams.set("redirect_uri",DYN_REDIRECT_URI);
   u.searchParams.set("code_challenge_method","plain");
   u.searchParams.set("code_challenge",v);
   u.searchParams.set("scope","playlist-modify-public playlist-modify-private ugc-image-upload");
@@ -90,13 +92,12 @@ async function tokenExchange(){
   const cidFromState = parseStateCID(st);
   const cid = cidFromState || readClientId();
 
-  out(`STATE=${st||"(なし)"} / CID=${cid||"(不明)"}`);
+  out(`STATE=${st||"(なし)"} / CID=${cid||"(不明)"} / REDIRECT=${DYN_REDIRECT_URI}`);
 
   if(err){ out("error="+err); document.getElementById("retry").style.display="inline-block"; return; }
   if(!code){
     out("no code");
-    out("ヒント: Redirect URI 登録が正しいか？ → "+FIXED_REDIRECT_URI);
-    out("ヒント: 認可URLを同一タブで開いているか？");
+    out("ヒント: Spotify Dashboard の Redirect URI がこのページ上段の REDIRECT と完全一致しているか確認してください。");
     document.getElementById("retry").style.display="inline-block";
     return;
   }
@@ -110,7 +111,7 @@ async function tokenExchange(){
   const body=new URLSearchParams();
   body.set("grant_type","authorization_code");
   body.set("code",code);
-  body.set("redirect_uri",FIXED_REDIRECT_URI);
+  body.set("redirect_uri",DYN_REDIRECT_URI);
   body.set("client_id",cid);
   body.set("code_verifier",cv);
 
@@ -129,7 +130,7 @@ async function tokenExchange(){
       try{sessionStorage.setItem(LS.acc,j.access_token)}catch(_){}
       clearVerifier();
       document.getElementById("home").style.display="inline-block";
-      location.assign("https://npr2025.github.io/spotify-auth/index.html?v="+BUILD_ID+"&ok=1&bust="+Date.now());
+      location.assign(location.origin+location.pathname.replace(/\/[^\/]*$/,"/")+"index.html?v="+BUILD_ID+"&ok=1&bust="+Date.now());
       return;
     }catch(e){
       out("retry "+(a+1)+": "+(e.message||e));
@@ -142,14 +143,9 @@ document.getElementById("retry").onclick=async()=>{
   document.getElementById("retry").disabled=true;
   const st = new URL(location.href).searchParams.get("state") || "";
   const cid = parseStateCID(st) || readClientId();
-  try{
-    const url = await buildAuthURL_S256(cid);
-    location.assign(url);
-  }catch(_){
-    location.assign(buildAuthURL_PLAIN(cid));
-  }
+  try{ location.assign(await buildAuthURL_S256(cid)); }catch(_){ location.assign(buildAuthURL_PLAIN(cid)); }
 };
-document.getElementById("home").onclick=()=>{location.assign("https://npr2025.github.io/spotify-auth/index.html?v="+BUILD_ID+"&bust="+Date.now())};
+document.getElementById("home").onclick=()=>{location.assign(location.origin+location.pathname.replace(/\/[^\/]*$/,"/")+"index.html?v="+BUILD_ID+"&bust="+Date.now())};
 tokenExchange();
 </script>
 </body>
