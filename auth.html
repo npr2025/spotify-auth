@@ -4,7 +4,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spotify サインイン — v10.16</title>
+<title>Spotify サインイン — v10.17</title>
 <style>
 body{font-family:system-ui;max-width:720px;margin:40px auto;padding:0 14px}
 button{padding:10px 14px;border:1px solid #bbb;border-radius:8px;background:#fff;cursor:pointer}
@@ -19,11 +19,11 @@ input[type="text"]{width:100%;padding:6px 8px;border:1px solid #ccc;border-radiu
 </div>
 <button id="go">Spotifyにサインイン</button>
 <script>
-const BUILD_ID="v10.16";
+const BUILD_ID="v10.17";
 document.getElementById("go").onclick=()=>{
   const id=(document.getElementById("cid").value||"").trim();
   try{localStorage.setItem("sp_client_id",id)}catch(_){}
-  location.href="index.html?v="+BUILD_ID+"&bust="+Date.now();
+  const u=new URL("index.html", location.href); u.searchParams.set("v",BUILD_ID); u.searchParams.set("bust",Date.now().toString()); location.href=u.toString();
 };
 </script>
 </body></html>
