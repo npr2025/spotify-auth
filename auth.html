@@ -6,93 +6,32 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spotify 認可 — v10.18 (Chrome)</title>
+<title>Spotify サインイン — v10.18</title>
 <style>
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:760px;margin:36px auto;padding:0 12px;background:#0b1220;color:#cfe3ff}
-.btn{padding:10px 14px;border:1px solid #4a6aa3;border-radius:8px;background:#12213e;color:#cfe3ff;cursor:pointer}
-.btn[disabled]{opacity:.5;cursor:not-allowed}
-pre#log{white-space:pre-wrap;background:#091125;color:#cfe3ff;padding:12px;border-radius:10px;min-height:140px}
+body{font-family:system-ui;max-width:720px;margin:40px auto;padding:0 14px}
+button{padding:10px 14px;border:1px solid #bbb;border-radius:8px;background:#fff;cursor:pointer}
+input[type="text"]{width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:6px}
+small{color:#666}
 </style>
 </head>
 <body>
-<h1>Spotify 認可</h1>
-<p>Sign in を押すと同一タブで Spotify に遷移します（S256→PLAIN フォールバック）。</p>
+<h1>Spotify サインイン（PKCE）</h1>
+<p>CLIENT_ID を確認して「トップへ」を押してください（既定値は固定済み）。</p>
 <div>
-  <button id="go" class="btn" disabled>Sign in with Spotify</button>
-  <a id="goPlain" class="btn" href="#" aria-disabled="true">PLAIN に切替（手動）</a>
+  <label>CLIENT_ID <input id="cid" type="text" value="1fd6350fcf4945a0b3ddffa2d5730d4e"></label>
+  <small>Redirect URI は <code>https://npr2025.github.io/spotify-auth/callback.html</code> を Spotify Dashboard に登録してください。</small>
 </div>
-<pre id="log">Booting…</pre>
-
+<p>
+  <button id="go">トップへ</button>
+</p>
 <script>
-/*** 設定 ***/
-const CLIENT_ID = "<YOUR_SPOTIFY_CLIENT_ID>";
-const REDIRECT_URI = location.origin + location.pathname.replace(/\/[^/]*$/,'') + "/callback.html";
-const SCOPES = ["playlist-modify-private","playlist-modify-public"];
-const ACCOUNTS = "https://accounts.spotify.com";
-const $ = s=>document.querySelector(s);
-const log = (...a)=>{ const el=$("#log"); el.textContent += (el.textContent? "\n":"") + a.join(" "); el.scrollTop=el.scrollHeight; };
-
-function randStr(len=64){
-  const bytes = new Uint8Array(len); crypto.getRandomValues(bytes);
-  const alph="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
-  let s=""; for(let i=0;i<len;i++) s+=alph[bytes[i]%alph.length]; return s;
-}
-function b64url(bytes){
-  let s=btoa(String.fromCharCode(...new Uint8Array(bytes)));
-  return s.replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-}
-async function sha256(text){
-  const enc = new TextEncoder().encode(text);
-  const buf = await crypto.subtle.digest('SHA-256', enc);
-  return b64url(buf);
-}
-function setCookie(name, value, days=1){
-  const d = new Date(); d.setTime(d.getTime()+days*864e5);
-  document.cookie = `${name}=${encodeURIComponent(value)}; Expires=${d.toUTCString()}; Path=${location.pathname.replace(/\/[^/]*$/,'/')}; SameSite=Lax; Secure`;
-}
-function getAuthorizeURL(challengeMethod, verifier, challenge){
-  const u = new URL(ACCOUNTS + "/authorize");
-  u.searchParams.set("client_id", CLIENT_ID);
-  u.searchParams.set("response_type","code");
-  u.searchParams.set("redirect_uri", REDIRECT_URI);
-  u.searchParams.set("scope", SCOPES.join(" "));
-  const stateObj = { client_id: CLIENT_ID, nonce: randStr(24), ts: Date.now() };
-  u.searchParams.set("state", btoa(unescape(encodeURIComponent(JSON.stringify(stateObj)))));
-  if (challengeMethod==="S256"){
-    u.searchParams.set("code_challenge_method","S256");
-    u.searchParams.set("code_challenge", challenge);
-  } else {
-    u.searchParams.set("code_challenge_method","plain");
-    u.searchParams.set("code_challenge", verifier);
-  }
-  return u.toString();
-}
-function saveVerifier(v){
-  sessionStorage.setItem("code_verifier", v);
-  localStorage.setItem("code_verifier", v);
-  setCookie("code_verifier", v);
-}
-
-document.addEventListener("DOMContentLoaded", async ()=>{
-  const btn = $("#go");
-  const aPlain = $("#goPlain");
-  // すぐ押せるよう PLAIN 仮設定
-  const verifier = randStr(64);
-  saveVerifier(verifier);
-  const urlPlain = getAuthorizeURL("plain", verifier);
-  aPlain.href = urlPlain; aPlain.removeAttribute("aria-disabled");
-
-  btn.disabled = false;
-  try{
-    const challenge = await sha256(verifier);
-    const urlS256 = getAuthorizeURL("S256", verifier, challenge);
-    btn.onclick = (e)=>{ e.preventDefault(); location.assign(urlS256); };
-    log("S256 認可URL 準備完了");
-  }catch(e){
-    btn.onclick = (e)=>{ e.preventDefault(); location.assign(urlPlain); };
-    log("S256生成失敗 → PLAIN を使用:", e.message);
-  }
-});
+const BUILD_ID="v10.18";
+const LS_CID="sp_client_id";
+document.getElementById("go").onclick=()=>{
+  const id=(document.getElementById("cid").value||"").trim();
+  try{localStorage.setItem(LS_CID,id);sessionStorage.setItem(LS_CID,id);}catch(_){}
+  location.assign("index.html?v="+BUILD_ID+"&bust="+Date.now());
+};
 </script>
 </body>
 </html>
