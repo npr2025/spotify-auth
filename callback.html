@@ -50,6 +50,7 @@ function parseStateCID(st){
 function genRandom(n){const a="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";let s="";for(let i=0;i<n;i++) s+=a[Math.floor(Math.random()*a.length)];return s;}
 async function buildAuthURL_S256(cid){
   let v=""; crypto.getRandomValues(new Uint8Array(64)).forEach(x=>v+=String.fromCharCode(97+(x%26)));
+  // store verifier triple
   try{localStorage.setItem(LS.ver,v);sessionStorage.setItem(LS.ver,v);document.cookie=`${LS.ver}=${encodeURIComponent(v)}; Max-Age=900; SameSite=Lax; Path=/spotify-auth/`;}catch(_){}
   try{localStorage.setItem(LS.cid,cid);sessionStorage.setItem(LS.cid,cid);}catch(_){}
   const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v));
