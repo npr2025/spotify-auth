@@ -37,7 +37,7 @@ function readState(){
   try{const m=document.cookie.split(";").map(s=>s.trim().split("=")).find(a=>a[0]===LS.state); if(m&&m[1]) return decodeURIComponent(m[1])}catch(_){}
   return "";
 }
-window.addEventListener("unhandledrejection",e=>{e.preventDefault();out("unhandled: "+(e.reason&&e.reason.message?e.reason.message:String(e.reason)))});
+window.addEventListener("unhandledrejection",e=>{e.preventDefault();out("unhandled: "+(e.reason&&e.reason.message?e.reason.message:String(e.reason)))})
 
 async function tokenExchange(){
   const url=new URL(location.href);
@@ -47,13 +47,12 @@ async function tokenExchange(){
   if(err){out("error="+err);document.getElementById("retry").style.display="inline-block";return}
   if(!code){
     out("no code");
-    out("ヒント: Redirect URI 登録が正しいか？ → https://npr2025.github.io/spotify-auth/callback.html");
+    out("ヒント: Redirect URI 登録 → https://npr2025.github.io/spotify-auth/callback.html");
     out("ヒント: 認可URLを同一タブで開いているか？");
     out("state="+state+" / 保存state="+(readState()||"(なし)"));
     document.getElementById("retry").style.display="inline-block";return
   }
 
-  // client_id を state から復元（形式: ci_<clientId>_<ts>）
   let clientId = DEFAULT_CLIENT_ID;
   const m = (state||"").match(/^ci_([A-Za-z0-9]+)_(\d+)/);
   if(m){ clientId = m[1]; try{ localStorage.setItem(LS.cid,clientId); }catch(_){ } }
@@ -61,7 +60,6 @@ async function tokenExchange(){
     try{ clientId = localStorage.getItem(LS.cid) || DEFAULT_CLIENT_ID; }catch(_){}
   }
 
-  // code_verifier 復元（3重保存のどれか）
   const cv=readVerifier();
   if(!cv){
     out("no code_verifier");
