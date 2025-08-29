@@ -4,29 +4,73 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spotify 認可コールバック — v10.13</title>
-<style>body{font-family:system-ui;margin:24px}pre{white-space:pre-wrap;background:#0b1220;color:#cfe3ff;padding:12px;border-radius:8px}</style>
+<title>Spotify 認可コールバック — v10.16</title>
+<style>
+body{font-family:system-ui;margin:24px}pre{white-space:pre-wrap;background:#0b1220;color:#cfe3ff;padding:12px;border-radius:8px}
+button{padding:8px 12px;border:1px solid #bbb;border-radius:8px;background:#fff;cursor:pointer}
+</style>
 </head>
 <body>
 <h2>処理中…</h2>
 <pre id="out"></pre>
 <p><button id="retry" style="display:none">再試行</button></p>
 <script>
-const BUILD_ID="v10.13";
+const BUILD_ID="v10.16";
 const FIXED_REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
-const DEFAULT_CLIENT_ID="1fd6350fcf4945a0b3ddffa2d5730d4e";
-const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier",cid:"sp_client_id"};
+const LS={acc:"sp_access_token",ref:"sp_refresh_token",exp:"sp_token_exp",ver:"sp_code_verifier",cid:"sp_client_id",state:"sp_auth_state"};
+
 function out(s){const e=document.getElementById("out");e.textContent+=(e.textContent?"\n":"")+s}
 function readAny(k){try{let v=localStorage.getItem(k);if(v)return v}catch{} try{let v=sessionStorage.getItem(k);if(v)return v}catch{} try{const m=document.cookie.split(";").map(s=>s.trim().split("=")).find(a=>a[0]===k);if(m&&m[1])return decodeURIComponent(m[1])}catch{} return ""}
-function parseState(str){try{const b=str.replace(/-/g,"+").replace(/_/g,"/");const pad="=".repeat((4-b.length%4)%4);return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(b+pad),c=>c.charCodeAt(0))))}catch(_){return{}}}
-window.addEventListener("unhandledrejection",e=>{e.preventDefault();out("unhandled: "+(e.reason&&e.reason.message?e.reason.message:String(e.reason)))});
+function writeAll(k,v,age=900){try{localStorage.setItem(k,v)}catch{} try{sessionStorage.setItem(k,v)}catch{} try{document.cookie=`${k}=${encodeURIComponent(v)}; Max-Age=${age}; SameSite=Lax; Path=/spotify-auth/`}catch{}}
+function b64uToJson(s){ try{const t=decodeURIComponent(escape(atob(s.replace(/-/g,'+').replace(/_/g,'/')))); return JSON.parse(t);}catch(_){return null}}
+
+async function startAuth(preferS256){
+  // 最小実装の認可URL（同一タブへ）
+  function b64url(buf){ let b=""; const u8=new Uint8Array(buf); for(let i=0;i<u8.length;i++) b+=String.fromCharCode(u8[i]); return btoa(b).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); }
+  function randAlpha(n){ const a="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"; let s=""; for(let i=0;i<n;i++) s+=a[Math.floor(Math.random()*a.length)]; return s; }
+  const clientId=readAny(LS.cid)||"1fd6350fcf4945a0b3ddffa2d5730d4e";
+  let cv=""; if(preferS256){ const u8=new Uint8Array(64); crypto.getRandomValues(u8); cv=Array.from(u8,x=>String.fromCharCode(97+(x%26))).join(""); } else { cv=randAlpha(64); }
+  writeAll(LS.ver,cv); writeAll(LS.cid,clientId);
+  const stateObj={ts:Date.now(),client_id:clientId,method:preferS256?"S256":"PLAIN",nonce:randAlpha(12),app:"tdcs",v:BUILD_ID};
+  const state=btoa(unescape(encodeURIComponent(JSON.stringify(stateObj)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  writeAll(LS.state,state);
+  const u=new URL("https://accounts.spotify.com/authorize");
+  u.searchParams.set("response_type","code");
+  u.searchParams.set("client_id",clientId);
+  u.searchParams.set("redirect_uri",FIXED_REDIRECT_URI);
+  u.searchParams.set("scope","playlist-modify-public playlist-modify-private ugc-image-upload");
+  u.searchParams.set("state",state);
+  if(preferS256){
+    const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(cv));
+    u.searchParams.set("code_challenge_method","S256");
+    u.searchParams.set("code_challenge",b64url(buf));
+  }else{
+    u.searchParams.set("code_challenge_method","plain");
+    u.searchParams.set("code_challenge",cv);
+  }
+  location.assign(u.toString());
+}
+
 async function tokenExchange(){
-  const url=new URL(location.href);const code=url.searchParams.get("code");const err=url.searchParams.get("error");const stRaw=url.searchParams.get("state")||"";const st=parseState(stRaw);
-  const client=readAny(LS.cid)||st.client_id||DEFAULT_CLIENT_ID;
-  if(err){out("error="+err);document.getElementById("retry").style.display="inline-block";return}
-  if(!code){out("no code");document.getElementById("retry").style.display="inline-block";return}
-  const cv=readAny(LS.ver);if(!cv){out("no code_verifier");document.getElementById("retry").style.display="inline-block";return}
-  const body=new URLSearchParams();body.set("grant_type","authorization_code");body.set("code",code);body.set("redirect_uri",FIXED_REDIRECT_URI);body.set("client_id",client);body.set("code_verifier",cv);
+  const url=new URL(location.href);
+  const code=url.searchParams.get("code");
+  const err=url.searchParams.get("error");
+  const state=url.searchParams.get("state") || readAny(LS.state);
+  const stateObj=b64uToJson(state||"");
+  const clientId=(stateObj?.client_id)||readAny(LS.cid)||"1fd6350fcf4945a0b3ddffa2d5730d4e";
+  const cv=readAny(LS.ver);
+
+  if(err){out("error="+err); document.getElementById("retry").style.display="inline-block"; return}
+  if(!code){ out("no code"); out("ヒント: Redirect URI 登録が正しいか？ → "+FIXED_REDIRECT_URI); out("ヒント: 認可URLを同一タブで開いているか？"); out("state="+(state? "(あり)":"(なし)")+" / 想定client_id="+clientId); document.getElementById("retry").style.display="inline-block"; return }
+  if(!cv){ out("no code_verifier"); document.getElementById("retry").style.display="inline-block"; return }
+
+  const body=new URLSearchParams();
+  body.set("grant_type","authorization_code");
+  body.set("code",code);
+  body.set("redirect_uri",FIXED_REDIRECT_URI);
+  body.set("client_id",clientId);
+  body.set("code_verifier",cv);
+
   for(let a=0;a<4;a++){
     try{
       const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body,cache:"no-store",redirect:"follow",mode:"cors"});
@@ -39,7 +83,7 @@ async function tokenExchange(){
       try{localStorage.setItem(LS.exp,String(Date.now()+j.expires_in*1000))}catch(_){}
       try{if(j.refresh_token)localStorage.setItem(LS.ref,j.refresh_token)}catch(_){}
       try{sessionStorage.setItem(LS.acc,j.access_token)}catch(_){}
-      location.href="https://npr2025.github.io/spotify-auth/index.html?v="+BUILD_ID+"&ok=1&bust="+Date.now();
+      location.href="index.html?v="+BUILD_ID+"&ok=1&bust="+Date.now();
       return
     }catch(e){
       out("retry "+(a+1)+": "+(e.message||e));
@@ -48,7 +92,8 @@ async function tokenExchange(){
   }
   document.getElementById("retry").style.display="inline-block"
 }
-document.getElementById("retry").onclick=()=>{document.getElementById("retry").style.display="none";location.href="https://npr2025.github.io/spotify-auth/index.html?v="+BUILD_ID+"&bust="+Date.now()};
+
+document.getElementById("retry").onclick=()=>{document.getElementById("retry").style.display="none"; startAuth(true)};
 tokenExchange();
 </script>
 </body></html>
