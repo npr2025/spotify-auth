@@ -37,7 +37,7 @@ function readState(){
   try{const m=document.cookie.split(";").map(s=>s.trim().split("=")).find(a=>a[0]===LS.state); if(m&&m[1]) return decodeURIComponent(m[1])}catch(_){}
   return "";
 }
-window.addEventListener("unhandledrejection",e=>{e.preventDefault();out("unhandled: "+(e.reason&&e.reason.message?e.reason.message:String(e.reason)))})
+window.addEventListener("unhandledrejection",e=>{e.preventDefault();out("unhandled: "+(e.reason&&e.reason.message?e.reason.message:String(e.reason)))});
 
 async function tokenExchange(){
   const url=new URL(location.href);
