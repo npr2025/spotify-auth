@@ -1,5 +1,6 @@
 <!doctype html>
-<html lang="ja"><head>
+<html lang="ja">
+<head>
 <meta charset="utf-8">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
@@ -22,8 +23,9 @@ input[type="text"]{width:100%;padding:6px 8px;border:1px solid #ccc;border-radiu
 const BUILD_ID="v10.17";
 document.getElementById("go").onclick=()=>{
   const id=(document.getElementById("cid").value||"").trim();
-  try{localStorage.setItem("sp_client_id",id)}catch(_){}
-  const u=new URL("index.html", location.href); u.searchParams.set("v",BUILD_ID); u.searchParams.set("bust",Date.now().toString()); location.href=u.toString();
+  try{localStorage.setItem("client_id_pref",id)}catch(_){}
+  location.href="index.html?v="+BUILD_ID+"&bust="+Date.now();
 };
 </script>
-</body></html>
+</body>
+</html>
