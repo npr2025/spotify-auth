@@ -29,7 +29,7 @@ const BUILD_ID="v10.18";
 const LS_CID="sp_client_id";
 document.getElementById("go").onclick=()=>{
   const id=(document.getElementById("cid").value||"").trim();
-  try{localStorage.setItem(LS_CID,id);sessionStorage.setItem(LS_CID,id);}catch(_){}
+  try{localStorage.setItem(LS_CID,id);sessionStorage.setItem(LS_CID,id);window.name=JSON.stringify({sp_cid:id})}catch(_){}
   location.assign("index.html?v="+BUILD_ID+"&bust="+Date.now());
 };
 </script>
