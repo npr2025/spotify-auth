@@ -6,7 +6,7 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spotify サインイン — v10.18</title>
+<title>Spotify サインイン — v10.19</title>
 <style>
 body{font-family:system-ui;max-width:720px;margin:40px auto;padding:0 14px}
 button{padding:10px 14px;border:1px solid #bbb;border-radius:8px;background:#fff;cursor:pointer}
@@ -19,13 +19,11 @@ small{color:#666}
 <p>CLIENT_ID を確認して「トップへ」を押してください（既定値は固定済み）。</p>
 <div>
   <label>CLIENT_ID <input id="cid" type="text" value="1fd6350fcf4945a0b3ddffa2d5730d4e"></label>
-  <small>Redirect URI は <code>https://npr2025.github.io/spotify-auth/callback.html</code> を Spotify Dashboard に登録してください。</small>
+  <small>Redirect URI は <code>（設置場所）/callback.html</code> を Spotify Dashboard に登録してください。</small>
 </div>
-<p>
-  <button id="go">トップへ</button>
-</p>
+<p><button id="go">トップへ</button></p>
 <script>
-const BUILD_ID="v10.18";
+const BUILD_ID="v10.19";
 const LS_CID="sp_client_id";
 document.getElementById("go").onclick=()=>{
   const id=(document.getElementById("cid").value||"").trim();
