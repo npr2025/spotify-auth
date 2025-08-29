@@ -26,7 +26,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 small.hint{color:#666}
 #log{white-space:pre-wrap;background:var(--bg);color:var(--fg);padding:12px;border-radius:8px;min-height:240px}
 #progWrap{position:relative;height:12px;background:#e6eaf2;border-radius:6px;overflow:hidden;margin:6px 0}
-#progBar{height:100%;width:0%;transition:width .2s ease}
+#progBar{height:100%;width:0%;background:#4a90e2;transition:width .2s ease}
 #progLine{font-variant-numeric:tabular-nums;margin:4px 0 0 0;color:#333}
 .hidden{display:none}
 .inline{display:inline-block;margin-right:16px}
@@ -40,7 +40,7 @@ a.btn{display:inline-block;padding:9px 12px;border:1px solid #bbb;border-radius:
 <h1>TDCS Editions Builder <span class="badge" id="buildBadge">BUILD v10.18</span><span class="badge">Auth-Hardening</span><span class="badge">Latest20</span><span class="badge">Divergence++</span></h1>
 <p id="status">未接続</p>
 <div>
-  <button id="btnConnect">Spotifyにサインイン</button>
+  <button id="btnConnect" disabled>Spotifyにサインイン</button>
   <a id="aConnectS256" class="btn" href="#">サインイン(S256)</a>
   <a id="aConnectPLAIN" class="btn" href="#">サインイン(PLAIN直リンク)</a>
   <a id="aCopy" class="btn" href="#">URLをコピー</a>
@@ -96,7 +96,7 @@ a.btn{display:inline-block;padding:9px 12px;border:1px solid #bbb;border-radius:
     <label>BEATPORTプリセット
       <select id="presetBP"><option selected>bp</option><option>drop</option><option>dj</option></select>
     </label>
-    <label>Beatport追加曲数<input id="bpExtra" type="number" value="20" min="1" max="50"></label>
+    <label>Beatport追加曲数<input id="bpExtra" type="number" value="20" min="0" max="50"></label>
     <label>公開可否
       <select id="pub"><option value="0" selected>非公開</option><option value="1">公開</option></select>
     </label>
@@ -118,7 +118,7 @@ a.btn{display:inline-block;padding:9px 12px;border:1px solid #bbb;border-radius:
   <legend>イントロ固定（最新20）</legend>
   <div class="grid2">
     <label>テンプレPL ID/URL
-      <input id="introTpl" type="text" value="https://open.spotify.com/playlist/1v9jLD4ZxIaCDap2fPKGcJ?si=73a8473aa86d4299&pt=1dfc0a414c0844664192eadb5f269dc1">
+      <input id="introTpl" type="text" value="https://open.spotify.com/playlist/1v9JLD4ZxaCDApz2iPKGcJ?si=9f139dac68686449&amp;pt=1902c12">
     </label>
     <label>固定曲数(10–20)
       <input id="introLen" type="number" value="20" min="10" max="20">
@@ -191,6 +191,10 @@ const uniq=(a)=>Array.from(new Set(a));
 window.onerror=(m,src,lin,col,err)=>{log("ScriptError: "+m+" @"+lin+":"+col);};
 window.addEventListener("unhandledrejection",e=>{e.preventDefault();log("Unhandled: "+(e.reason&&e.reason.message?e.reason.message:String(e.reason)));});
 
+/* ===== Numeric Sanitize (全角/文字混入対策) ===== */
+function _toHalfNum(s){return String(s||"").replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).replace(/[^\d\.\-]/g,"");}
+function numFromInput(id,def,{min=null,max=null}={}){let n=Number(_toHalfNum(val(id,""))); if(!Number.isFinite(n)) n=def; if(min!=null&&n<min)n=min; if(max!=null&&n>max)n=max; return Math.floor(n);}
+
 /* ===== Status ===== */
 const isAuthed=()=>!!localStorage.getItem(LS.acc) && Date.now() < (+localStorage.getItem(LS.exp)||0)-5000;
 function setStatus(){ $("status").textContent=isAuthed()?"接続中（OK）":"未接続"; if(isAuthed()&&_pending) resolveAndWrite(_pending); }
@@ -240,14 +244,22 @@ function buildAuthURL_PLAIN(){
   return u.toString();
 }
 
-/* ===== Prepare / Click handlers (Chrome-hardened) ===== */
+/* ===== Prepare auth links (same-tab) ===== */
 async function prepareAuthLinks(){
-  try{ $("aHard").onclick=(e)=>{e.preventDefault();location.assign(`index.html?v=${BUILD_ID}&bust=${Date.now()}`)}; }catch(_){}
-  $("aConnectS256").onclick=async(e)=>{ e.preventDefault(); try{ const url=await buildAuthURL_S256(); location.assign(url);}catch(_){ location.assign(buildAuthURL_PLAIN()); } };
-  $("aConnectPLAIN").onclick=(e)=>{ e.preventDefault(); location.assign(buildAuthURL_PLAIN()); };
-  $("aCopy").onclick=async(e)=>{ e.preventDefault(); try{ const u=await buildAuthURL_S256(); await navigator.clipboard.writeText(u); alert("コピーしました"); }catch(_){ const u=buildAuthURL_PLAIN(); prompt("URLをコピー",u); } };
+  const s256 = await buildAuthURL_S256();
+  $("aConnectS256").href = s256;
+  $("aConnectPLAIN").href = buildAuthURL_PLAIN();
+  $("aCopy").onclick=async(e)=>{e.preventDefault();const u=$("aConnectS256").href||s256; try{await navigator.clipboard.writeText(u); alert("コピーしました")}catch(_){prompt("URLをコピー",u)}};
+  $("aHard").onclick=(e)=>{e.preventDefault();location.assign(`index.html?v=${BUILD_ID}&bust=${Date.now()}`)};
 }
-$("btnConnect").addEventListener("click", async ()=>{ try{ const url=await buildAuthURL_S256(); location.assign(url);}catch(_){ location.assign(buildAuthURL_PLAIN()); }});
+
+/* ===== Click handlers ===== */
+$("btnConnect").addEventListener("click", async ()=>{
+  try{ const url = $("aConnectS256").href || await buildAuthURL_S256(); location.assign(url); }
+  catch(_){ location.assign(buildAuthURL_PLAIN()); }
+});
+$("aConnectS256").addEventListener("click",(e)=>{ if(!$("aConnectS256").href || $("aConnectS256").href==="#"){ e.preventDefault(); } else { /* same-tab default */ }});
+$("aConnectPLAIN").addEventListener("click",(e)=>{ if(!$("aConnectPLAIN").href || $("aConnectPLAIN").href==="#"){ e.preventDefault(); }});
 
 /* ===== Token refresh + Spotify fetch ===== */
 async function refreshTokenIfNeeded(){
@@ -264,7 +276,7 @@ async function refreshTokenIfNeeded(){
 }
 async function spFetch(path,method="GET",body=null){
   await refreshTokenIfNeeded();
-  const gap=+(val("gap","1000")||1000); await sleep(gap);
+  const gap=numFromInput("gap",1000,{min:100,max:10000}); await sleep(gap);
   for(let a=0;a<5;a++){
     const init={method,headers:{"Authorization":"Bearer "+localStorage.getItem(LS.acc),"Content-Type":"application/json"}};
     if(body) init.body=JSON.stringify(body);
@@ -295,7 +307,7 @@ function guessCsvColumns(rows){
   const scId=c=>{let m=0,n=0; for(let i=0;i<rows.length&&i<1500;i++){const v=String(rows[i][c]||""); if(!v)continue; n++; if(/spotify:track:[A-Za-z0-9]{22}/.test(v)||/open\.spotify\.com\/track\/[A-Za-z0-9]{22}/.test(v)||/^[A-Za-z0-9]{22}$/.test(v))m++;} return n?m/n:0;}
   const scIsrc=c=>{let m=0,n=0; for(let i=0;i<rows.length&&i<1500;i++){const v=String(rows[i][c]||""); if(!v)continue; n++; if(ISRC_RE.test(v))m++;} return n?m/n:0;}
   let idCol=""; let best=-1; for(const c of cols){const sc=scId(c); if(sc>best){best=sc; idCol=c;}}
-  const isrcCol=cols.reduce((a,c)=>(scIsrc(c)>(a.score||-1)?{c,score:scIsrc(c)}:a),{}).c || pickByName(cols,["isrc","isrc_code"]);
+  const isrcCol=cols.reduce((a,c)=> (scIsrc(c)>(a.score||-1)?{c,score:scIsrc(c)}:a),{}).c || pickByName(cols,["isrc","isrc_code"]);
   const tCol=pickByName(cols,["title","track","name","曲名","タイトル"])||cols[0];
   const vCol=pickByName(cols,["version","バージョン","mix","remix","edit"]);
   const aCol=pickByName(cols,["artist","artists","アーティスト"])||cols[0];
@@ -340,9 +352,7 @@ async function fetchAlbumsForTracks(tracksMap){
   return map;
 }
 
-/* ===== Mix logic / helpers / meta / weights / profiles / divergence ===== */
-/* …（v10.17相当のロジックをそのまま維持。長文のため省略不可なので続行） */
-
+/* ===== Mix logic ===== */
 const camelot=(key,mode)=>({num:[8,3,10,5,0,7,2,9,4,11,6,1][(key||0)%12],isMinor:mode===0});
 const keyDistance=(a,b)=>{ if(!a||!b||a.key==null||b.key==null) return 2; const A=camelot(a.key,a.mode), B=camelot(b.key,b.mode); let d=Math.abs(A.num-B.num); d=Math.min(d,12-d); let pen=d/6; if(A.isMinor!==B.isMinor) pen+=0.4; return pen; }
 function nextCost(a,b,preset){
@@ -354,9 +364,13 @@ function nextCost(a,b,preset){
   if(preset==="bp")   return 0.25*dTempo+0.25*dKey+0.45*dEner+0.05*dVal;
   return               0.40*dTempo+0.25*dKey+0.25*dEner+0.10*dVal;
 }
+
+/* ===== Random helpers ===== */
 function seedHash(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0; } return h>>>0; }
 function rng(seed){ let x=seedHash(String(seed))||1; return ()=>{ x^=x<<13; x^=x>>>17; x^=x<<5; return (x>>>0)/4294967296; } }
 function seededShuffle(arr, seed){ const r=rng(seed); const a=arr.slice(0); for(let i=a.length-1;i>0;i--){ const j=Math.floor(r()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+
+/* ===== Tail build with tiny randomness ===== */
 function buildTailByPreset(prev, tail, feats, preset, editionSeed){
   tail = Array.isArray(tail) ? tail : []; if(tail.length===0) return [];
   const id8=(u)=>(u||"").slice(-8);
@@ -386,6 +400,7 @@ function buildTailByPreset(prev, tail, feats, preset, editionSeed){
     }
     return seq;
   }
+  // waves
   const withE = tail.map(u=>({u,e:(feats.get(u)||{}).energy ?? 0.5}));
   const low=withE.slice().sort((a,b)=>a.e-b.e), high=withE.slice().sort((a,b)=>b.e-a.e);
   const snake=[]; let i=0,j=0; while(i<low.length||j<high.length){ if(j<high.length) snake.push(high[j++].u); if(i<low.length) snake.push(low[i++].u); }
@@ -394,7 +409,7 @@ function buildTailByPreset(prev, tail, feats, preset, editionSeed){
   return a;
 }
 
-/* ===== URI meta / dispersion / uniqueness / etc.  （v10.17同様：省略せず続行） */
+/* ===== URI meta ===== */
 let URI_META=new Map();
 function normalizeRemixer(s){ s=String(s||"").trim(); if(!s) return ""; s=s.replace(/\b(original|radio|extended|club)\b.*$/i,"").trim(); return s.toLowerCase(); }
 function parseRemixerFromName(name){ name=String(name||""); const pats=[/\(([^)]+?)\s+(?:re-?mix|mix|edit|version)\)/i, /-\s*([^-\(\[]+?)\s+(?:re-?mix|mix|edit|version)\b/i]; for(const re of pats){ const m=name.match(re); if(m){ const r=m[1].trim(); if(/original|radio|extended/i.test(r)) return ""; return r; } } return ""; }
@@ -420,9 +435,11 @@ function buildUriMeta(uriList,tracksMap,albumsMap,hintRows=null,cols=null){
   return meta;
 }
 
+/* ===== Market / weighting ===== */
 function getMarkets(){ const raw=(val("markets","")||"").toUpperCase(); const arr=raw.split(",").map(s=>s.trim()).filter(Boolean); return arr.length?uniq(arr):["ES","US","GB","NZ"]; }
 function marketScore(t,tags){ const mk=new Set((t?.available_markets)||[]); let sc=0; for(const [code,w] of tags){ if(mk.has(code)) sc+=w; } return Math.min(sc,1); }
 function gauss(x,c,w){ if(x==null) return 0.3; const z=(x-c)/w; return Math.exp(-0.5*z*z); }
+
 function editionWeight(u,feats,tracksMap,edition){
   const f=feats.get(u)||{}, t=tracksMap.get(u)||{}; let feat=0, mkt=0;
   const meta=URI_META.get(u)||{};
@@ -430,37 +447,44 @@ function editionWeight(u,feats,tracksMap,edition){
   const isLong   = (meta.totalTracks||0)>=10;
   const singleBoost = isSingle? 0.08 : 0;
   const longPenalty = isLong? -0.07 : 0;
+
   if(edition==="UK"){ feat=0.5*gauss(f.tempo,170,7)+0.3*gauss(f.energy,0.65,0.2)+0.2*gauss(f.valence,0.45,0.25); mkt=marketScore(t,[["GB",1]]); }
   else if(edition==="US"){ feat=0.5*gauss(f.tempo,170,6)+0.3*gauss(f.energy,0.7,0.2)+0.2*gauss(f.valence,0.6,0.25); mkt=marketScore(t,[["US",1]]); }
   else if(edition==="EU"){ feat=0.45*gauss(f.tempo,172,5)+0.4*gauss(f.energy,0.8,0.2)+0.15*gauss(f.valence,0.35,0.25)+(f.mode===0?0.08:0); mkt=marketScore(t,[["ES",0.7],["NL",0.3]]); }
   else { feat=0.5*gauss(f.tempo,170,8)+0.3*gauss(f.energy,0.7,0.25)+0.2*gauss(f.valence,0.5,0.3); mkt=marketScore(t,[["ES",0.25],["US",0.25],["GB",0.25],["NZ",0.25]]); }
   const noRemixBonus=(URI_META.get(u)?.remixer)?0:0.05;
+
   const micro=((seedHash(u)%997)/9970);
   return 0.55*feat + 0.45*mkt + noRemixBonus + singleBoost + longPenalty + micro;
 }
+
+/* ===== profiles ===== */
 const EDITION_PROFILES={
   UK:{ tempo:[166,178], energy:[0.55,0.85], valence:[0.30,0.55], danceability:[0.45,0.85], speechiness:[0.00,0.06], instrumentalness:[0.40,1.00], mode:0 },
   US:{ tempo:[168,176], energy:[0.70,0.98], valence:[0.50,0.85], danceability:[0.55,1.00], speechiness:[0.03,0.18], instrumentalness:[0.00,0.70], mode:1 },
   EU:{ tempo:[170,180], energy:[0.75,1.00], valence:[0.15,0.45], danceability:[0.45,0.85], speechiness:[0.00,0.10], instrumentalness:[0.30,1.00], mode:0 },
   WORLD:{ tempo:[160,182], energy:[0.45,0.95], valence:[0.20,0.80], danceability:[0.35,0.95] }
 };
+
+/* ===== Divergence caps ===== */
 const DIV_LEVELS={
   high:{gate:1.00, artistCap:2, remixerCap:1, albumCap:2, catalogCap:3, catNoCap:1, winRem:16, winRemMax:1, winCatNo:16, winCatNoMax:1},
   medium:{gate:0.75, artistCap:3, remixerCap:2, albumCap:3, catalogCap:4, catNoCap:2, winRem:12, winRemMax:2, winCatNo:12, winCatNoMax:2},
   low:{gate:0.55, artistCap:4, remixerCap:2, albumCap:4, catalogCap:5, catNoCap:3, winRem:10, winRemMax:2, winCatNo:10, winCatNoMax:2}
 };
 
-/* ===== Base pool / post-process / caps / etc. （v10.17のまま） */
-function buildBasePoolSmart(allUris, pinnedSet){
+/* ===== Base pool (single-first, optional LP exclude) ===== */
+function buildBasePoolSmart(allUris,pinnedSet){
   const excludeLP = !!$("excludeLP")?.checked;
   const keep = [];
   for(const u of allUris){
     if(!u) continue;
-    if(pinnedSet && pinnedSet.has(u)) { keep.push(u); continue; }
+    if(pinnedSet && pinnedSet.has(u)) continue; // 固定20は後段で再使用しない
     const meta = URI_META.get(u)||{};
     if(excludeLP && (meta.totalTracks||0)>=7) continue;
     keep.push(u);
   }
+  // single-first ordering
   const singles = keep.filter(u=> (URI_META.get(u)?.albumType==="single") || ((URI_META.get(u)?.totalTracks||0)<=4));
   const others  = keep.filter(u=> !singles.includes(u));
   const used=new Set(), seq=[];
@@ -469,6 +493,8 @@ function buildBasePoolSmart(allUris, pinnedSet){
   for(const u of others)  push(u);
   return seq;
 }
+
+/* ===== No adjacency + window dispersion ===== */
 function postProcessNoAdjacencyAndDispersion(fullSeq,pinnedLen,level){
   const remKey =(u)=> (URI_META.get(u)?.remixer)||"";
   const artKey =(u)=> (URI_META.get(u)?.artistId)||"";
@@ -481,6 +507,8 @@ function postProcessNoAdjacencyAndDispersion(fullSeq,pinnedLen,level){
   const d1=winDisp(remKey,level.winRem,level.winRemMax), d2=winDisp(catNoKey,level.winCatNo,level.winCatNoMax);
   return {remix_swaps:s1, artist_swaps:s2, album_swaps:s3, catalog_swaps:s4, catno_swaps:s5, win_remix_swaps:d1, win_catno_swaps:d2};
 }
+
+/* ===== Uniqueness caps ===== */
 function enforceUniqueWithin(seq,pinnedLen,primaryPool,fallbackPool,label="",banSet=null,caps=null){
   seq = Array.isArray(seq) ? seq : [];
   pinnedLen = Math.max(0,Math.min(seq.length,Math.floor(pinnedLen||0)));
@@ -511,7 +539,7 @@ function enforceUniqueWithin(seq,pinnedLen,primaryPool,fallbackPool,label="",ban
     if(m.remixer)   cnt.rem.set(m.remixer,(cnt.rem.get(m.remixer)||0)+1);
     if(m.albumId)   cnt.album.set(m.albumId,(cnt.album.get(m.albumId)||0)+1);
     if(m.catalog)   cnt.catalog.set(m.catalog,(cnt.catalog.get(m.catalog)||0)+1);
-    if(m.catNo)     cnt.catno.set(m.catno,(cnt.catno.get(m.catNo)||0)+1);
+    if(m.catNo)     cnt.catno.set(m.catno,(cnt.catno.get(m.catno)||0)+1);
   }
   for(const u of tail){ if(canPush(u)) push(u); else drop++; }
   const want = Math.floor(tail.length);
@@ -522,7 +550,7 @@ function enforceUniqueWithin(seq,pinnedLen,primaryPool,fallbackPool,label="",ban
   return result;
 }
 
-/* ===== Pinned 20 ===== */
+/* ===== Pinned 20 (UNCONDITIONAL) ===== */
 async function fetchPlaylistNewestUris(pid,want){
   const items=[]; let off=0;
   while(true){
@@ -535,7 +563,7 @@ async function fetchPlaylistNewestUris(pid,want){
   return uniq(items.map(x=>x.u)).slice(0,want);
 }
 async function getPinnedIntroLatest20_UNCONDITIONAL(basePool,tracksMap,albums,feats){
-  const want=Math.max(10,Math.min(20,+(val("introLen","20")||20)));
+  const want=numFromInput("introLen",20,{min:10,max:20});
   const tpl=(val("introTpl","")||"").trim();
   const pool=Array.isArray(basePool)?basePool.slice(0):[];
   if(!tpl){ log("イントロ: テンプレ未指定 → ベースから採用"); return uniq(pool).slice(0,want); }
@@ -543,29 +571,21 @@ async function getPinnedIntroLatest20_UNCONDITIONAL(basePool,tracksMap,albums,fe
   if(!pid){ log("イントロ: プレイリストID不可 → ベースから採用"); return uniq(pool).slice(0,want); }
   const newest=await fetchPlaylistNewestUris(pid,want*3);
   let pinned=uniq(newest).slice(0,want);
+  // merge details for any not in basePool
   const notInBase=pinned.filter(u=>!pool.includes(u));
   if(notInBase.length){
     const t2=await fetchTrackDetailsByUris(notInBase);
     for(const [k,v] of t2) tracksMap.set(k,v);
     const a2=await fetchAlbumsForTracks(t2);
-    for(const [k,v] of a2) albums.set(k,v);
+    for(const [k,v] of a2) feats.set(k,v); // features後でまとめて
     const f2=await fetchAudioFeaturesByUris(notInBase);
     for(const [k,v] of f2) feats.set(k,v);
   }
   log("最新固定 "+pinned.length+"曲（無条件採用）");
   return pinned.slice(0,want);
 }
-function analyzePinnedAdjacency(pinned){
-  const remKey=(u)=>(URI_META.get(u)?.remixer)||"";
-  const albKey=(u)=>(URI_META.get(u)?.albumId)||"";
-  const catKey=(u)=>(URI_META.get(u)?.catalog)||"";
-  const catNoKey=(u)=>(URI_META.get(u)?.catNo)||"";
-  function countAdj(fn){ let a=0; for(let i=1;i<pinned.length;i++){ if(fn(pinned[i]) && fn(pinned[i])===fn(pinned[i-1])) a++; } return a; }
-  const rep={rem:countAdj(remKey), alb:countAdj(albKey), cat:countAdj(catKey), catno:countAdj(catNoKey)};
-  if(rep.rem||rep.alb||rep.cat||rep.catno){ log("イントロ固定内に連打 rem="+rep.rem+" album="+rep.alb+" catalog="+rep.cat+" catNo="+rep.catno+"（固定部は順序維持）"); }
-}
 
-/* ===== Edition builders / Beatport 150 / export ===== */
+/* ===== Edition builders ===== */
 function fitsProfile(feat,prof,gate){
   if(!feat) return false;
   const _in=(x,[a,b],g)=>{ if(x==null) return false; const c=(a+b)/2,w=(b-a)/2; const W=w*(1/Math.max(g,0.01)); return x>=c-W && x<=c+W; };
@@ -578,8 +598,9 @@ function fitsProfile(feat,prof,gate){
   const okMode=(typeof prof.mode==="number")?(gate>=0.9?(feat.mode===prof.mode):true):true;
   return okTempo && okEner && okVal && okDance && okSpeech && okInstr && okMode;
 }
+
 function makeEditionPacksFallback(baseUris,feats,pinned,tracksMap){
-  const N=Math.floor(val("finalN","130")||130); const P=Math.min(pinned.length,N);
+  const N=numFromInput("finalN",130,{min:1,max:500}); const P=Math.min(pinned.length,N);
   const fixed=pinned.slice(0,P); const tailN=Math.max(0,N-P);
   const remain=baseUris.filter(u=>!fixed.includes(u));
   const timeSeed=Math.floor(Date.now()/60000);
@@ -587,11 +608,12 @@ function makeEditionPacksFallback(baseUris,feats,pinned,tracksMap){
   function build(ed){ const shuffled=seededShuffle(remain,seeds[ed]); const tail=buildTailByPreset(fixed[fixed.length-1]||shuffled[0], shuffled, feats, val("preset"+ed,"waves"), seeds[ed]).slice(0,tailN); return fixed.concat(tail); }
   return {UK:build("UK"),US:build("US"),EU:build("EU"),WORLD:build("WORLD")};
 }
+
 function makeEditionPacksV3(baseUris,feats,pinned,tracksMap){
   try{
     baseUris=Array.isArray(baseUris)?baseUris:[]; feats=(feats instanceof Map)?feats:new Map(); tracksMap=(tracksMap instanceof Map)?tracksMap:new Map(); pinned=Array.isArray(pinned)?pinned:[];
-    const N=Math.floor(val("finalN","130")||130); const P=Math.min(pinned.length,N); const fixed=pinned.slice(0,P);
-    const tailN=Math.max(0,N-P);
+    const N=numFromInput("finalN",130,{min:1,max:500}); const P=Math.min(pinned.length,N); const fixed=pinned.slice(0,P);
+    const tailN=Math.max(0, isFinite(N-P)?(N-P):0);
     const withinDupAllowed=!!$("allowWithinDup")?.checked; const allowCrossDup=!!$("allowCrossDup")?.checked;
     const pinnedSet=new Set(fixed); let remainder=baseUris.filter(u=>typeof u==="string" && u && !pinnedSet.has(u)); if(!allowCrossDup) remainder=[...new Set(remainder)];
     const buckets=[[],[],[],[]]; for(const u of remainder){ buckets[seedHash(u)%4].push(u); }
@@ -599,6 +621,7 @@ function makeEditionPacksV3(baseUris,feats,pinned,tracksMap){
     const timeSeed=Math.floor(Date.now()/60000);
     const sigSeeds={UK:101+timeSeed,US:202+timeSeed,EU:303+timeSeed,WORLD:404+timeSeed};
     const diverge=(document.getElementById("diverge")?.value)||"high"; const level=DIV_LEVELS[diverge]||DIV_LEVELS.high; const packs={}, usedGlobal=new Set();
+
     function pickByProfile(home,others,edition){
       home=Array.isArray(home)?home:[]; others=Array.isArray(others)?others:[]; const prof=EDITION_PROFILES[edition]||{};
       const gates=[level.gate, Math.max(0.01,level.gate*0.85), Math.max(0.01,level.gate*0.70), Math.max(0.01,level.gate*0.55), Math.max(0.01,level.gate*0.40), 0.30, 0.20];
@@ -611,7 +634,7 @@ function makeEditionPacksV3(baseUris,feats,pinned,tracksMap){
           if(m.remixer&&(remCount.get(m.remixer)||0)>= (level.remixerCap||1)) return false;
           if(m.albumId&&(albumCount.get(m.albumId)||0)>= (level.albumCap||2)) return false;
           if(m.catalog&&(catalogCount.get(m.catalog)||0)>= (level.catalogCap||3)) return false;
-          if(m.catNo&&(m.catNo)&&(catNoCount.get(m.catNo)||0)>= (level.catNoCap||1)) return false;
+          if(m.catNo&&(catNoCount.get(m.catNo)||0)>= (level.catNoCap||1)) return false;
         }
         out.push(u); if(!allowCrossDup) usedGlobal.add(u);
         if(m.artistId) artistCount.set(m.artistId,(artistCount.get(m.artistId)||0)+1);
@@ -640,6 +663,7 @@ function makeEditionPacksV3(baseUris,feats,pinned,tracksMap){
       }
       return out.slice(0,tailN);
     }
+
     function buildOne(edition){
       const idx=mapEd[edition], seed=sigSeeds[edition]; const home=buckets[idx].slice(0); const others=remainder.filter(u=>!home.includes(u));
       home.sort((a,b)=>editionWeight(b,feats,tracksMap,edition)-editionWeight(a,feats,tracksMap,edition));
@@ -657,8 +681,9 @@ function makeEditionPacksV3(baseUris,feats,pinned,tracksMap){
       log("連続/分散 "+edition+": rem="+swaps.remix_swaps+"/"+swaps.win_remix_swaps+" artist="+swaps.artist_swaps+" album="+swaps.album_swaps+" catalog="+swaps.catalog_swaps+" catNo="+swaps.catno_swaps+"/"+swaps.win_catno_swaps);
       return seq;
     }
+
     const packs={}; packs.UK=buildOne("UK"); packs.US=buildOne("US"); packs.EU=buildOne("EU"); packs.WORLD=buildOne("WORLD");
-    const need=Math.floor(val("finalN","130")||130);
+    const need=numFromInput("finalN",130,{min:1,max:500});
     for(const k of ["UK","US","EU","WORLD"]){ if(packs[k].length>need) packs[k]=packs[k].slice(0,need); if(packs[k].length<need) packs[k]=packs[k].concat(baseUris.slice(0,need-packs[k].length)); }
     return packs;
   }catch(e){
@@ -666,9 +691,17 @@ function makeEditionPacksV3(baseUris,feats,pinned,tracksMap){
     return makeEditionPacksFallback(baseUris,feats,pinned,tracksMap);
   }
 }
+
+/* ===== Beatport 150 fill ===== */
 function buildBeatportFromConsensus(baseUris,feats,pinned,packs4,tracksMap){
-  const N=Math.floor(val("finalN","130")||130); const extra=Math.floor(val("bpExtra","20")||20); const total=N+extra; const P=Math.min(pinned.length,total);
-  const fixed=pinned.slice(0,P); const tailN=total-P;
+  const N=numFromInput("finalN",130,{min:1,max:500});
+  const extra=numFromInput("bpExtra",20,{min:0,max:100});
+  const totalRaw=(isFinite(N)?N:130)+(isFinite(extra)?extra:20);
+  const total=Math.max(1,totalRaw);
+  const P=Math.min(pinned.length,total);
+  const fixed=pinned.slice(0,P);
+  const tailN=Math.max(0,total-P);
+
   const freq=new Map();
   for(const name of ["UK","US","EU","WORLD"]){ const arr=(packs4[name]||[]).slice(P); for(const u of arr){ freq.set(u,(freq.get(u)||0)+1); } }
   const scored=[...freq.entries()].map(([u,f])=>{
@@ -677,6 +710,7 @@ function buildBeatportFromConsensus(baseUris,feats,pinned,packs4,tracksMap){
     const sc=f*10+(ft.energy??0.5)*3+(ft.tempo??120)/300+mkt + ((seedHash(u)%991)/9910);
     return {u,sc};
   }).sort((a,b)=>b.sc-a.sc).map(x=>x.u);
+
   const consensus=scored.slice(0,Math.min(80,tailN));
   const used=new Set([...fixed,...consensus]);
   const rr=[], rrNames=["UK","US","EU","WORLD"];
@@ -703,8 +737,22 @@ function buildBeatportFromConsensus(baseUris,feats,pinned,packs4,tracksMap){
   }
   return seq.slice(0,total);
 }
+
+/* ===== Analyze pinned adjacency (log only) ===== */
+function analyzePinnedAdjacency(pinned){
+  const remKey=(u)=>(URI_META.get(u)?.remixer)||"";
+  const albKey=(u)=>(URI_META.get(u)?.albumId)||"";
+  const catKey=(u)=>(URI_META.get(u)?.catalog)||"";
+  const catNoKey=(u)=>(URI_META.get(u)?.catNo)||"";
+  function countAdj(fn){ let a=0; for(let i=1;i<pinned.length;i++){ if(fn(pinned[i]) && fn(pinned[i])===fn(pinned[i-1])) a++; } return a; }
+  const rep={rem:countAdj(remKey), alb:countAdj(albKey), cat:countAdj(catKey), catno:countAdj(catNoKey)};
+  if(rep.rem||rep.alb||rep.cat||rep.catno){ log("イントロ固定内に連打 rem="+rep.rem+" album="+rep.alb+" catalog="+rep.cat+" catNo="+rep.catno+"（固定部は順序維持）"); }
+}
+
+/* ===== Export write ===== */
 let _pending=null;
 const enableExportButtons=(on)=>{ $("btnExportXlsx").disabled=!on; $("btnExportCsv").disabled=!on; }
+
 async function replacePlaylist(pid,uris){
   const chunks=[]; for(let i=0;i<uris.length;i+=100) chunks.push(uris.slice(i,i+100));
   if(!chunks.length) chunks.push([]);
@@ -720,9 +768,9 @@ async function ensureWrite(which,uris){
   const name=`${base} [${which}]`; const desc=`${descNote} / BUILD ${BUILD_ID} (${new Date().toISOString().slice(0,10)})`;
   log("新規作成: "+name); return await createPlaylistAndFill(name,desc,isPub,uris);
 }
+
 async function exportPrepAndWrite(packs,feats){
   function packRows(arr,ed){ const out=[]; for(let i=0;i<arr.length;i++){ const f=feats.get(arr[i])||{}; out.push({position:i+1,edition:ed,spotify_uri:arr[i],tempo:round4(f.tempo),energy:round4(f.energy),valence:round4(f.valence),key:(f.key==null?"":f.key),mode:(f.mode==null?"":f.mode),danceability:round4(f.danceability),speechiness:round4(f.speechiness),instrumentalness:round4(f.instrumentalness)}); } return out; }
-  const _exportData={ uk:packRows(packs.UK,"UK"), us:packRows(packs.US,"US"), eu:packRows(packs.EU,"EU"), wo:packRows(packs.WORLD,"WORLD"), bp:packRows(packs.BEATPORT,"BEATPORT") };
   enableExportButtons(true);
   if(isAuthed()){
     progress(92,"書込み…"); await ensureWrite("UK",packs.UK);
@@ -732,11 +780,12 @@ async function exportPrepAndWrite(packs,feats){
     progress(99,"書込み…"); await ensureWrite("BEATPORT",packs.BEATPORT);
     log("書込み完了（BUILD "+BUILD_ID+"）");
   }else{
-    _pending=packs; log("接続待ち：『サインイン』→『接続チェック』で自動書込み");
+    _pending=packs; log("接続待ち：『サインイン』→『接続チェック』");
   }
   progress(100,"完了");
   log("完了（最新20固定／Single-first／CatNo連打禁止＆分散／リミキサ分散／版内ユニーク＋上限／BP=150保証）");
 }
+
 async function resolveAndWrite(packs){
   try{
     progress(90,"書込み再開…");
@@ -748,7 +797,7 @@ async function resolveAndWrite(packs){
   }catch(e){ log("ERROR(resolveAndWrite): "+(e.message||e)); }
 }
 
-/* ===== Runners（EXPORTED） ===== */
+/* ===== Runners (EXPORTED) ===== */
 window.runCsvOnly = async function runCsvOnly(){
   progress(8,"CSV検出…");
   const cols=guessCsvColumns(csvRows);
@@ -758,22 +807,29 @@ window.runCsvOnly = async function runCsvOnly(){
   for(let i=0;i<csvRows.length;i++){ const u=await resolveOne(csvRows[i],cols,mkts); uris.push(u); if(u) ok++; if(((i+1)%20===0)||i+1===csvRows.length) subProgress(i+1,csvRows.length,20,48,"URI解決"); }
   log("URI解決: "+ok+"/"+csvRows.length);
   let list=uris.filter(Boolean); if(list.length===0){ throw new Error("CSVから解決できるURIがありません"); }
+
   progress(55,"曲詳細取得…"); const tracksMap=await fetchTrackDetailsByUris(list);
   progress(60,"アルバム取得…"); const albums=await fetchAlbumsForTracks(tracksMap);
   progress(66,"Audio Features…"); let feats=new Map(); try{ feats=await fetchAudioFeaturesByUris(list); }catch(e){ log("audio-features 取得スキップ: "+(e.message||e)); }
+
   URI_META=buildUriMeta(list,tracksMap,albums,csvRows,cols);
+
   progress(72,"固定20（無条件）…"); const pinned=await getPinnedIntroLatest20_UNCONDITIONAL(list,tracksMap,albums,feats); analyzePinnedAdjacency(pinned);
   const pinnedSet=new Set(pinned);
+
+  // base pool single-first & LP除外（固定は除外対象外/後段で再使用なし）
   const basePool=buildBasePoolSmart(list,pinnedSet);
+
   progress(78,"分配…");
   let packs4=null; try{ packs4=makeEditionPacksV3(basePool,feats,pinned,tracksMap); }catch(e){ log("V3分配で例外 → Fallback: "+(e.message||e)); packs4=makeEditionPacksFallback(basePool,feats,pinned,tracksMap); }
   progress(82,"Beatport版(+20) 充足…"); const packBP=buildBeatportFromConsensus(basePool,feats,pinned,packs4,tracksMap);
   progress(90,"書込み/エクスポート準備…"); await exportPrepAndWrite({...packs4, BEATPORT:packBP},feats);
 };
+
 window.runAutoOnly = async function runAutoOnly(){
   progress(10,"検索クエリ…");
   const mkts=getMarkets(); const queries=(val("autoQueries","")||"").split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
-  const perQ=Math.floor(val("autoLimit","60")||60); const cap=Math.floor(val("autoCap","300")||300); const doDedup=val("autoDedup","1")==="1";
+  const perQ=numFromInput("autoLimit",60,{min:1,max:100}); const cap=numFromInput("autoCap",300,{min:10,max:1000}); const doDedup=val("autoDedup","1")==="1";
   log("クエリ="+queries.length+" / 各"+perQ+" / cap="+cap+" / dedup="+doDedup);
   const pool=[];
   for(const q of queries){
@@ -790,13 +846,17 @@ window.runAutoOnly = async function runAutoOnly(){
     if(pool.length>=cap) break;
   }
   let list=doDedup?Array.from(new Set(pool)):pool; if(list.length===0) throw new Error("Autoモード：検索で候補が得られませんでした"); if(list.length>cap) list=list.slice(0,cap);
+
   progress(55,"曲詳細取得…"); const tracksMap=await fetchTrackDetailsByUris(list);
   progress(60,"アルバム取得…"); const albums=await fetchAlbumsForTracks(tracksMap);
   progress(66,"Audio Features…"); let feats=new Map(); try{ feats=await fetchAudioFeaturesByUris(list); }catch(e){ log("audio-features 取得スキップ: "+(e.message||e)); }
+
   URI_META=buildUriMeta(list,tracksMap,albums,null,null);
+
   progress(72,"固定20（無条件）…"); const pinned=await getPinnedIntroLatest20_UNCONDITIONAL(list,tracksMap,albums,feats); analyzePinnedAdjacency(pinned);
   const pinnedSet=new Set(pinned);
   const basePool=buildBasePoolSmart(list,pinnedSet);
+
   progress(78,"分配…");
   let packs4=null; try{ packs4=makeEditionPacksV3(basePool,feats,pinned,tracksMap); }catch(e){ log("V3分配で例外 → Fallback: "+(e.message||e)); packs4=makeEditionPacksFallback(basePool,feats,pinned,tracksMap); }
   progress(82,"Beatport版(+20) 充足…"); const packBP=buildBeatportFromConsensus(basePool,feats,pinned,packs4,tracksMap);
@@ -824,16 +884,17 @@ $("fileCSV").addEventListener("change", async () => {
 $("btnRun").onclick=async()=>{
   $("log").textContent="";
   progress(1,"開始…");
-  // ★ 未接続でもビルドは実行（書込みは exportPrepAndWrite 側で保留）
+  if(!isAuthed()){ $("status").textContent="未接続（サインインしてください）"; return; }
   const useCsv = $("modeCsv").checked && $("fileCSV").files.length>0;
   try{ if(useCsv){ await window.runCsvOnly(); } else { $("modeAuto").checked=true; $("modeCsv").onchange(); await window.runAutoOnly(); } }
   catch(e){ log("ERROR: "+(e.message||e)); }
 };
 
-/* ===== Boot once ===== */
+/* ===== Boot once; prepare links; enable buttons ===== */
 document.addEventListener("DOMContentLoaded", async ()=>{
   try{ $("buildBadge").textContent="BUILD "+BUILD_ID; }catch(_){}
   try{ $("btnConnect").disabled=false; }catch(_){}
+  try{ $("aConnectS256").removeAttribute("target"); $("aConnectPLAIN").removeAttribute("target"); }catch(_){}
   try{ await prepareAuthLinks(); }catch(e){ log("Auth準備失敗: "+(e.message||e)); }
   setStatus();
   if($("redir")) $("redir").value=FIXED_REDIRECT_URI;
