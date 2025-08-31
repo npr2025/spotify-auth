@@ -6,7 +6,7 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TDCS Editions Builder — BUILD v10.31</title>
+<title>TDCS Editions Builder — BUILD v10.40</title>
 <style>
 :root{--bg:#0b1220;--fg:#cfe3ff}
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1180px;margin:32px auto;padding:0 12px}
@@ -37,7 +37,7 @@ a.btn{display:inline-block;padding:9px 12px;border:1px solid #bbb;border-radius:
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
-<h1>TDCS Editions Builder <span class="badge" id="buildBadge">BUILD v10.31</span><span class="badge">Auth-Hardening</span><span class="badge">Latest20</span><span class="badge">Anti-Run++</span></h1>
+<h1>TDCS Editions Builder <span class="badge" id="buildBadge">BUILD v10.40</span><span class="badge">Auth-Hardening</span><span class="badge">ManualTop20</span><span class="badge">Export-Auto</span><span class="badge">Divergence++</span></h1>
 <p id="status">未接続</p>
 <div>
   <button id="btnConnect">Spotifyにサインイン</button>
@@ -102,28 +102,33 @@ a.btn{display:inline-block;padding:9px 12px;border:1px solid #bbb;border-radius:
     </label>
   </div>
   <label><input id="strictMarket" type="checkbox" checked> 市場一致を「優先採用」</label>
-  <label><input id="allowCrossDup" type="checkbox"> 版間重複を許可</label>
+  <label><input id="allowCrossDup" type="checkbox"> 版間重複を許可（※オフ推奨）</label>
   <label><input id="allowWithinDup" type="checkbox"> 版内重複を許可</label>
   <div class="grid3">
     <label>差別化レベル
       <select id="diverge"><option value="high" selected>HIGH</option><option value="medium">MEDIUM</option><option value="low">LOW</option></select>
     </label>
     <label>新規作成ベース名 <input id="baseName" type="text" value="TDCS Editions"></label>
-    <label>説明文追記 <input id="descNote" type="text" value="Auto-built (Latest20 pinned; single-first; hard-unique; anti-run; BP+20)"></label>
+    <label>説明文追記 <input id="descNote" type="text" value="Auto-built (ManualTop20; single-first; unique; dispersion; BP+20)"></label>
   </div>
   <label><input id="excludeLP" type="checkbox"> LP(7曲以上)を候補から除外（固定20は除外対象外）</label>
+  <label><input id="autoDownload" type="checkbox" checked> 完了後にエクスポートを<strong>自動ダウンロード</strong>（XLSX/CSV）</label>
 </fieldset>
 
 <fieldset id="boxIntro">
-  <legend>イントロ固定（最新20）</legend>
+  <legend>イントロ固定（トップ20）</legend>
   <div class="grid2">
-    <label>テンプレPL ID/URL
+    <label>テンプレPL ID/URL（空でも可）
       <input id="introTpl" type="text" value="https://open.spotify.com/playlist/1v9JLD4ZxaCDApz2iPKGcJ?si=9f139dac68686449">
     </label>
     <label>固定曲数(10–20)
       <input id="introLen" type="number" value="20" min="10" max="20">
     </label>
   </div>
+  <label>手動固定（URI/URLを1行1件・順序厳守）
+    <textarea id="introManual" class="mono" placeholder="例：spotify:track:xxxxxxxxxxxxxxxxxxxxxx または https://open.spotify.com/track/…"></textarea>
+  </label>
+  <small class="hint">※手動固定が1件以上あれば <b>テンプレPLより優先</b>。手動が固定曲数より少ない場合は残りをテンプレ（またはベースプール）で補完。</small>
 </fieldset>
 
 <fieldset id="boxCsv">
@@ -164,8 +169,8 @@ a.btn{display:inline-block;padding:9px 12px;border:1px solid #bbb;border-radius:
 
 <script>
 /* ===== Build / Storage Keys ===== */
-var BUILD_ID="v10.31";
-var DYN_REDIRECT_URI=(function(){
+const BUILD_ID="v10.40";
+const DYN_REDIRECT_URI=(function(){
   try{
     var base = location.origin + location.pathname.replace(/\/[^\/]*$/, "");
     if(base.charAt(base.length-1)==="/") base=base.slice(0,-1);
@@ -267,7 +272,7 @@ async function refreshTokenIfNeeded(){
   if(Date.now()<exp-5000) return;
   var CLIENT_ID=readClientId(); var rt=localStorage.getItem(LS.ref); if(!rt) return;
   var body=new URLSearchParams(); body.set("grant_type","refresh_token"); body.set("refresh_token",rt); body.set("client_id",CLIENT_ID);
-  var r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:body});
+  var r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:body,cache:"no-store",redirect:"follow"});
   if(!r.ok){ log("refresh失敗 "+r.status); return; }
   var j=await r.json();
   localStorage.setItem(LS.acc,j.access_token);
@@ -372,6 +377,45 @@ function seedHash(s){ var h=2166136261>>>0; for(var i=0;i<s.length;i++){ h^=s.ch
 function rng(seed){ var x=seedHash(String(seed))||1; return function(){ x^=x<<13; x^=x>>>17; x^=x<<5; return (x>>>0)/4294967296; }; }
 function seededShuffle(arr, seed){ var r=rng(seed); var a=arr.slice(0); for(var i=a.length-1;i>0;i--){ var j=Math.floor(r()*(i+1)); var tmp=a[i]; a[i]=a[j]; a[j]=tmp; } return a; }
 
+/* ===== Tail build with tiny randomness ===== */
+function buildTailByPreset(prev, tail, feats, preset, editionSeed){
+  tail = Array.isArray(tail) ? tail : []; if(tail.length===0) return [];
+  function id8(u){ return (u||"").slice(-8); }
+  var jitter = (parseInt(String(editionSeed).slice(-5),10)%997)/9970;
+  if(preset==="rise"||preset==="drop"||preset==="bp"){
+    var scored = tail.map(function(u){
+      var f=feats.get(u)||{};
+      var base=(preset==="rise")? (0.6*nf(f.energy,0.5)+0.4*(nf(f.tempo,120)/200))
+                 :(preset==="drop")? (0.7*nf(f.energy,0.5)+0.3*(nf(f.tempo,120)/200))
+                 : (nf(f.energy,0.5)*0.75 + (nf(f.tempo,120)/260)*0.25);
+      var tie = ((parseInt(id8(u),36)%997)/997-0.5)*0.06 + jitter;
+      return {u:u,score:base + tie};
+    });
+    scored.sort(function(a,b){ return (preset==="rise")? (a.score-b.score) : (b.score-a.score); });
+    return scored.map(function(x){return x.u;});
+  }
+  if(preset==="dj"){
+    var seq=[]; var pool=tail.slice(0); var cur=prev||pool[0];
+    while(pool.length){
+      var bestI=0, best=1e9;
+      for(var i=0;i<pool.length;i++){
+        var a=feats.get(cur)||{}, b=feats.get(pool[i])||{};
+        var cost=nextCost(a,b,"dj") + ((parseInt((pool[i]||"").slice(-6),36)%89)/1000) + jitter;
+        if(cost<best){ best=cost; bestI=i; }
+      }
+      var pick=pool.splice(bestI,1)[0]; seq.push(pick); cur=pick;
+    }
+    return seq;
+  }
+  // waves
+  var withE = tail.map(function(u){ var fe=feats.get(u)||{}; return {u:u,e: nf(fe.energy,0.5)};});
+  var low=withE.slice().sort(function(a,b){return a.e-b.e;}), high=withE.slice().sort(function(a,b){return b.e-a.e;});
+  var snake=[]; var iL=0,iH=0; while(iL<low.length||iH<high.length){ if(iH<high.length) snake.push(high[iH++].u); if(iL<low.length) snake.push(low[iL++].u); }
+  var r=editionSeed%2147483647; var x=r; var a=snake;
+  for(var k=a.length-1;k>0;k--){ x=(x*48271)%2147483647; var t=Math.floor((x/2147483647)*(k+1)); var tmp=a[k]; a[k]=a[t]; a[t]=tmp; }
+  return a;
+}
+
 /* ===== URI meta ===== */
 var URI_META=new Map();
 function normalizeRemixer(s){ s=String(s||"").trim(); if(!s) return ""; s=s.replace(/\b(original|radio|extended|club)\b.*$/i,"").trim(); return s.toLowerCase(); }
@@ -394,8 +438,7 @@ function buildUriMeta(uriList, tracksMap, albumsMap, hintRows, cols){
     var catNo=parseCatNo(t.album?t.album.name:"", t.name||"", labelRaw||"");
     var albumType=albumObj.album_type || "";
     var totalTracks=+(albumObj.total_tracks||0);
-    var singleGroup = (albumType==="single" || totalTracks<=4) ? (albumId||("sg:"+label+":"+albumObj.release_date)) : "";
-    meta.set(u,{remixer:rem,artistId:artistId,albumId:albumId,catalog:label,catNo:catNo,albumType:albumType,totalTracks:totalTracks,singleGroup:singleGroup});
+    meta.set(u,{remixer:rem,artistId:artistId,albumId:albumId,catalog:label,catNo:catNo,albumType:albumType,totalTracks:totalTracks});
   }
   return meta;
 }
@@ -421,7 +464,15 @@ function editionWeight(u,feats,tracksMap,edition){
   var noRemixBonus=(mmeta && mmeta.remixer)?0:0.05;
 
   var micro=((seedHash(u)%997)/9970);
-  return 0.55*feat + 0.45*mkt + noRemixBonus + singleBoost + longPenalty + micro;
+
+  /* カタログ/同アルバムを弱めるペナルティ（同じリリース連打抑止） */
+  var sameAlbPenalty = 0;
+  if(mmeta && mmeta.albumId){
+    sameAlbPenalty -= 0.03;
+  }
+  var sameCatPenalty = (mmeta && mmeta.catNo)? -0.02 : 0;
+
+  return 0.52*feat + 0.42*mkt + noRemixBonus + singleBoost + longPenalty + micro + sameAlbPenalty + sameCatPenalty;
 }
 
 /* ===== profiles ===== */
@@ -432,11 +483,11 @@ var EDITION_PROFILES={
   WORLD:{ tempo:[160,182], energy:[0.45,0.95], valence:[0.20,0.80], danceability:[0.35,0.95] }
 };
 
-/* ===== Divergence caps（強化版） ===== */
+/* ===== Divergence caps ===== */
 var DIV_LEVELS={
-  high:{gate:1.00, artistCap:1, remixerCap:1, albumCap:1, catalogCap:2, catNoCap:1, singleCap:1, winRem:18, winRemMax:1, winCatNo:20, winCatNoMax:1, winAlbum:16, winAlbumMax:1, winCatalog:14, winCatalogMax:2},
-  medium:{gate:0.75, artistCap:2, remixerCap:2, albumCap:2, catalogCap:3, catNoCap:1, singleCap:1, winRem:14, winRemMax:2, winCatNo:16, winCatNoMax:1, winAlbum:12, winAlbumMax:2, winCatalog:12, winCatalogMax:2},
-  low:{gate:0.60, artistCap:3, remixerCap:2, albumCap:3, catalogCap:4, catNoCap:2, singleCap:2, winRem:12, winRemMax:2, winCatNo:12, winCatNoMax:2, winAlbum:10, winAlbumMax:2, winCatalog:10, winCatalogMax:3}
+  high:{gate:1.00, artistCap:2, remixerCap:1, albumCap:2, catalogCap:3, catNoCap:1, winRem:18, winRemMax:1, winCatNo:20, winCatNoMax:1},
+  medium:{gate:0.75, artistCap:3, remixerCap:2, albumCap:3, catalogCap:4, catNoCap:2, winRem:14, winRemMax:2, winCatNo:16, winCatNoMax:2},
+  low:{gate:0.55, artistCap:4, remixerCap:2, albumCap:4, catalogCap:5, catNoCap:3, winRem:12, winRemMax:2, winCatNo:12, winCatNoMax:2}
 };
 
 /* ===== Base pool (single-first, optional LP exclude) ===== */
@@ -457,46 +508,6 @@ function buildBasePoolSmart(allUris, pinnedSet){
   for(var i2=0;i2<singles.length;i2++) push(singles[i2]);
   for(var j=0;j<others.length;j++)  push(others[j]);
   return seq;
-}
-
-/* ===== Anti-run reorder（連番禁止の最終並べ替え） ===== */
-function antiRunReorder(fullSeq, pinnedLen, lvl){
-  pinnedLen=Math.max(0,Math.min(pinnedLen,fullSeq.length));
-  var head=fullSeq.slice(0,pinnedLen);
-  var pool=fullSeq.slice(pinnedLen);
-  function key(u,which){ var m=URI_META.get(u)||{}; if(which==="rem")return m.remixer||""; if(which==="art")return m.artistId||""; if(which==="alb")return m.albumId||""; if(which==="cat")return m.catalog||""; if(which==="catno")return m.catNo||""; if(which==="sg")return m.singleGroup||""; return ""; }
-  function windowCount(arr,which,win){
-    var map=new Map(); var a=Math.max(0,arr.length-win), b=arr.length-1;
-    for(var i=a;i<=b;i++){ var k=key(arr[i],which); if(!k) continue; map.set(k,(map.get(k)||0)+1); }
-    return map;
-  }
-  var out=head.slice(0);
-  while(pool.length){
-    var bestI=0, best=1e9;
-    var wcRem=windowCount(out,"rem",lvl.winRem);
-    var wcCatNo=windowCount(out,"catno",lvl.winCatNo);
-    var wcAlb=windowCount(out,"alb",lvl.winAlbum);
-    var wcCat=windowCount(out,"cat",lvl.winCatalog);
-    for(var i=0;i<pool.length;i++){
-      var u=pool[i];
-      var pen=0;
-      if(out.length){ 
-        var prev=out[out.length-1];
-        if(key(u,"rem") && key(u,"rem")===key(prev,"rem")) pen+=50;
-        if(key(u,"art") && key(u,"art")===key(prev,"art")) pen+=40;
-        if(key(u,"alb") && key(u,"alb")===key(prev,"alb")) pen+=80;
-        if(key(u,"cat") && key(u,"cat")===key(prev,"cat")) pen+=45;
-        if(key(u,"catno") && key(u,"catno")===key(prev,"catno")) pen+=120;
-      }
-      if(key(u,"rem") && (wcRem.get(key(u,"rem"))||0) >= lvl.winRemMax) pen+=20;
-      if(key(u,"catno") && (wcCatNo.get(key(u,"catno"))||0) >= lvl.winCatNoMax) pen+=30;
-      if(key(u,"alb") && (wcAlb.get(key(u,"alb"))||0) >= lvl.winAlbumMax) pen+=25;
-      if(key(u,"cat") && (wcCat.get(key(u,"cat"))||0) >= lvl.winCatalogMax) pen+=15;
-      if(pen<best){ best=pen; bestI=i; }
-    }
-    out.push(pool.splice(bestI,1)[0]);
-  }
-  return out;
 }
 
 /* ===== No adjacency + window dispersion ===== */
@@ -522,9 +533,9 @@ function enforceUniqueWithin(seq,pinnedLen,primaryPool,fallbackPool,label,banSet
   var tail = seq.slice(pinnedLen);
   var seen=new Set(fixed);
   var uniqTail=[];
-  var cnt = {artist:new Map(), rem:new Map(), album:new Map(), catalog:new Map(), catno:new Map(), single:new Map()};
+  var cnt = {artist:new Map(), rem:new Map(), album:new Map(), catalog:new Map(), catno:new Map()};
   function meta(u){ return URI_META.get(u)||{}; }
-  var cap=Object.assign({artist:99, rem:99, album:99, catalog:99, catno:99, single:99}, (caps||{}));
+  var cap=Object.assign({artist:99, rem:99, album:99, catalog:99, catno:99}, (caps||{}));
   var drop=0;
   function canPush(u){
     if(seen.has(u)) return false;
@@ -535,7 +546,6 @@ function enforceUniqueWithin(seq,pinnedLen,primaryPool,fallbackPool,label,banSet
     if(m.albumId && (cnt.album.get(m.albumId)||0)>=cap.album) return false;
     if(m.catalog && (cnt.catalog.get(m.catalog)||0)>=cap.catalog) return false;
     if(m.catNo && (cnt.catno.get(m.catNo)||0)>=cap.catno) return false;
-    if(m.singleGroup && (cnt.single.get(m.singleGroup)||0)>=cap.single) return false;
     return true;
   }
   function push(u){
@@ -546,7 +556,6 @@ function enforceUniqueWithin(seq,pinnedLen,primaryPool,fallbackPool,label,banSet
     if(m.albumId)   cnt.album.set(m.albumId,(cnt.album.get(m.albumId)||0)+1);
     if(m.catalog)   cnt.catalog.set(m.catalog,(cnt.catalog.get(m.catalog)||0)+1);
     if(m.catNo)     cnt.catno.set(m.catNo,(cnt.catno.get(m.catNo)||0)+1);
-    if(m.singleGroup) cnt.single.set(m.singleGroup,(cnt.single.get(m.singleGroup)||0)+1);
   }
   for(var i=0;i<tail.length;i++){ var u=tail[i]; if(canPush(u)) push(u); else drop++; }
   var want = Math.floor(tail.length);
@@ -557,7 +566,18 @@ function enforceUniqueWithin(seq,pinnedLen,primaryPool,fallbackPool,label,banSet
   return result;
 }
 
-/* ===== Pinned 20 (UNCONDITIONAL) ===== */
+/* ===== Pinned 20（手動優先 → テンプレ最新 → ベース） ===== */
+function parseManualPinned(){
+  var raw=(val("introManual","")||"").trim();
+  if(!raw) return [];
+  var lines=raw.split(/\r?\n/).map(function(s){return s.trim();}).filter(Boolean);
+  var out=[];
+  for(var i=0;i<lines.length;i++){
+    var id=extractTrackId(lines[i]);
+    if(id) out.push("spotify:track:"+id);
+  }
+  return uniq(out);
+}
 async function fetchPlaylistNewestUris(pid,want){
   var items=[]; var off=0;
   while(true){
@@ -569,13 +589,18 @@ async function fetchPlaylistNewestUris(pid,want){
   items.sort(function(a,b){return b.ts-a.ts;});
   return uniq(items.map(function(x){return x.u;})).slice(0,want);
 }
-async function getPinnedIntroLatest20_UNCONDITIONAL(basePool,tracksMap,albums,feats){
+async function getPinnedTop20(basePool,tracksMap,albums,feats){
   var want=Math.max(10,Math.min(20,+(val("introLen","20")||20)));
+  var manual=parseManualPinned();
+  if(manual.length){
+    log("固定: 手動指定 "+manual.length+"曲（順序固定）");
+    return manual.slice(0,want);
+  }
   var tpl=(val("introTpl","")||"").trim();
   var pool=Array.isArray(basePool)?basePool.slice(0):[];
-  if(!tpl){ log("イントロ: テンプレ未指定 → ベースから採用"); return uniq(pool).slice(0,want); }
+  if(!tpl){ log("固定: テンプレ未指定 → ベースから採用"); return uniq(pool).slice(0,want); }
   var m=tpl.match(/playlist\/([A-Za-z0-9]{22})/)||tpl.match(/^([A-Za-z0-9]{22})$/); var pid=m?m[1]:"";
-  if(!pid){ log("イントロ: プレイリストID不可 → ベースから採用"); return uniq(pool).slice(0,want); }
+  if(!pid){ log("固定: プレイリストID不可 → ベースから採用"); return uniq(pool).slice(0,want); }
   var newest=await fetchPlaylistNewestUris(pid,want*3);
   var pinned=uniq(newest).slice(0,want);
   var notInBase=pinned.filter(function(u){return pool.indexOf(u)<0;});
@@ -587,7 +612,7 @@ async function getPinnedIntroLatest20_UNCONDITIONAL(basePool,tracksMap,albums,fe
     var f2=await fetchAudioFeaturesByUris(notInBase);
     f2.forEach(function(v,k){ feats.set(k,v); });
   }
-  log("最新固定 "+pinned.length+"曲（無条件採用）");
+  log("固定: 最新 "+pinned.length+"曲（無条件採用）");
   return pinned.slice(0,want);
 }
 
@@ -631,18 +656,17 @@ function makeEditionPacksV3(baseUris,feats,pinned,tracksMap){
     function pickByProfile(home,others,edition){
       home=Array.isArray(home)?home:[]; others=Array.isArray(others)?others:[]; var prof=EDITION_PROFILES[edition]||{};
       var gates=[level.gate, Math.max(0.01,level.gate*0.85), Math.max(0.01,level.gate*0.70), Math.max(0.01,level.gate*0.55), Math.max(0.01,level.gate*0.40), 0.30, 0.20];
-      var pools=[home,others]; var out=[], artistCount=new Map(), remCount=new Map(), albumCount=new Map(), catalogCount=new Map(), catNoCount=new Map(), singleCount=new Map();
+      var pools=[home,others]; var out=[], artistCount=new Map(), remCount=new Map(), albumCount=new Map(), catalogCount=new Map(), catNoCount=new Map();
       function pushIf(u,strictCap){
         strictCap = (strictCap!==false);
         if(!u||out.length>=tailN) return false; if(!allowCrossDup && usedGlobal.has(u)) return false; if(out.indexOf(u)>=0) return false;
         var m=URI_META.get(u)||{};
         if(strictCap){
-          if(m.artistId&&(artistCount.get(m.artistId)||0)>= (level.artistCap)) return false;
-          if(m.remixer&&(remCount.get(m.remixer)||0)>= (level.remixerCap)) return false;
-          if(m.albumId&&(albumCount.get(m.albumId)||0)>= (level.albumCap)) return false;
-          if(m.catalog&&(catalogCount.get(m.catalog)||0)>= (level.catalogCap)) return false;
-          if(m.catNo&&(catNoCount.get(m.catNo)||0)>= (level.catNoCap)) return false;
-          if(m.singleGroup&&(singleCount.get(m.singleGroup)||0)>= (level.singleCap)) return false;
+          if(m.artistId&&(artistCount.get(m.artistId)||0)>= (level.artistCap||2)) return false;
+          if(m.remixer&&(remCount.get(m.remixer)||0)>= (level.remixerCap||1)) return false;
+          if(m.albumId&&(albumCount.get(m.albumId)||0)>= (level.albumCap||2)) return false;
+          if(m.catalog&&(catalogCount.get(m.catalog)||0)>= (level.catalogCap||3)) return false;
+          if(m.catNo&&(catNoCount.get(m.catNo)||0)>= (level.catNoCap||1)) return false;
         }
         out.push(u); if(!allowCrossDup) usedGlobal.add(u);
         if(m.artistId) artistCount.set(m.artistId,(artistCount.get(m.artistId)||0)+1);
@@ -650,7 +674,6 @@ function makeEditionPacksV3(baseUris,feats,pinned,tracksMap){
         if(m.albumId)  albumCount.set(m.albumId,(albumCount.get(m.albumId)||0)+1);
         if(m.catalog)  catalogCount.set(m.catalog,(catalogCount.get(m.catalog)||0)+1);
         if(m.catNo)    catNoCount.set(m.catNo,(catNoCount.get(m.catNo)||0)+1);
-        if(m.singleGroup) singleCount.set(m.singleGroup,(singleCount.get(m.singleGroup)||0)+1);
         return true;
       }
       for(var g=0; g<gates.length; g++){
@@ -681,26 +704,36 @@ function makeEditionPacksV3(baseUris,feats,pinned,tracksMap){
       var tail=pickByProfile(home,others,edition);
       var prev=fixed[fixed.length-1]||tail[0];
       var orderedTail=buildTailByPreset(prev,tail,feats,val("preset"+edition,edition==="US"?"rise":edition==="EU"?"drop":edition==="WORLD"?"dj":"waves"),seed);
-
-      /* 版内ユニーク強化（アルバム/シングル/カタログ/カタNoの上限を適用）*/
+      var seq0=fixed.concat(orderedTail);
       if(!withinDupAllowed){
-        var caps={artist:DIV_LEVELS.high.artistCap, rem:DIV_LEVELS.high.remixerCap, album:DIV_LEVELS.high.albumCap, catalog:DIV_LEVELS.high.catalogCap, catno:DIV_LEVELS.high.catNoCap, single:DIV_LEVELS.high.singleCap};
-        orderedTail=enforceUniqueWithin(fixed.concat(orderedTail),fixed.length,home.concat(others),remainder,edition,allowCrossDup?null:new Set(),caps).slice(fixed.length);
+        var caps={artist:level.artistCap, rem:level.remixerCap, album:level.albumCap, catalog:level.catalogCap, catno:level.catNoCap};
+        orderedTail=enforceUniqueWithin(seq0,fixed.length,home.concat(others),remainder,edition,allowCrossDup?null:new Set(),caps).slice(fixed.length);
       }
-
-      /* 連番禁止の最終並べ替え */
       var seq=fixed.concat(orderedTail);
-      seq = antiRunReorder(seq, fixed.length, DIV_LEVELS.high);
-
-      var swaps=postProcessNoAdjacencyAndDispersion(seq,fixed.length,DIV_LEVELS.high);
-      log("連続/分散 "+edition+": rem="+swaps.remix_swaps+"/"+swaps.win_remix_swaps+" album="+swaps.album_swaps+" catalog="+swaps.catalog_swaps+" catNo="+swaps.catno_swaps+"/"+swaps.win_catno_swaps);
-
+      var swaps=postProcessNoAdjacencyAndDispersion(seq,fixed.length,level);
+      log("連続/分散 "+edition+": rem="+swaps.remix_swaps+"/"+swaps.win_remix_swaps+" artist="+swaps.artist_swaps+" album="+swaps.album_swaps+" catalog="+swaps.catalog_swaps+" catNo="+swaps.catno_swaps+"/"+swaps.win_catno_swaps);
       return seq;
     }
 
     var packs={}; packs.UK=buildOne("UK"); packs.US=buildOne("US"); packs.EU=buildOne("EU"); packs.WORLD=buildOne("WORLD");
     var need=Math.floor(val("finalN","130")||130);
     ["UK","US","EU","WORLD"].forEach(function(k){ if(packs[k].length>need) packs[k]=packs[k].slice(0,need); if(packs[k].length<need) packs[k]=packs[k].concat(baseUris.slice(0,need-packs[k].length)); });
+
+    /* 版間重複を禁止（デフォルト）。固定部は共通想定なので tail でのみユニーク化。 */
+    if(!allowCrossDup){
+      var P=PinnedLenFor(packs); /* 固定長を各版で同じと仮定 */
+      var used=new Set();
+      function PinnedLenFor(pc){ var a=[pc.UK.length, pc.US.length, pc.EU.length, pc.WORLD.length].map(function(){return P;}); return Math.min(pinned.length, need); }
+      function dedupTail(arr, label){
+        var head=arr.slice(0,P), tail=arr.slice(P), out=head.slice(0);
+        for(var i=0;i<tail.length;i++){ var u=tail[i]; if(!used.has(u)){ out.push(u); used.add(u);} }
+        return out.slice(0,need);
+      }
+      packs.UK=dedupTail(packs.UK,"UK");
+      packs.US=dedupTail(packs.US,"US");
+      packs.EU=dedupTail(packs.EU,"EU");
+      packs.WORLD=dedupTail(packs.WORLD,"WORLD");
+    }
     return packs;
   }catch(e){
     log("V3分配で例外 → Fallback適用: "+(e.message||e));
@@ -744,7 +777,7 @@ function buildBeatportFromConsensus(baseUris,feats,pinned,packs4,tracksMap){
     var all = [].concat(packs4.UK,packs4.US,packs4.EU,packs4.WORLD,baseUris);
     for(var k=0;k<all.length && seq.length<total;k++){ var u3=all[k]; if(!used.has(u3)){ seq.push(u3); used.add(u3);} }
   }
-  return antiRunReorder(seq, fixed.length, DIV_LEVELS.high).slice(0,total);
+  return seq.slice(0,total);
 }
 
 /* ===== Analyze pinned adjacency (log only) ===== */
@@ -755,69 +788,35 @@ function analyzePinnedAdjacency(pinned){
   function catNoKey(u){ var m=URI_META.get(u)||{}; return m.catNo||""; }
   function countAdj(fn){ var a=0; for(var i=1;i<pinned.length;i++){ if(fn(pinned[i]) && fn(pinned[i])===fn(pinned[i-1])) a++; } return a; }
   var rep={rem:countAdj(remKey), alb:countAdj(albKey), cat:countAdj(catKey), catno:countAdj(catNoKey)};
-  if(rep.rem||rep.alb||rep.cat||rep.catno){ log("イントロ固定内に連打 rem="+rep.rem+" album="+rep.alb+" catalog="+rep.cat+" catNo="+rep.catno+"（固定部は順序維持）"); }
+  if(rep.rem||rep.alb||rep.cat||rep.catno){ log("固定20内に連打 rem="+rep.rem+" album="+rep.alb+" catalog="+rep.cat+" catNo="+rep.catno+"（固定部は順序維持）"); }
 }
 
-/* ===== Export ===== */
-var _pending=null, _exportRows=null;
+/* ===== Export (XLSX/CSV) ===== */
+var _exportData=null;
+function makeExportRows(arr,ed,feats){
+  var out=[]; for(var i=0;i<arr.length;i++){ var f=feats.get(arr[i])||{}; out.push({position:i+1,edition:ed,spotify_uri:arr[i],tempo:round4(f.tempo),energy:round4(f.energy),valence:round4(f.valence),key:(f.key==null?"":f.key),mode:(f.mode==null?"":f.mode),danceability:round4(f.danceability),speechiness:round4(f.speechiness),instrumentalness:round4(f.instrumentalness)}); } return out;
+}
+function triggerCSVDownload(rows, filename){
+  var csv = Papa.unparse(rows);
+  var blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+  var a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=filename; document.body.appendChild(a); a.click(); setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},1000);
+}
+function triggerXLSXDownload(packs,feats, filename){
+  var wb = XLSX.utils.book_new();
+  function add(name, rows){ var ws=XLSX.utils.json_to_sheet(rows); XLSX.utils.book_append_sheet(wb, ws, name); }
+  add("UK", makeExportRows(packs.UK,"UK",feats));
+  add("US", makeExportRows(packs.US,"US",feats));
+  add("EU", makeExportRows(packs.EU,"EU",feats));
+  add("WORLD", makeExportRows(packs.WORLD,"WORLD",feats));
+  add("BEATPORT", makeExportRows(packs.BEATPORT,"BEATPORT",feats));
+  // summary
+  var sm=[{sheet:"UK",count:packs.UK.length},{sheet:"US",count:packs.US.length},{sheet:"EU",count:packs.EU.length},{sheet:"WORLD",count:packs.WORLD.length},{sheet:"BEATPORT",count:packs.BEATPORT.length}];
+  var ws=XLSX.utils.json_to_sheet(sm); XLSX.utils.book_append_sheet(wb,ws,"summary");
+  XLSX.writeFile(wb, filename);
+}
 function enableExportButtons(on){ $("btnExportXlsx").disabled=!on; $("btnExportCsv").disabled=!on; }
-function saveBlob(blob,filename){
-  try{
-    var url=URL.createObjectURL(blob);
-    var a=document.createElement("a");
-    a.href=url; a.download=filename; a.style.display="none";
-    document.body.appendChild(a); a.click();
-    setTimeout(function(){ URL.revokeObjectURL(url); document.body.removeChild(a); }, 1200);
-  }catch(e){ log("saveBlob失敗: "+(e.message||e)); }
-}
-function toFlatRows(packs,feats,tracksMap){
-  function one(uris,ed){
-    var rows=[];
-    for(var i=0;i<uris.length;i++){
-      var u=uris[i]; var t=tracksMap.get(u)||{}; var f=feats.get(u)||{}; var meta=URI_META.get(u)||{};
-      rows.push({
-        edition:ed, position:i+1, spotify_uri:u,
-        track:nf(t.name,""), artist:(t.artists&&t.artists.map(function(a){return a.name}).join(", "))||"",
-        album:(t.album&&t.album.name)||"", label:(meta.catalog||""), catno:(meta.catNo||""),
-        tempo:round4(f.tempo), energy:round4(f.energy), valence:round4(f.valence),
-        key:(f.key==null?"":f.key), mode:(f.mode==null?"":f.mode),
-        danceability:round4(f.danceability), speechiness:round4(f.speechiness), instrumentalness:round4(f.instrumentalness)
-      });
-    }
-    return rows;
-  }
-  return [].concat(
-    one(packs.UK,"UK"),
-    one(packs.US,"US"),
-    one(packs.EU,"EU"),
-    one(packs.WORLD,"WORLD"),
-    one(packs.BEATPORT,"BEATPORT")
-  );
-}
-function exportXlsx(rows){
-  try{
-    var wb=XLSX.utils.book_new();
-    var byEd={UK:[],US:[],EU:[],WORLD:[],BEATPORT:[]};
-    for(var i=0;i<rows.length;i++){ var r=rows[i]; if(byEd[r.edition]) byEd[r.edition].push(r); }
-    function sheet(list){ return XLSX.utils.json_to_sheet(list); }
-    XLSX.utils.book_append_sheet(wb, sheet(byEd.UK), "UK");
-    XLSX.utils.book_append_sheet(wb, sheet(byEd.US), "US");
-    XLSX.utils.book_append_sheet(wb, sheet(byEd.EU), "EU");
-    XLSX.utils.book_append_sheet(wb, sheet(byEd.WORLD), "WORLD");
-    XLSX.utils.book_append_sheet(wb, sheet(byEd.BEATPORT), "BEATPORT");
-    var bin=XLSX.write(wb,{bookType:"xlsx",type:"binary"});
-    var ab=new ArrayBuffer(bin.length); var uv=new Uint8Array(ab); for(var i2=0;i2<bin.length;i2++) uv[i2]=bin.charCodeAt(i2)&0xff;
-    saveBlob(new Blob([ab],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}),"TDCS_editions_"+BUILD_ID+".xlsx");
-  }catch(e){ log("XLSX出力失敗: "+(e.message||e)); }
-}
-function exportCsv(rows){
-  try{
-    var csv=Papa.unparse(rows,{newline:"\r\n"});
-    saveBlob(new Blob([csv],{type:"text/csv;charset=utf-8"}),"TDCS_editions_"+BUILD_ID+".csv");
-  }catch(e){ log("CSV出力失敗: "+(e.message||e)); }
-}
 
-/* ===== Write to Spotify ===== */
+/* ===== Playlist write ===== */
 async function replacePlaylist(pid,uris){
   var chunks=[]; for(var i=0;i<uris.length;i+=100) chunks.push(uris.slice(i,i+100));
   if(!chunks.length) chunks.push([]);
@@ -834,11 +833,28 @@ async function ensureWrite(which,uris){
   log("新規作成: "+name); return await createPlaylistAndFill(name,desc,isPub,uris);
 }
 
-async function exportPrepAndWrite(packs,feats,tracksMap){
+async function exportPrepAndWrite(packs,feats){
+  _exportData={ packs:packs, feats:feats };
   enableExportButtons(true);
-  _exportRows = toFlatRows(packs,feats,tracksMap);
 
-  /* 書込み（接続していなければ保留） */
+  /* 自動エクスポート（強制ダウンロード） */
+  var ts=(function(){var d=new Date();function z(n){return (n<10?"0":"")+n}return d.getFullYear()+""+z(d.getMonth()+1)+""+z(d.getDate())+"_"+z(d.getHours())+z(d.getMinutes());})();
+  var xlsxName="TDCS_build_"+BUILD_ID+"_"+ts+".xlsx";
+  var csvName ="TDCS_build_"+BUILD_ID+"_"+ts+".csv";
+  try{ triggerXLSXDownload(packs,feats,xlsxName); }catch(e){ log("XLSX出力エラー: "+(e.message||e)); }
+  try{
+    var rows=[].concat(
+      makeExportRows(packs.UK,"UK",feats),
+      makeExportRows(packs.US,"US",feats),
+      makeExportRows(packs.EU,"EU",feats),
+      makeExportRows(packs.WORLD,"WORLD",feats),
+      makeExportRows(packs.BEATPORT,"BEATPORT",feats)
+    );
+    triggerCSVDownload(rows,csvName);
+    log("エクスポート（XLSX/CSV）を開始しました");
+  }catch(e){ log("CSV出力エラー: "+(e.message||e)); }
+
+  /* サインイン済みなら Spotify へ書込み */
   if(isAuthed()){
     progress(92,"書込み…"); await ensureWrite("UK",packs.UK);
     progress(94,"書込み…"); await ensureWrite("US",packs.US);
@@ -849,16 +865,10 @@ async function exportPrepAndWrite(packs,feats,tracksMap){
   }else{
     _pending=packs; log("接続待ち：『サインイン』→『接続チェック』");
   }
-
   progress(100,"完了");
-  log("完了（最新20固定順保持／Single-first／CatNo・アルバム・リミキサ連番禁止／版内ハードユニーク／BP=150保証）");
-
-  /* ★自動ダウンロード開始★ */
-  exportXlsx(_exportRows);
-  exportCsv(_exportRows);
+  log("完了（手動/最新20固定／Single-first／CatNo連打禁止＆分散強化／リミキサ分散／版内ユニーク＋上限／版間ユニーク／BP=150保証）");
 }
 
-/* ===== Resolve pending ===== */
 async function resolveAndWrite(packs){
   try{
     progress(90,"書込み再開…");
@@ -870,7 +880,7 @@ async function resolveAndWrite(packs){
   }catch(e){ log("ERROR(resolveAndWrite): "+(e.message||e)); }
 }
 
-/* ===== Runners ===== */
+/* ===== Runners (EXPORTED) ===== */
 window.runCsvOnly = async function runCsvOnly(){
   progress(8,"CSV検出…");
   var cols=guessCsvColumns(csvRows);
@@ -887,7 +897,7 @@ window.runCsvOnly = async function runCsvOnly(){
 
   URI_META=buildUriMeta(list,tracksMap,albums,csvRows,cols);
 
-  progress(72,"固定20（無条件）…"); var pinned=await getPinnedIntroLatest20_UNCONDITIONAL(list,tracksMap,albums,feats); analyzePinnedAdjacency(pinned);
+  progress(72,"固定20…"); var pinned=await getPinnedTop20(list,tracksMap,albums,feats); analyzePinnedAdjacency(pinned);
   var pinnedSet=new Set(pinned);
 
   var basePool=buildBasePoolSmart(list,pinnedSet);
@@ -895,7 +905,7 @@ window.runCsvOnly = async function runCsvOnly(){
   progress(78,"分配…");
   var packs4=null; try{ packs4=makeEditionPacksV3(basePool,feats,pinned,tracksMap); }catch(e){ log("V3分配で例外 → Fallback: "+(e.message||e)); packs4=makeEditionPacksFallback(basePool,feats,pinned,tracksMap); }
   progress(82,"Beatport版(+20) 充足…"); var packBP=buildBeatportFromConsensus(basePool,feats,pinned,packs4,tracksMap);
-  progress(90,"書込み/エクスポート準備…"); await exportPrepAndWrite(Object.assign({},packs4,{ BEATPORT:packBP}),feats,tracksMap);
+  progress(90,"エクスポート/書込み準備…"); await exportPrepAndWrite(Object.assign({},packs4,{ BEATPORT:packBP}),feats);
 };
 
 window.runAutoOnly = async function runAutoOnly(){
@@ -925,14 +935,14 @@ window.runAutoOnly = async function runAutoOnly(){
 
   URI_META=buildUriMeta(list,tracksMap,albums,null,null);
 
-  progress(72,"固定20（無条件）…"); var pinned=await getPinnedIntroLatest20_UNCONDITIONAL(list,tracksMap,albums,feats); analyzePinnedAdjacency(pinned);
+  progress(72,"固定20…"); var pinned=await getPinnedTop20(list,tracksMap,albums,feats); analyzePinnedAdjacency(pinned);
   var pinnedSet=new Set(pinned);
   var basePool=buildBasePoolSmart(list,pinnedSet);
 
   progress(78,"分配…");
   var packs4=null; try{ packs4=makeEditionPacksV3(basePool,feats,pinned,tracksMap); }catch(e){ log("V3分配で例外 → Fallback: "+(e.message||e)); packs4=makeEditionPacksFallback(basePool,feats,pinned,tracksMap); }
   progress(82,"Beatport版(+20) 充足…"); var packBP=buildBeatportFromConsensus(basePool,feats,pinned,packs4,tracksMap);
-  progress(90,"書込み/エクスポート準備…"); await exportPrepAndWrite(Object.assign({},packs4,{ BEATPORT:packBP}),feats,tracksMap);
+  progress(90,"エクスポート/書込み準備…"); await exportPrepAndWrite(Object.assign({},packs4,{ BEATPORT:packBP}),feats);
 };
 
 /* ===== UI bindings ===== */
@@ -956,16 +966,31 @@ $("fileCSV").addEventListener("change", async function () {
 $("btnRun").onclick=async function(){
   $("log").textContent="";
   progress(1,"開始…");
-  if(!isAuthed()){ $("status").textContent="未接続（サインインしてください）"; return; }
+  // サインインしてなくてもエクスポートだけは動く（書込みは保留）
   var useCsv = $("modeCsv").checked && $("fileCSV").files.length>0;
   try{ if(useCsv){ await window.runCsvOnly(); } else { $("modeAuto").checked=true; $("modeCsv").onchange(); await window.runAutoOnly(); } }
   catch(e){ log("ERROR: "+(e.message||e)); }
 };
 
-$("btnExportXlsx").onclick=function(){ if(_exportRows) exportXlsx(_exportRows); else log("先にビルドしてください"); };
-$("btnExportCsv").onclick=function(){ if(_exportRows) exportCsv(_exportRows); else log("先にビルドしてください"); };
+$("btnExportXlsx").onclick=function(){
+  if(!_exportData){ log("まだデータがありません"); return; }
+  var ts=(function(){var d=new Date();function z(n){return (n<10?"0":"")+n}return d.getFullYear()+""+z(d.getMonth()+1)+""+z(d.getDate())+"_"+z(d.getHours())+z(d.getMinutes());})();
+  triggerXLSXDownload(_exportData.packs,_exportData.feats,"TDCS_build_"+BUILD_ID+"_"+ts+".xlsx");
+};
+$("btnExportCsv").onclick=function(){
+  if(!_exportData){ log("まだデータがありません"); return; }
+  var ts=(function(){var d=new Date();function z(n){return (n<10?"0":"")+n}return d.getFullYear()+""+z(d.getMonth()+1)+""+z(d.getDate())+"_"+z(d.getHours())+z(d.getMinutes());})();
+  var rows=[].concat(
+    makeExportRows(_exportData.packs.UK,"UK",_exportData.feats),
+    makeExportRows(_exportData.packs.US,"US",_exportData.feats),
+    makeExportRows(_exportData.packs.EU,"EU",_exportData.feats),
+    makeExportRows(_exportData.packs.WORLD,"WORLD",_exportData.feats),
+    makeExportRows(_exportData.packs.BEATPORT,"BEATPORT",_exportData.feats)
+  );
+  triggerCSVDownload(rows,"TDCS_build_"+BUILD_ID+"_"+ts+".csv");
+};
 
-/* ===== Boot once ===== */
+/* ===== Boot once; show dynamic redirect; enable buttons ===== */
 document.addEventListener("DOMContentLoaded", function(){
   try{ $("buildBadge").textContent="BUILD "+BUILD_ID; }catch(_){}
   try{ $("btnConnect").disabled=false; }catch(_){}
