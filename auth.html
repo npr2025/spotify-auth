@@ -27,18 +27,27 @@ function decideReturnTo(){
   return DEFAULT_RETURN;
 }
 
-function b64url(bytes){
-  return btoa(String.fromCharCode.apply(null, new Uint8Array(bytes)))
-    .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+// ---- PKCE helpers ----
+function b64urlFromBytes(bytes){
+  let bin=''; for(const b of bytes) bin+=String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 }
-async function sha256(str){
-  const enc=new TextEncoder(); const data=enc.encode(str);
-  const buf=await crypto.subtle.digest('SHA-256', data);
-  return b64url(buf);
+function b64urlFromBuffer(buf){ return b64urlFromBytes(new Uint8Array(buf)); }
+async function sha256Ascii(str){
+  // code_verifier は ASCII subset 推奨
+  const data=new TextEncoder().encode(str);
+  const hash=await crypto.subtle.digest('SHA-256', data);
+  return b64urlFromBuffer(hash);
 }
-function randString(len=64){
-  const arr=new Uint8Array(len); crypto.getRandomValues(arr);
-  return Array.from(arr).map(x=>('0'+(x%256).toString(16)).slice(-2)).join('');
+function genCodeVerifier(byteLen=64){
+  // 64バイト → base64url(約86文字) = 仕様内(43–128)
+  const bytes=new Uint8Array(byteLen);
+  crypto.getRandomValues(bytes);
+  return b64urlFromBytes(bytes);
+}
+function randState(len=16){
+  const bytes=new Uint8Array(len); crypto.getRandomValues(bytes);
+  return b64urlFromBytes(bytes); // 短いbase64urlでOK
 }
 
 (async ()=>{
@@ -46,12 +55,17 @@ function randString(len=64){
     const returnTo = decideReturnTo();
     sessionStorage.setItem('return_to', returnTo);
 
-    const code_verifier = randString(96);
-    const code_challenge = await sha256(code_verifier);
+    // ✅ 正しい長さと文字集合の code_verifier
+    const code_verifier = genCodeVerifier(64); // ≒86文字
+    const code_challenge = await sha256Ascii(code_verifier);
     sessionStorage.setItem('code_verifier', code_verifier);
 
-    const stateObj = { rt: returnTo, t: randString(16) };
+    // state に戻り先も封入（保険）
+    const stateObj = { rt: returnTo, t: randState(16) };
     const state = btoa(unescape(encodeURIComponent(JSON.stringify(stateObj))));
+
+    LOG('code_verifier length =', code_verifier.length); // 目安: 80–100台
+    LOG('code_challenge length =', code_challenge.length); // 43–128の範囲
 
     const params = new URLSearchParams({
       client_id: CLIENT_ID,
@@ -62,7 +76,7 @@ function randString(len=64){
       scope: SCOPES,
       state
     });
-    params.set('show_dialog','true'); // 常に同意画面を出す（アカウント切替や権限再付与に便利）
+    params.set('show_dialog','true'); // 同意画面を常に出す（アカ切替しやすい）
 
     const url = `${AUTH_URL}?${params.toString()}`;
     LOG('Redirecting to Spotify…');
