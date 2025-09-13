@@ -1,252 +1,420 @@
 <!doctype html>
-<html lang="en">
+<html lang="ja">
 <head>
-  <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-  <meta charset="utf-8">
+  <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>TDCS Playlist Builder (Per-CSV / Track-only / ISRC-first)</title>
+  <title>TDCS Builder — Singles(1–4) • ArtistID lock • Primary-only • Pin @19 • 超強化検索</title>
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-           max-width: 980px; margin: 24px auto; padding: 0 12px; background: #0b1220; color: #cfe3ff; }
-    h1 { margin: 0 0 8px; font-size: 20px; }
-    fieldset { border: 1px solid #22324f; border-radius: 10px; margin: 10px 0; padding: 12px; }
-    legend { padding: 0 8px; color: #bcd1f5; }
-    label { display: block; margin: 8px 0 4px; }
-    input[type="text"], select { width: 100%; max-width: 520px; padding: 9px; border-radius: 8px;
-                                 border: 1px solid #2d3e60; background: #091426; color: #cfe3ff; }
-    input[type="checkbox"] { transform: scale(1.05); margin-right: 6px; }
-    button { padding: 10px 14px; border-radius: 8px; border: 1px solid #3a4d75; background: #14213a; color: #e9f1ff; cursor: pointer; }
-    #log { white-space: pre-wrap; background: #091426; color: #d6e6ff; border: 1px solid #20304a; padding: 12px; border-radius: 10px; margin-top: 12px; max-height: 520px; overflow: auto; }
-    .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
-    .row > * { flex: 1 1 auto; }
-    .muted { color: #8ea6cc; }
+    :root { color-scheme: dark; }
+    body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
+           max-width:1080px;margin:24px auto;padding:0 12px;background:#0b1220;color:#cfe3ff;}
+    h1{margin:0 0 8px;font-size:20px;}
+    fieldset{border:1px solid #22324f;border-radius:10px;margin:10px 0;padding:12px;}
+    legend{padding:0 8px;color:#bcd1f5;}
+    label{display:block;margin:8px 0 4px;}
+    input[type="text"],input[type="number"],select{width:100%;max-width:640px;padding:9px;border-radius:8px;
+      border:1px solid #2d3e60;background:#091426;color:#cfe3ff;}
+    input[type="checkbox"]{transform:scale(1.05);margin-right:6px;}
+    button{padding:10px 14px;border-radius:8px;border:1px solid #3a4d75;background:#14213a;color:#e9f1ff;cursor:pointer;}
+    #log{white-space:pre-wrap;background:#091426;color:#d6e6ff;border:1px solid #20304a;padding:12px;border-radius:10px;
+      margin-top:12px;max-height:560px;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;}
+    .row{display:flex;flex-wrap:wrap;gap:12px;align-items:center;}
+    .row>*{flex:1 1 auto;}
+    .muted{color:#8ea6cc;}
   </style>
 </head>
 <body>
-  <h1>TDCS Playlist Builder (Per-CSV / Track-only / ISRC-first)</h1>
+<h1>TDCS Builder — Singles(1–4) • ArtistID lock • Primary-only • Pin @19 • 超強化検索</h1>
 
-  <fieldset>
-    <legend>Auth</legend>
-    <div id="authStatus" class="muted">No token.</div>
-    <div class="row" style="margin-top:8px">
-      <button onclick="location.href='auth.html'">Sign in</button>
-      <button id="btnSignOut">Sign out (local)</button>
-    </div>
-  </fieldset>
+<fieldset>
+  <legend>Auth</legend>
+  <div id="authStatus" class="muted">No token.</div>
+  <div class="row" style="margin-top:8px">
+    <button onclick="location.href='auth.html'">Sign in</button>
+    <button id="btnSignOut">Sign out (local)</button>
+  </div>
+</fieldset>
 
-  <fieldset>
-    <legend>Settings</legend>
+<fieldset>
+  <legend>Constraints</legend>
+  <label>Artist IDs（カンマ区切り）
+    <input id="artistIds" type="text" value="55fvQ5I2IZUfcFT2DV02T3">
+  </label>
+  <label><input id="primaryOnly" type="checkbox" checked> Primary-artist only（artists[0].id一致）</label>
+  <label><input id="strictSingles" type="checkbox" checked> Singlesのみ（1–4曲）</label>
+  <label><input id="fallbackAllowFeatured" type="checkbox" checked> Fallbackではfeat./非Primaryも許可</label>
+  <label><input id="useCatalogNumber" type="checkbox" checked> Catalog number（例: NPR226）も検索語に含める</label>
+  <div class="row">
+    <label>Pin track (URL/URI)
+      <input id="pinUri" type="text" value="https://open.spotify.com/track/3bBCxxbNkrl1DlBlxATNVQ">
+    </label>
+    <label>Pin position（1始まり）
+      <input id="pinPos" type="number" min="1" value="19">
+    </label>
+  </div>
+</fieldset>
+
+<fieldset>
+  <legend>Playlist settings</legend>
+  <label><input id="isPublic" type="checkbox"> Public playlist</label>
+  <label><input id="uniqueUris" type="checkbox" checked> 重複を除外</label>
+  <label>Build for user（任意）
+    <input id="userIdOverride" type="text" placeholder="22fqn5mozguuegi2t3l2zeugy" value="22fqn5mozguuegi2t3l2zeugy">
+  </label>
+  <div class="row">
     <label>Playlist name prefix
-      <input id="prefix" type="text" value="TDCS - ">
+      <input id="prefix" type="text" value="TDCS - Singles(1-4) - ">
     </label>
-    <label class="row" style="align-items:center">
-      <span><input id="useFileName" type="checkbox" checked> Use CSV filename as playlist name (prefix + filename)</span>
+    <label><input id="useFileName" type="checkbox" checked> プレイリスト名にCSVファイル名を使用</label>
+  </div>
+  <div class="row">
+    <label>Search market
+      <select id="searchMarket">
+        <option value="from_token" selected>from_token</option>
+        <option value="JP">JP</option><option value="US">US</option><option value="GB">GB</option>
+        <option value="DE">DE</option><option value="FR">FR</option><option value="ES">ES</option>
+        <option value="NL">NL</option><option value="SE">SE</option><option value="BR">BR</option>
+      </select>
     </label>
-    <div class="row">
-      <label class="row" style="align-items:center"><span><input id="isPublic" type="checkbox"> Public playlist</span></label>
-      <label class="row" style="align-items:center"><span><input id="uniqueUris" type="checkbox" checked> Unique tracks only</span></label>
-    </div>
-    <div class="row">
-      <label>Build for user (override, optional)
-        <input id="userIdOverride" type="text" placeholder="22fqn5mozguuegi2t3l2zeugy" value="22fqn5mozguuegi2t3l2zeugy">
-      </label>
-      <label>Search market
-        <select id="searchMarket">
-          <option value="from_token" selected>from_token</option>
-          <option value="JP">JP</option><option value="US">US</option><option value="GB">GB</option>
-          <option value="DE">DE</option><option value="FR">FR</option><option value="ES">ES</option>
-          <option value="NL">NL</option><option value="SE">SE</option><option value="BR">BR</option>
-        </select>
-      </label>
-    </div>
-  </fieldset>
+  </div>
+</fieldset>
 
-  <fieldset>
-    <legend>CSV</legend>
-    <label>Choose CSV files (multiple)
-      <input id="csvFiles" type="file" accept=".csv" multiple>
-    </label>
-    <div class="row" style="margin-top:8px">
-      <button id="btnBuild">Build playlists (one per CSV)</button>
-    </div>
-    <div class="muted" style="margin-top:8px">
-      Columns (flexible names ok): order, Catalog number, title, remixer, isrc, spotify_query, Original file name.
-      If no ISRC column, the code will try to extract from Original file name.
-    </div>
-  </fieldset>
+<fieldset>
+  <legend>CSV</legend>
+  <label>Choose CSV（複数可）
+    <input id="csvFiles" type="file" accept=".csv" multiple>
+  </label>
+  <div class="row" style="margin-top:8px">
+    <button id="btnBuild">Build playlists（CSVごとに1つ）</button>
+    <button id="btnExportNF">Export not-found.csv（直近の実行）</button>
+  </div>
+  <div class="muted" style="margin-top:8px">
+    受理列（ゆるく対応）: <code>order</code>, <code>Catalog number</code>, <code>title</code>, <code>remixer</code>, <code>isrc</code>, <code>spotify_query</code>, <code>Original file name</code><br>
+    ISRC列が無い場合は <em>Original file name</em> から抽出を試みます。
+  </div>
+</fieldset>
 
-  <pre id="log">Ready.</pre>
+<pre id="log">Ready.</pre>
 
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-  <script>
-    const LOG = (...a)=>{ const el=document.getElementById('log'); el.textContent += "\n" + a.join(' '); el.scrollTop = el.scrollHeight; };
-    const sleep = ms => new Promise(r=>setTimeout(r, ms));
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script>
+/* ---------- 基本ユーティリティ ---------- */
+const LOG=(...a)=>{const el=document.getElementById('log');el.textContent+="\n"+a.join(' ');el.scrollTop=el.scrollHeight;}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
-    function token(){ return sessionStorage.getItem('access_token') }
-    function needToken(){ const t=token(); if(!t) throw new Error('no_token'); return t }
-    async function api(url, opts={}){
-      const headers = Object.assign({'Authorization':'Bearer '+needToken()}, opts.headers||{});
-      const res = await fetch(url, Object.assign({}, opts, {headers}));
-      if(res.status===429){
-        const retry = Number(res.headers.get('Retry-After')||'2');
-        LOG('429 wait', retry, 's');
-        await sleep(retry*1000);
-        return api(url, opts);
+function token(){return sessionStorage.getItem('access_token')}
+function needToken(){const t=token();if(!t)throw new Error('no_token');return t}
+async function api(url,opt={}){
+  const headers=Object.assign({'Authorization':'Bearer '+needToken()}, opt.headers||{});
+  const res=await fetch(url, Object.assign({}, opt, {headers}));
+  if(res.status===429){
+    const retry=Number(res.headers.get('Retry-After')||'2');
+    LOG('429 wait', retry, 's');
+    await sleep(retry*1000);
+    return api(url,opt);
+  }
+  if(!res.ok){
+    const txt=await res.text();
+    throw new Error('API '+res.status+': '+txt);
+  }
+  return res.json();
+}
+async function me(){return api('https://api.spotify.com/v1/me')}
+function setAuthStatus(msg){document.getElementById('authStatus').textContent=msg}
+
+/* ---------- 正規化 & CSV ---------- */
+function normTitle(s){return (s||'').toLowerCase().replace(/[‐–—−]/g,'-').replace(/[’`]/g,"'").replace(/\s+/g,' ').trim();}
+function stripParens(s){return (s||'').replace(/\s*$begin:math:text$[^)]*$end:math:text$\s*/g,' ').replace(/\s+/g,' ').trim();}
+
+function extractISRC(s){if(!s)return'';const m=String(s).match(/\b[A-Z]{2}[A-Z0-9]{3}\d{7}\b/);return m?m[0]:'';}
+function normalizeRow(raw){
+  const lower={};for(const k in raw) lower[k.toLowerCase()]=k;
+  const pick=k=>raw[lower[k]];
+  const row={};
+  row.order=pick('order')??raw.order??'';
+  row.catalog=pick('catalog number')??pick('catalog')??pick('catalog_number')??'';
+  row.title=pick('title')??raw.title??pick('track')??'';
+  row.remixer=pick('remixer')??pick('remixers')??'';
+  let isrc=pick('isrc')??'';
+  if(!isrc || String(isrc).trim()===''){ isrc=extractISRC(pick('original file name')??''); }
+  row.isrc=String(isrc||'').trim();
+  row.spotify_query=pick('spotify_query')??'';
+  row._order=Number(row.order||0);
+  return row;
+}
+
+/* ---------- リミキサー分解（, / & / × / feat. 等） ---------- */
+function splitRemixers(remixer){
+  if(!remixer) return [];
+  const s = String(remixer)
+    .replace(/\bfeat\.?\b/ig, ',')
+    .replace(/\s+x\s+/ig, ',')
+    .replace(/\s*&\s*/g, ',');
+  return s.split(',').map(x=>x.trim()).filter(Boolean);
+}
+
+/* ---------- クエリ生成（厳→緩＋カタログ番号） ---------- */
+function buildQueries(row, useCatno){
+  const qs=[];
+  const tRaw=String(row.title||'').trim();
+  const tClean=stripParens(tRaw);
+  const remixers=splitRemixers(row.remixer);
+  const cat=row.catalog ? String(row.catalog).trim() : '';
+
+  if(row.isrc) qs.push('isrc:'+row.isrc);
+  if(row.spotify_query && String(row.spotify_query).trim()) qs.push(String(row.spotify_query).trim());
+
+  // 厳しめ（タイトル完全一致）
+  if(tRaw) qs.push(`track:"${tRaw}" artist:"The Darrow Chem Syndicate"`);
+  if(tClean && tClean!==tRaw) qs.push(`track:"${tClean}" artist:"The Darrow Chem Syndicate"`);
+
+  // リミキサー別（個別）
+  if(tRaw && remixers.length){
+    for(const r of remixers){
+      qs.push(`track:"${tRaw}" ${r} remix artist:"The Darrow Chem Syndicate"`);
+      qs.push(`"${tRaw} (${r} Remix)" "The Darrow Chem Syndicate"`);
+    }
+  }
+  // リミキサー複合
+  if(tRaw && remixers.length>=2){
+    const joined = remixers.join(' ');
+    qs.push(`track:"${tRaw}" ${joined} remix artist:"The Darrow Chem Syndicate"`);
+  }
+
+  // ゆるめ（無引用/カッコ除去）
+  if(tRaw) qs.push(`${tRaw} "The Darrow Chem Syndicate"`);
+  if(tClean && tClean!==tRaw) qs.push(`${tClean} "The Darrow Chem Syndicate"`);
+
+  // カタログ番号も混ぜる
+  if(useCatno && cat && tRaw){
+    qs.push(`"${cat}" "${tRaw}" "The Darrow Chem Syndicate"`);
+  }
+  return qs;
+}
+
+/* ---------- Artist / Single 条件 ---------- */
+function parseArtistIds(){return document.getElementById('artistIds').value.split(/[\s,]+/).map(s=>s.trim()).filter(Boolean);}
+function hasArtist(track,whitelist,primaryOnly){
+  const arts=track?.artists||[];
+  if(primaryOnly){
+    const a0=arts[0]?.id;
+    return a0 && whitelist.includes(a0);
+  }
+  return arts.some(a=>whitelist.includes(a.id));
+}
+const albumTotalCache=new Map();
+async function getAlbumTotalTracks(albumId){
+  if(!albumId) return null;
+  if(albumTotalCache.has(albumId)) return albumTotalCache.get(albumId);
+  const data=await api('https://api.spotify.com/v1/albums/'+encodeURIComponent(albumId));
+  const tt=(typeof data?.total_tracks==='number')?data.total_tracks:null;
+  albumTotalCache.set(albumId,tt);
+  await sleep(40);
+  return tt;
+}
+function singleCheckLocal(track, strict){
+  if(track?.album?.album_type!=='single') return false;
+  const tt=track?.album?.total_tracks;
+  if(typeof tt!=='number' || tt<=0) return 'unknown';
+  return strict ? (tt>=1 && tt<=4) : true;
+}
+
+/* ---------- 強化検索：/search → だめならシングル全走査 ---------- */
+async function searchTracks(q, market){
+  const base='https://api.spotify.com/v1/search?q='+encodeURIComponent(q)+'&type=track&limit=50';
+  const url=(market && market!=='from_token') ? (base+'&market='+encodeURIComponent(market)) : base;
+  return api(url);
+}
+const artistSinglesCache=new Map(); // key: artistId|market
+async function getArtistSingles(artistId, market){
+  const key=artistId+'|'+(market||'');
+  if(artistSinglesCache.has(key)) return artistSinglesCache.get(key);
+  const albums=[];
+  let url=`https://api.spotify.com/v1/artists/${encodeURIComponent(artistId)}/albums?include_groups=single&limit=50${market&&market!=='from_token'?`&market=${encodeURIComponent(market)}`:''}`;
+  let guard=0;
+  while(url && guard++<6){
+    const data=await api(url);
+    (data.items||[]).forEach(a=>albums.push({id:a.id,total_tracks:a.total_tracks||null}));
+    url=data.next;
+    await sleep(60);
+  }
+  artistSinglesCache.set(key,albums);
+  return albums;
+}
+function titleMatch(a,b){
+  const na=normTitle(a), nb=normTitle(b);
+  return na===nb || na.includes(nb) || nb.includes(na);
+}
+async function findInArtistSingles(row, whitelist, market, strictSingles, primaryOnly, allowFeatured){
+  if(!row.title) return null;
+  for(const aid of whitelist){
+    const albums=await getArtistSingles(aid,market);
+    for(const a of albums){
+      const tt=(typeof a.total_tracks==='number')?a.total_tracks:await getAlbumTotalTracks(a.id);
+      if(strictSingles && !(tt>=1 && tt<=4)) continue;
+      const tr=await api(`https://api.spotify.com/v1/albums/${encodeURIComponent(a.id)}/tracks?limit=50${market&&market!=='from_token'?`&market=${encodeURIComponent(market)}`:''}`);
+      for(const t of (tr.items||[])){
+        const arts=t.artists||[];
+        const okArtist = allowFeatured
+          ? arts.some(x=>whitelist.includes(x.id))
+          : (arts[0]?.id && whitelist.includes(arts[0].id));
+        if(!okArtist) continue;
+        if(titleMatch(t.name,row.title)) return t.uri;
       }
-      if(!res.ok){
-        const txt = await res.text(); throw new Error('API '+res.status+': '+txt);
-      }
-      return res.json();
+      await sleep(60);
     }
-    async function me(){ return api('https://api.spotify.com/v1/me') }
-    function setAuthStatus(msg){ document.getElementById('authStatus').textContent = msg }
+  }
+  return null;
+}
 
-    function extractISRC(s){
-      if(!s) return '';
-      const m = String(s).match(/\b[A-Z]{2}[A-Z0-9]{3}\d{7}\b/);
-      return m ? m[0] : '';
-    }
+/* ---------- Resolver（抜け漏れ最小化） ---------- */
+async function resolveTrack(row, market, strictSingles, whitelist, primaryOnly){
+  const useCatno = document.getElementById('useCatalogNumber').checked;
+  const markets = (market && market!=='from_token')
+    ? [market]
+    : ['', 'JP', 'US', 'GB', 'DE', 'FR', 'ES', 'NL', 'SE', 'BR']; // 市場総当り
+  const qs=buildQueries(row, useCatno);
 
-    function normalizeRow(raw){
-      const lower = {}; for(const k in raw){ lower[k.toLowerCase()] = k; }
-      const pick = key => raw[ lower[key] ];
-      const row = {};
-      row.order = pick('order') ?? raw.order ?? '';
-      row.catalog = pick('catalog number') ?? pick('catalog') ?? pick('catalog_number') ?? '';
-      row.title = pick('title') ?? raw.title ?? pick('track') ?? pick('track title') ?? pick('title (remixer remix)') ?? '';
-      row.remixer = pick('remixer') ?? pick('remixers') ?? pick('artist') ?? '';
-      let isrc = pick('isrc') ?? '';
-      if(!isrc || String(isrc).trim()===''){
-        const ofn = pick('original file name') ?? '';
-        isrc = extractISRC(ofn);
-      }
-      row.isrc = String(isrc||'').trim();
-      row.spotify_query = pick('spotify_query') ?? '';
-      row._order = Number(row.order||0);
-      return row;
-    }
-
-    function buildQueries(row){
-      const qs = [];
-      if(row.isrc) qs.push('isrc:'+row.isrc);
-      if(row.spotify_query && String(row.spotify_query).trim()) qs.push(String(row.spotify_query).trim());
-      const t = String(row.title||'').trim();
-      const r = String(row.remixer||'').trim();
-      if(t) qs.push('track:"'+t+'" artist:"The Darrow Chem Syndicate"');
-      if(t && r) qs.push('track:"'+t+'" '+r+' remix artist:"The Darrow Chem Syndicate"');
-      if(t) qs.push(t+' "The Darrow Chem Syndicate"');
-      return qs;
-    }
-
-    async function resolveTrack(row, market){
-      const qs = buildQueries(row);
-      for(const q of qs){
-        const url = 'https://api.spotify.com/v1/search?q=' + encodeURIComponent(q) + '&type=track&limit=8&market=' + encodeURIComponent(market);
-        try{
-          const res = await api(url);
-          const items = (res?.tracks?.items||[]).filter(x => x?.type==='track' && x?.uri?.startsWith('spotify:track:'));
-          if(items.length){
-            items.sort((a,b)=> ((a.album?.album_type==='single')?0:1) - ((b.album?.album_type==='single')?0:1));
-            return items[0].uri;
-          }
-        }catch(e){
-          LOG('search error', e.message);
-        }
-        await sleep(120);
-      }
-      return null;
-    }
-
-    async function createPlaylist(name, pub){
-      const override = document.getElementById('userIdOverride').value.trim();
-      const uid = override || (await me()).id;
-      return api('https://api.spotify.com/v1/users/' + encodeURIComponent(uid) + '/playlists', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ name, public: !!pub, description: 'Per-CSV build • track-only • ISRC-first' })
-      });
-    }
-
-    async function addUris(pid, uris){
-      for(let i=0;i<uris.length;i+=100){
-        const chunk = uris.slice(i,i+100);
-        await api('https://api.spotify.com/v1/playlists/' + pid + '/tracks', {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ uris: chunk })
-        });
-        LOG('added', Math.min(i+100, uris.length), '/', uris.length);
-        await sleep(120);
-      }
-    }
-
-    async function buildOneCSV(file, market, pub, unique, prefix, useFileName){
-      LOG('--- CSV:', file.name, '---');
-      const rows = await new Promise((resolve, reject)=>{
-        Papa.parse(file, { header:true, skipEmptyLines:true, complete: r=>resolve(r.data), error: reject });
-      });
-      const norm = rows.map(normalizeRow).sort((a,b)=> (a._order||0)-(b._order||0));
-      LOG('rows:', norm.length);
-
-      const seen = new Set();
-      const uris = [];
-      let idx = 0;
-      for(const r of norm){
-        idx++;
-        const uri = await resolveTrack(r, market);
-        if(uri){
-          if(unique && seen.has(uri)){
-            LOG('[dup] skip', idx, uri);
-          }else{
-            seen.add(uri); uris.push(uri);
-            LOG('[ok]', idx, uri);
-          }
-        }else{
-          LOG('[x] not found', idx, r.title||'');
-        }
-      }
-
-      const base = file.name.replace(/\.csv$/i,'').slice(0,140);
-      const name = useFileName ? (prefix + base) : (prefix || 'TDCS - playlist');
-      const pl = await createPlaylist(name, pub);
-      LOG('playlist:', pl.external_urls?.spotify || '');
-      if(uris.length) await addUris(pl.id, uris);
-      LOG('DONE', file.name, '->', pl.external_urls?.spotify || '');
-    }
-
-    document.getElementById('btnBuild').onclick = async () => {
-      try{ needToken(); }catch(_){ alert('Sign in first'); return; }
-      const files = [...(document.getElementById('csvFiles').files||[])];
-      if(!files.length){ alert('Choose CSV files'); return; }
-
-      const pub = document.getElementById('isPublic').checked;
-      const unique = document.getElementById('uniqueUris').checked;
-      const market = document.getElementById('searchMarket').value;
-      const prefix = document.getElementById('prefix').value || '';
-      const useFileName = document.getElementById('useFileName').checked;
-
-      for(const f of files){
-        await buildOneCSV(f, market, pub, unique, prefix, useFileName);
-      }
-      alert('All done.');
-    };
-
-    document.getElementById('btnSignOut').onclick = () => {
-      sessionStorage.clear();
-      localStorage.removeItem('code_verifier');
-      setAuthStatus('No token.');
-      LOG('Signed out (local).');
-    };
-
-    (async()=>{
+  // 1) /search を市場パターンで総当り
+  for(const mkt of markets){
+    for(const q of qs){
       try{
-        if(!token()) throw new Error('no');
-        const m = await me();
-        setAuthStatus('Signed in as ' + (m.display_name || m.id));
-      }catch(_){
-        setAuthStatus('No token.');
+        const res=await searchTracks(q, mkt);
+        let items=(res?.tracks?.items||[]).filter(x=>x?.uri?.startsWith('spotify:track:') && hasArtist(x,whitelist,primaryOnly));
+        for(const it of items){
+          const chk=singleCheckLocal(it, strictSingles);
+          if(chk===true) return it.uri;
+          if(chk==='unknown'){
+            const tt=await getAlbumTotalTracks(it.album?.id);
+            if(tt && tt>=1 && tt<=4) return it.uri;
+          }
+          await sleep(25);
+        }
+      }catch(e){ LOG('search error', e.message); }
+      await sleep(80);
+    }
+  }
+
+  // 2) アーティストのシングル全走査で救済（fallbackはprimary-onlyを緩め可）
+  const allowFeatured = document.getElementById('fallbackAllowFeatured').checked;
+  const uri=await findInArtistSingles(row, whitelist, market, strictSingles, primaryOnly, allowFeatured);
+  if(uri) return uri;
+
+  return null;
+}
+
+/* ---------- Pin / Playlist ---------- */
+function toTrackUri(s){
+  if(!s) return null;
+  if(String(s).startsWith('http')){
+    const m=String(s).match(/track\/([a-zA-Z0-9]+)/);
+    if(m) return 'spotify:track:'+m[1];
+  }
+  return s;
+}
+async function createPlaylist(name, isPublic){
+  const override=document.getElementById('userIdOverride').value.trim();
+  const uid=override || (await me()).id;
+  return api('https://api.spotify.com/v1/users/'+encodeURIComponent(uid)+'/playlists',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name, public:!!isPublic, description:'Singles(1–4) • ArtistID lock • Primary-only • Pinned'})
+  });
+}
+async function addUris(pid, uris){
+  for(let i=0;i<uris.length;i+=100){
+    const chunk=uris.slice(i,i+100);
+    await api('https://api.spotify.com/v1/playlists/'+pid+'/tracks',{
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({uris:chunk})
+    });
+    LOG('added', Math.min(i+100, uris.length), '/', uris.length);
+    await sleep(100);
+  }
+}
+
+/* ---------- not-found エクスポート ---------- */
+let lastNotFoundRows=[];
+function exportNotFound(){
+  if(!lastNotFoundRows.length){ alert('not-found はありません'); return; }
+  const header=['source_file','index','title','remixer','isrc','catalog'];
+  const rows=lastNotFoundRows.map(r=>[r.source,r.index,r.title||'',r.remixer||'',r.isrc||'',r.catalog||'']);
+  const csv=[header.join(','), ...rows.map(r=>r.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(','))].join('\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob); const a=document.createElement('a');
+  a.href=url; a.download='not-found.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+
+/* ---------- メイン（[ok]だけ数えてN曲目にPin） ---------- */
+async function buildOneCSV(file, opts){
+  const {market, isPublic, unique, prefix, useFileName, strictSingles, whitelist, primaryOnly, pinUri, pinPos}=opts;
+  LOG('--- CSV:', file.name, '---');
+
+  const rows=await new Promise((resolve,reject)=>{
+    Papa.parse(file,{header:true,skipEmptyLines:true,complete:r=>resolve(r.data),error:reject});
+  });
+  const norm=rows.map(normalizeRow).sort((a,b)=>(a._order||0)-(b._order||0));
+  LOG('rows:', norm.length);
+
+  const seen=new Set(); const uris=[];
+  let okCount=0; const pinIndex0=Math.max(0, Number(pinPos||19)-1);
+
+  for(let i=0;i<norm.length;i++){
+    const r=norm[i];
+    try{
+      const uri=await resolveTrack(r, market, strictSingles, whitelist, primaryOnly);
+      if(uri){
+        if(pinUri && okCount===pinIndex0){
+          if(!unique || !seen.has(pinUri)){ uris.push(pinUri); seen.add(pinUri); LOG('pin @', pinIndex0+1, pinUri); }
+        }
+        if(!unique || !seen.has(uri)){ uris.push(uri); seen.add(uri); okCount++; LOG('[ok]', i+1, uri); }
+        else { LOG('[dup] skip', i+1, uri); }
+      }else{
+        LOG('[x] not found', i+1, r.title||'');
+        lastNotFoundRows.push({source:file.name, index:i+1, title:r.title||'', remixer:r.remixer||'', isrc:r.isrc||'', catalog:r.catalog||''});
       }
-    })();
-  </script>
+    }catch(e){
+      LOG('[!] error', i+1, (r.title||''), e.message);
+      lastNotFoundRows.push({source:file.name, index:i+1, title:r.title||'', remixer:r.remixer||'', isrc:r.isrc||'', catalog:r.catalog||''});
+    }
+  }
+
+  if(pinUri && okCount<=pinIndex0){
+    if(!unique || !seen.has(pinUri)){ uris.push(pinUri); seen.add(pinUri); LOG('pin (tail)', pinUri); }
+  }
+
+  const base=file.name.replace(/\.csv$/i,'').slice(0,140);
+  const name=useFileName ? (prefix + base) : (prefix || 'TDCS - Singles(1-4)');
+  const pl=await createPlaylist(name, isPublic);
+  LOG('playlist:', pl.external_urls?.spotify||'');
+  if(uris.length) await addUris(pl.id, uris);
+  LOG('DONE', file.name, '->', pl.external_urls?.spotify||'');
+}
+
+/* ---------- UI結線 ---------- */
+document.getElementById('btnBuild').onclick=async()=>{
+  try{ needToken(); }catch(_){ alert('Sign in first'); return; }
+  lastNotFoundRows=[];
+  const files=[...(document.getElementById('csvFiles').files||[])];
+  if(!files.length){ alert('Choose CSV'); return; }
+
+  const opts={};
+  opts.isPublic=document.getElementById('isPublic').checked;
+  opts.unique=document.getElementById('uniqueUris').checked;
+  opts.market=document.getElementById('searchMarket').value; // 'from_token' は /search でパラメータ省略
+  opts.prefix=document.getElementById('prefix').value||'';
+  opts.useFileName=document.getElementById('useFileName').checked;
+  opts.strictSingles=document.getElementById('strictSingles').checked;
+  opts.primaryOnly=document.getElementById('primaryOnly').checked;
+  opts.whitelist=parseArtistIds();
+  opts.pinUri=toTrackUri(document.getElementById('pinUri').value.trim());
+  opts.pinPos=Number(document.getElementById('pinPos').value||19);
+
+  for(const f of files){ await buildOneCSV(f, opts); }
+  alert('All done. 必要なら「Export not-found.csv」で未解決行を確認してください。');
+};
+document.getElementById('btnExportNF').onclick=exportNotFound;
+document.getElementById('btnSignOut').onclick=()=>{ sessionStorage.clear(); localStorage.removeItem('code_verifier'); setAuthStatus('No token.'); LOG('Signed out (local).'); };
+(async()=>{ try{ if(!token()) throw 0; const m=await me(); setAuthStatus('Signed in as '+(m.display_name||m.id)); }catch(_){ setAuthStatus('No token.'); } })();
+</script>
 </body>
 </html>
