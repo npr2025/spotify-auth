@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>TDCS Builder — Singles(1–4) • ArtistID lock • Primary-only • Pin @19 • 強化検索</title>
+  <title>TDCS Builder — Singles(1–4) • ArtistID lock • Primary-only • Pin @19 • 超強化検索＋修正依頼DL</title>
   <style>
     :root { color-scheme: dark; }
     body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
@@ -24,7 +24,7 @@
   </style>
 </head>
 <body>
-<h1>TDCS Builder — Singles(1–4) • ArtistID lock • Primary-only • Pin @19 • 強化検索</h1>
+<h1>TDCS Builder — Singles(1–4) • ArtistID lock • Primary-only • Pin @19 • 超強化検索＋修正依頼DL</h1>
 
 <fieldset>
   <legend>Auth</legend>
@@ -37,11 +37,13 @@
 
 <fieldset>
   <legend>Constraints</legend>
-  <label>Artist IDs（カンマ区切り）
+  <label>Artist IDs（カンマ区切り。<b>先頭IDを“固定メイン”</b>として扱います）
     <input id="artistIds" type="text" value="55fvQ5I2IZUfcFT2DV02T3">
   </label>
-  <label><input id="primaryOnly" type="checkbox" checked> Primary-artist only（artists[0].id一致）</label>
+  <label><input id="primaryOnly" type="checkbox" checked> Primary-artist only（原則：artists[0].id=固定メイン）</label>
   <label><input id="strictSingles" type="checkbox" checked> Singlesのみ（1–4曲）</label>
+  <label><input id="fallbackAllowFeatured" type="checkbox" checked> 固定メインが先頭でなくても、<b>1–4曲シングルなら採用</b>（修正依頼に記録）</label>
+  <label><input id="useCatalogNumber" type="checkbox" checked> Catalog number（例: NPR226）も検索語に含める</label>
   <div class="row">
     <label>Pin track (URL/URI)
       <input id="pinUri" type="text" value="https://open.spotify.com/track/3bBCxxbNkrl1DlBlxATNVQ">
@@ -85,9 +87,10 @@
   <div class="row" style="margin-top:8px">
     <button id="btnBuild">Build playlists（CSVごとに1つ）</button>
     <button id="btnExportNF">Export not-found.csv（直近の実行）</button>
+    <button id="btnExportCorr">Export distributor-correction.txt（直近の実行）</button>
   </div>
   <div class="muted" style="margin-top:8px">
-    受理列（ゆるく対応）: <code>order</code>, <code>title</code>, <code>remixer</code>, <code>isrc</code>, <code>spotify_query</code>, <code>Original file name</code><br>
+    受理列（ゆるく対応）: <code>order</code>, <code>Catalog number</code>, <code>title</code>, <code>remixer</code>, <code>isrc</code>, <code>spotify_query</code>, <code>Original file name</code><br>
     ISRC列が無い場合は <em>Original file name</em> から抽出を試みます。
   </div>
 </fieldset>
@@ -96,68 +99,113 @@
 
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <script>
-/* ---------- 基本ユーティリティ ---------- */
+/* ---------- Utils ---------- */
 const LOG=(...a)=>{const el=document.getElementById('log');el.textContent+="\n"+a.join(' ');el.scrollTop=el.scrollHeight;}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function download(name, text){
+  const blob=new Blob([text],{type:'text/plain;charset=utf-8;'});
+  const url=URL.createObjectURL(blob); const a=document.createElement('a');
+  a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
 
 function token(){return sessionStorage.getItem('access_token')}
 function needToken(){const t=token();if(!t)throw new Error('no_token');return t}
 async function api(url,opt={}){
   const headers=Object.assign({'Authorization':'Bearer '+needToken()}, opt.headers||{});
   const res=await fetch(url, Object.assign({}, opt, {headers}));
-  if(res.status===429){
-    const retry=Number(res.headers.get('Retry-After')||'2');
-    LOG('429 wait', retry, 's');
-    await sleep(retry*1000);
-    return api(url,opt);
-  }
-  if(!res.ok){
-    const txt=await res.text();
-    throw new Error('API '+res.status+': '+txt);
-  }
+  if(res.status===429){const retry=Number(res.headers.get('Retry-After')||'2');LOG('429 wait',retry,'s');await sleep(retry*1000);return api(url,opt);}
+  if(!res.ok){const txt=await res.text();throw new Error('API '+res.status+': '+txt)}
   return res.json();
 }
 async function me(){return api('https://api.spotify.com/v1/me')}
 function setAuthStatus(msg){document.getElementById('authStatus').textContent=msg}
 
-/* ---------- 正規化 & CSV ---------- */
+/* ---------- Normalizers ---------- */
 function normTitle(s){return (s||'').toLowerCase().replace(/[‐–—−]/g,'-').replace(/[’`]/g,"'").replace(/\s+/g,' ').trim();}
 function stripParens(s){return (s||'').replace(/\s*$begin:math:text$[^)]*$end:math:text$\s*/g,' ').replace(/\s+/g,' ').trim();}
-
 function extractISRC(s){if(!s)return'';const m=String(s).match(/\b[A-Z]{2}[A-Z0-9]{3}\d{7}\b/);return m?m[0]:'';}
+
 function normalizeRow(raw){
   const lower={};for(const k in raw) lower[k.toLowerCase()]=k;
   const pick=k=>raw[lower[k]];
   const row={};
   row.order=pick('order')??raw.order??'';
+  row.catalog=pick('catalog number')??pick('catalog')??pick('catalog_number')??'';
   row.title=pick('title')??raw.title??pick('track')??'';
   row.remixer=pick('remixer')??pick('remixers')??'';
-  let isrc=pick('isrc')??'';
-  if(!isrc || String(isrc).trim()===''){ isrc=extractISRC(pick('original file name')??''); }
+  let isrc=pick('isrc')??''; if(!isrc || String(isrc).trim()===''){ isrc=extractISRC(pick('original file name')??''); }
   row.isrc=String(isrc||'').trim();
   row.spotify_query=pick('spotify_query')??'';
   row._order=Number(row.order||0);
   return row;
 }
 
-/* ---------- クエリ生成（段階的に厳→緩） ---------- */
-function buildQueries(row){
+/* ---------- Remixers / Aliases ---------- */
+function splitRemixers(remixer){
+  if(!remixer) return [];
+  const s = String(remixer)
+    .replace(/\bfeat\.?\b/ig, ',')
+    .replace(/\s+x\s+/ig, ',')
+    .replace(/\s*&\s*/g, ',');
+  return s.split(',').map(x=>x.trim()).filter(Boolean);
+}
+function tdcsAliases(){
+  return [
+    'The Darrow Chem Syndicate',
+    'Darrow Chem Syndicate',
+    'TDCS'
+  ];
+}
+
+/* ---------- Query builder ---------- */
+function buildQueries(row, useCatno){
   const qs=[];
   const tRaw=String(row.title||'').trim();
   const tClean=stripParens(tRaw);
-  const r=String(row.remixer||'').trim();
+  const remixers=splitRemixers(row.remixer);
+  const cat = row.catalog ? String(row.catalog).trim() : '';
+  const aliases = tdcsAliases();
+
   if(row.isrc) qs.push('isrc:'+row.isrc);
   if(row.spotify_query && String(row.spotify_query).trim()) qs.push(String(row.spotify_query).trim());
-  if(tRaw) qs.push(`track:"${tRaw}" artist:"The Darrow Chem Syndicate"`);
-  if(tClean && tClean!==tRaw) qs.push(`track:"${tClean}" artist:"The Darrow Chem Syndicate"`);
-  if(tRaw && r) qs.push(`track:"${tRaw}" ${r} remix artist:"The Darrow Chem Syndicate"`);
-  if(tRaw) qs.push(`${tRaw} "The Darrow Chem Syndicate"`);
-  return qs;
+
+  for(const name of aliases){
+    if(tRaw) qs.push(`track:"${tRaw}" artist:"${name}"`);
+    if(tClean && tClean!==tRaw) qs.push(`track:"${tClean}" artist:"${name}"`);
+    if(tRaw && remixers.length){
+      for(const r of remixers){
+        qs.push(`track:"${tRaw}" ${r} remix artist:"${name}"`);
+        qs.push(`"${tRaw} (${r} Remix)" "${name}"`);
+      }
+      if(remixers.length>=2){
+        const joined = remixers.join(' ');
+        qs.push(`track:"${tRaw}" ${joined} remix artist:"${name}"`);
+      }
+    }
+    if(tRaw) qs.push(`${tRaw} "${name}"`);
+    if(tClean && tClean!==tRaw) qs.push(`${tClean} "${name}"`);
+  }
+  if(tRaw){
+    qs.push(`track:"${tRaw}" remix`);
+    for(const r of remixers){ qs.push(`track:"${tRaw}" "${r}" remix`); }
+    qs.push(`${tRaw} remix`);
+  }
+  if(useCatno && cat && tRaw){
+    qs.push(`"${cat}" "${tRaw}"`);
+    for(const name of aliases){ qs.push(`"${cat}" "${tRaw}" "${name}"`); }
+  }
+  return Array.from(new Set(qs));
 }
 
-/* ---------- Artist / Single 条件 ---------- */
-function parseArtistIds(){return document.getElementById('artistIds').value.split(/[\s,]+/).map(s=>s.trim()).filter(Boolean);}
-function hasArtist(track,whitelist,primaryOnly){
+/* ---------- Artist / Single checks ---------- */
+function parseArtistIds(){
+  return document.getElementById('artistIds').value.split(/[\s,]+/).map(s=>s.trim()).filter(Boolean);
+}
+function mainArtistId(){ return parseArtistIds()[0] || ''; }
+
+function artistNames(arts){ return (arts||[]).map(a=>a.name).join(', '); }
+
+function hasArtist(track, whitelist, primaryOnly){
   const arts=track?.artists||[];
   if(primaryOnly){
     const a0=arts[0]?.id;
@@ -165,6 +213,14 @@ function hasArtist(track,whitelist,primaryOnly){
   }
   return arts.some(a=>whitelist.includes(a.id));
 }
+function detectPrimaryMismatch(track){
+  const arts=track?.artists||[];
+  const main = mainArtistId();
+  if(!main) return false;
+  const idx = arts.findIndex(a=>a.id===main);
+  return idx>0; // 固定メインが先頭でない＝primaryが複数 or 順序違い疑い
+}
+
 const albumTotalCache=new Map();
 async function getAlbumTotalTracks(albumId){
   if(!albumId) return null;
@@ -172,90 +228,154 @@ async function getAlbumTotalTracks(albumId){
   const data=await api('https://api.spotify.com/v1/albums/'+encodeURIComponent(albumId));
   const tt=(typeof data?.total_tracks==='number')?data.total_tracks:null;
   albumTotalCache.set(albumId,tt);
-  await sleep(40);
+  await sleep(30);
   return tt;
 }
 function singleCheckLocal(track, strict){
   if(track?.album?.album_type!=='single') return false;
   const tt=track?.album?.total_tracks;
-  if(typeof tt!=='number' || tt<=0) return 'unknown';
+  if(typeof tt!=='number'||tt<=0) return 'unknown';
   return strict ? (tt>=1 && tt<=4) : true;
 }
 
-/* ---------- 強化検索：/search → だめならシングル全走査 ---------- */
+/* ---------- Search layers ---------- */
 async function searchTracks(q, market){
-  const base='https://api.spotify.com/v1/search?q='+encodeURIComponent(q)+'&type=track&limit=12';
+  const base='https://api.spotify.com/v1/search?q='+encodeURIComponent(q)+'&type=track&limit=50';
   const url=(market && market!=='from_token') ? (base+'&market='+encodeURIComponent(market)) : base;
   return api(url);
 }
-const artistSinglesCache=new Map(); // key: artistId|market
-async function getArtistSingles(artistId, market){
-  const key=artistId+'|'+(market||'');
-  if(artistSinglesCache.has(key)) return artistSinglesCache.get(key);
+async function searchAlbums(q, market){
+  const base='https://api.spotify.com/v1/search?q='+encodeURIComponent(q)+'&type=album&limit=50';
+  const url=(market && market!=='from_token') ? (base+'&market='+encodeURIComponent(market)) : base;
+  return api(url);
+}
+const artistAlbumsCache=new Map(); // key: artist|market|groups
+async function getArtistAlbums(artistId, market, groups='single'){
+  const key=artistId+'|'+(market||'')+'|'+groups;
+  if(artistAlbumsCache.has(key)) return artistAlbumsCache.get(key);
   const albums=[];
-  let url=`https://api.spotify.com/v1/artists/${encodeURIComponent(artistId)}/albums?include_groups=single&limit=50${market&&market!=='from_token'?`&market=${encodeURIComponent(market)}`:''}`;
+  let url=`https://api.spotify.com/v1/artists/${encodeURIComponent(artistId)}/albums?include_groups=${groups}&limit=50${market&&market!=='from_token'?`&market=${encodeURIComponent(market)}`:''}`;
   let guard=0;
-  while(url && guard++<5){
+  while(url && guard++<8){
     const data=await api(url);
-    (data.items||[]).forEach(a=>albums.push({id:a.id,total_tracks:a.total_tracks||null}));
+    (data.items||[]).forEach(a=>albums.push({id:a.id,total_tracks:a.total_tracks||null, album_type:a.album_type, name:a.name}));
     url=data.next;
-    await sleep(60);
+    await sleep(50);
   }
-  artistSinglesCache.set(key,albums);
-  return albums;
-}
-function titleMatch(a,b){
-  const na=normTitle(a), nb=normTitle(b);
-  return na===nb || na.includes(nb) || nb.includes(na);
-}
-async function findInArtistSingles(row, whitelist, market, strictSingles, primaryOnly){
-  if(!row.title) return null;
-  for(const aid of whitelist){
-    const albums=await getArtistSingles(aid,market);
-    for(const a of albums){
-      const tt=(typeof a.total_tracks==='number')?a.total_tracks:await getAlbumTotalTracks(a.id);
-      if(strictSingles && !(tt>=1 && tt<=4)) continue;
-      const tr=await api(`https://api.spotify.com/v1/albums/${encodeURIComponent(a.id)}/tracks?limit=50${market&&market!=='from_token'?`&market=${encodeURIComponent(market)}`:''}`);
-      for(const t of (tr.items||[])){
-        const arts=t.artists||[];
-        const okArtist=primaryOnly ? (arts[0]?.id && whitelist.includes(arts[0].id)) : arts.some(x=>whitelist.includes(x.id));
-        if(!okArtist) continue;
-        if(titleMatch(t.name,row.title)) return t.uri;
-      }
-      await sleep(60);
-    }
-  }
-  return null;
+  artistAlbumsCache.set(key,albums); return albums;
 }
 
-/* ---------- Resolver（抜け漏れ最小化） ---------- */
+/* ---------- Global collectors ---------- */
+let lastNotFoundRows=[];
+let lastPrimaryIssues=[]; // 修正依頼エントリ
+
+/* ---------- Resolver with “primary-mismatch adopt + record” ---------- */
+function titleMatch(a,b){const na=normTitle(a), nb=normTitle(b);return na===nb || na.includes(nb) || nb.includes(na);}
+
 async function resolveTrack(row, market, strictSingles, whitelist, primaryOnly){
-  const markets = (market && market!=='from_token') ? [market] : ['', 'JP', 'US', 'GB']; // from_tokenは省略→必要ならJP/US/GBでも試す
-  const qs=buildQueries(row);
+  const useCatno = document.getElementById('useCatalogNumber').checked;
+  const allowFeatured = document.getElementById('fallbackAllowFeatured').checked;
+  const markets = (market && market!=='from_token')
+    ? [market]
+    : ['', 'JP', 'US', 'GB', 'DE', 'FR', 'ES', 'NL', 'SE', 'BR'];
+  const qs = buildQueries(row, useCatno);
 
-  // 1) /search を市場パターンで総当り
+  const consider = async (it, mkt, sourceLabel) => {
+    // シングル1–4判定（unknownならアルバム参照）
+    let ok = false;
+    const chk=singleCheckLocal(it, strictSingles);
+    if(chk===true){ ok=true; }
+    else if(chk==='unknown'){
+      const tt=await getAlbumTotalTracks(it.album?.id);
+      ok = !!(tt && tt>=1 && tt<=4);
+    }
+    if(!ok) return null;
+
+    // アーティスト条件の評価
+    const arts=it.artists||[];
+    const names=artistNames(arts);
+    const main=mainArtistId();
+    const hasAny = arts.some(a=>whitelist.includes(a.id));
+    const isMainFirst = arts[0]?.id===main;
+
+    if(primaryOnly){
+      if(isMainFirst){ return {uri:it.uri, issue:null}; }
+      // primaryOnlyでも allowFeatured がONなら、採用しつつ修正依頼
+      if(allowFeatured && hasAny){
+        const note = `【primary順序要修正】"${it.name}" — ${names}\nURI: ${it.uri}\n理由: 固定メイン(${main})が先頭でなく、primaryが複数/順序違いの可能性（市場:${mkt} / src:${sourceLabel}）。シングル(1–4)のため採用。`;
+        return {uri:it.uri, issue:note};
+      }
+      return null;
+    }else{
+      if(hasAny){
+        // mainが先頭でない場合は採用＋修正依頼
+        if(!isMainFirst){
+          const note = `【primary順序要修正】"${it.name}" — ${names}\nURI: ${it.uri}\n理由: 固定メイン(${main})が先頭でなく、primaryが複数/順序違いの可能性（市場:${mkt} / src:${sourceLabel}）。`;
+          return {uri:it.uri, issue:note};
+        }
+        return {uri:it.uri, issue:null};
+      }
+      return null;
+    }
+  };
+
+  // A: 厳格（primaryOnly=真で先頭一致）
   for(const mkt of markets){
     for(const q of qs){
       try{
         const res=await searchTracks(q, mkt);
-        let items=(res?.tracks?.items||[]).filter(x=>x?.uri?.startsWith('spotify:track:') && hasArtist(x,whitelist,primaryOnly));
+        const items=(res?.tracks?.items||[]).filter(x=>x?.uri?.startsWith('spotify:track:') && hasArtist(x,whitelist,true));
         for(const it of items){
-          const chk=singleCheckLocal(it, strictSingles);
-          if(chk===true) return it.uri;
-          if(chk==='unknown'){
-            const tt=await getAlbumTotalTracks(it.album?.id);
-            if(tt && tt>=1 && tt<=4) return it.uri;
-          }
-          await sleep(30);
+          const r = await consider(it, mkt, 'searchA');
+          if(r) return r;
+          await sleep(20);
         }
-      }catch(e){ LOG('search error', e.message); }
-      await sleep(100);
+      }catch(e){ LOG('searchA error', e.message); }
+      await sleep(60);
     }
   }
-
-  // 2) アーティストのシングル全走査で救済
-  const uri=await findInArtistSingles(row, whitelist, market, strictSingles, primaryOnly);
-  if(uri) return uri;
+  // B: 緩和（allowFeaturedで採用可＋修正依頼）
+  for(const mkt of markets){
+    for(const q of qs){
+      try{
+        const res=await searchTracks(q, mkt);
+        const items=(res?.tracks?.items||[]).filter(x=>x?.uri?.startsWith('spotify:track:'));
+        for(const it of items){
+          const arts=it.artists||[];
+          if(!(arts.some(a=>whitelist.includes(a.id)))) continue; // 最低でも含まれていること
+          const r = await consider(it, mkt, 'searchB');
+          if(r) return r;
+          await sleep(20);
+        }
+      }catch(e){ LOG('searchB error', e.message); }
+      await sleep(60);
+    }
+  }
+  // C: アーティストの single/appears_on を走査（タイトルゆる一致）
+  for(const mkt of markets){
+    for(const aid of whitelist){
+      const groupsList = ['single','appears_on'];
+      for(const groups of groupsList){
+        try{
+          const albums=await getArtistAlbums(aid, mkt, groups);
+          for(const a of albums){
+            if(a.album_type!=='single') continue;
+            const tt=(typeof a.total_tracks==='number')?a.total_tracks:await getAlbumTotalTracks(a.id);
+            if(!(tt && tt>=1 && tt<=4)) continue;
+            const tr=await api(`https://api.spotify.com/v1/albums/${encodeURIComponent(a.id)}/tracks?limit=50${mkt&&mkt!=='from_token'?`&market=${encodeURIComponent(mkt)}`:''}`);
+            for(const t of (tr.items||[])){
+              if(!titleMatch(t.name, row.title||'')) continue;
+              // 手動で track オブジェクト相当を組み立て（album型があるので最低限）
+              const fakeTrack = { uri:t.uri, name:t.name, artists:t.artists||[], album:{album_type:'single', total_tracks:tt, id:a.id} };
+              const r = await consider(fakeTrack, mkt, 'albums');
+              if(r) return r;
+            }
+            await sleep(40);
+          }
+        }catch(e){ LOG('albums error', e.message); }
+      }
+    }
+  }
 
   return null;
 }
@@ -289,19 +409,29 @@ async function addUris(pid, uris){
   }
 }
 
-/* ---------- not-found エクスポート ---------- */
-let lastNotFoundRows=[];
+/* ---------- Exporters ---------- */
 function exportNotFound(){
   if(!lastNotFoundRows.length){ alert('not-found はありません'); return; }
-  const header=['source_file','index','title','remixer','isrc'];
-  const rows=lastNotFoundRows.map(r=>[r.source,r.index,r.title||'',r.remixer||'',r.isrc||'']);
+  const header=['source_file','index','title','remixer','isrc','catalog'];
+  const rows=lastNotFoundRows.map(r=>[r.source,r.index,r.title||'',r.remixer||'',r.isrc||'',r.catalog||'']);
   const csv=[header.join(','), ...rows.map(r=>r.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(','))].join('\n');
-  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
-  const url=URL.createObjectURL(blob); const a=document.createElement('a');
-  a.href=url; a.download='not-found.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  download('not-found.csv', csv);
+}
+function exportCorrections(){
+  if(!lastPrimaryIssues.length){ alert('修正依頼はありません'); return; }
+  const lines = [
+    '【ディストリビューター様 修正依頼（primary順序/重複primaryの可能性）】',
+    '対象アーティスト（固定メイン）: ' + mainArtistId(),
+    '',
+    '以下のトラックは、Spotify上で固定メインが先頭でなく、primaryが複数/順序違いの可能性があるため、',
+    '「メイン＝固定アーティスト」になるようクレジット順序のご確認・修正をご検討ください。',
+    '(プレイリストにはシングル1–4曲の条件を満たすため暫定採用しています)',
+    ''
+  ].concat(lastPrimaryIssues);
+  download('distributor_correction.txt', lines.join('\n'));
 }
 
-/* ---------- メイン（[ok]だけ数えてN曲目にPin） ---------- */
+/* ---------- Build (pin = [ok]のN曲目直前) ---------- */
 async function buildOneCSV(file, opts){
   const {market, isPublic, unique, prefix, useFileName, strictSingles, whitelist, primaryOnly, pinUri, pinPos}=opts;
   LOG('--- CSV:', file.name, '---');
@@ -318,24 +448,27 @@ async function buildOneCSV(file, opts){
   for(let i=0;i<norm.length;i++){
     const r=norm[i];
     try{
-      const uri=await resolveTrack(r, market, strictSingles, whitelist, primaryOnly);
-      if(uri){
-        // [ok] をカウントして N 曲目に pin を先に挿入。以降の not-found はカウントしないのでズレない。
-        if(pinUri && okCount===pinIndex0){ if(!unique || !seen.has(pinUri)){ uris.push(pinUri); seen.add(pinUri); LOG('pin @', pinIndex0+1, pinUri); } }
-        if(!unique || !seen.has(uri)){ uris.push(uri); seen.add(uri); okCount++; LOG('[ok]', i+1, uri); }
-        else { LOG('[dup] skip', i+1, uri); }
+      const res=await resolveTrack(r, market, strictSingles, whitelist, primaryOnly);
+      if(res && res.uri){
+        if(pinUri && okCount===pinIndex0){
+          if(!unique || !seen.has(pinUri)){ uris.push(pinUri); seen.add(pinUri); LOG('pin @', pinIndex0+1, pinUri); }
+        }
+        if(!unique || !seen.has(res.uri)){ uris.push(res.uri); seen.add(res.uri); okCount++; LOG('[ok]', i+1, res.uri); }
+        else { LOG('[dup] skip', i+1, res.uri); }
+        if(res.issue){ lastPrimaryIssues.push(res.issue); LOG('[note] primary要修正 追記'); }
       }else{
         LOG('[x] not found', i+1, r.title||'');
-        lastNotFoundRows.push({source:file.name, index:i+1, title:r.title||'', remixer:r.remixer||'', isrc:r.isrc||''});
+        lastNotFoundRows.push({source:file.name, index:i+1, title:r.title||'', remixer:r.remixer||'', isrc:r.isrc||'', catalog:r.catalog||''});
       }
     }catch(e){
       LOG('[!] error', i+1, (r.title||''), e.message);
-      lastNotFoundRows.push({source:file.name, index:i+1, title:r.title||'', remixer:r.remixer||'', isrc:r.isrc||''});
+      lastNotFoundRows.push({source:file.name, index:i+1, title:r.title||'', remixer:r.remixer||'', isrc:r.isrc||'', catalog:r.catalog||''});
     }
   }
 
-  // OK数が pinPos 未満なら末尾に pin
-  if(pinUri && okCount<=pinIndex0){ if(!unique || !seen.has(pinUri)){ uris.push(pinUri); seen.add(pinUri); LOG('pin (tail)', pinUri); } }
+  if(pinUri && okCount<=pinIndex0){
+    if(!unique || !seen.has(pinUri)){ uris.push(pinUri); seen.add(pinUri); LOG('pin (tail)', pinUri); }
+  }
 
   const base=file.name.replace(/\.csv$/i,'').slice(0,140);
   const name=useFileName ? (prefix + base) : (prefix || 'TDCS - Singles(1-4)');
@@ -345,17 +478,17 @@ async function buildOneCSV(file, opts){
   LOG('DONE', file.name, '->', pl.external_urls?.spotify||'');
 }
 
-/* ---------- UI結線 ---------- */
+/* ---------- UI ---------- */
 document.getElementById('btnBuild').onclick=async()=>{
   try{ needToken(); }catch(_){ alert('Sign in first'); return; }
-  lastNotFoundRows=[];
+  lastNotFoundRows=[]; lastPrimaryIssues=[];
   const files=[...(document.getElementById('csvFiles').files||[])];
   if(!files.length){ alert('Choose CSV'); return; }
 
   const opts={};
   opts.isPublic=document.getElementById('isPublic').checked;
   opts.unique=document.getElementById('uniqueUris').checked;
-  opts.market=document.getElementById('searchMarket').value; // 'from_token' は /search でパラメータ省略
+  opts.market=document.getElementById('searchMarket').value;
   opts.prefix=document.getElementById('prefix').value||'';
   opts.useFileName=document.getElementById('useFileName').checked;
   opts.strictSingles=document.getElementById('strictSingles').checked;
@@ -365,9 +498,15 @@ document.getElementById('btnBuild').onclick=async()=>{
   opts.pinPos=Number(document.getElementById('pinPos').value||19);
 
   for(const f of files){ await buildOneCSV(f, opts); }
-  alert('All done. 必要なら「Export not-found.csv」で未解決行を確認してください。');
+
+  // 自動DL：修正依頼があれば即保存
+  if(lastPrimaryIssues.length){
+    exportCorrections();
+  }
+  alert('All done. 必要なら「Export not-found.csv」もどうぞ。');
 };
 document.getElementById('btnExportNF').onclick=exportNotFound;
+document.getElementById('btnExportCorr').onclick=exportCorrections;
 document.getElementById('btnSignOut').onclick=()=>{ sessionStorage.clear(); localStorage.removeItem('code_verifier'); setAuthStatus('No token.'); LOG('Signed out (local).'); };
 (async()=>{ try{ if(!token()) throw 0; const m=await me(); setAuthStatus('Signed in as '+(m.display_name||m.id)); }catch(_){ setAuthStatus('No token.'); } })();
 </script>
