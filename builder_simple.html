@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>TDCS Builder — Singles(1–4) • ArtistID lock • Primary-only • Pin @19 • 超強化検索＋修正依頼DL</title>
+  <title>TDCS Builder — Singles(1–4) • ArtistID lock • Primary-only • Pin @19 • 強化検索＋レート制御</title>
   <style>
     :root { color-scheme: dark; }
     body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
@@ -24,7 +24,7 @@
   </style>
 </head>
 <body>
-<h1>TDCS Builder — Singles(1–4) • ArtistID lock • Primary-only • Pin @19 • 超強化検索＋修正依頼DL</h1>
+<h1>TDCS Builder — Singles(1–4) • ArtistID lock • Primary-only • Pin @19 • 強化検索＋レート制御</h1>
 
 <fieldset>
   <legend>Auth</legend>
@@ -42,7 +42,7 @@
   </label>
   <label><input id="primaryOnly" type="checkbox" checked> Primary-artist only（原則：artists[0].id=固定メイン）</label>
   <label><input id="strictSingles" type="checkbox" checked> Singlesのみ（1–4曲）</label>
-  <label><input id="fallbackAllowFeatured" type="checkbox" checked> 固定メインが先頭でなくても、<b>1–4曲シングルなら採用</b>（修正依頼に記録）</label>
+  <label><input id="fallbackAllowFeatured" type="checkbox" checked> 固定メインが先頭でなくても、1–4曲シングルなら採用（修正依頼に記録）</label>
   <label><input id="useCatalogNumber" type="checkbox" checked> Catalog number（例: NPR226）も検索語に含める</label>
   <div class="row">
     <label>Pin track (URL/URI)
@@ -55,7 +55,7 @@
 </fieldset>
 
 <fieldset>
-  <legend>Playlist settings</legend>
+  <legend>Playlist & Rate</legend>
   <label><input id="isPublic" type="checkbox"> Public playlist</label>
   <label><input id="uniqueUris" type="checkbox" checked> 重複を除外</label>
   <label>Build for user（任意）
@@ -76,6 +76,16 @@
         <option value="NL">NL</option><option value="SE">SE</option><option value="BR">BR</option>
       </select>
     </label>
+    <label>Rate mode
+      <select id="rateMode">
+        <option value="gentle" selected>Gentle (安全)</option>
+        <option value="normal">Normal</option>
+        <option value="aggressive">Aggressive</option>
+      </select>
+    </label>
+    <div>
+      <button id="btnAbort" title="現在のリクエスト終了後に停止">Abort</button>
+    </div>
   </div>
 </fieldset>
 
@@ -99,7 +109,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <script>
-/* ---------- Utils ---------- */
+/* ---------- Logging / Utils ---------- */
 const LOG=(...a)=>{const el=document.getElementById('log');el.textContent+="\n"+a.join(' ');el.scrollTop=el.scrollHeight;}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function download(name, text){
@@ -108,17 +118,75 @@ function download(name, text){
   a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }
 
+/* ---------- Abort control ---------- */
+let ABORT=false;
+document.getElementById('btnAbort').onclick=()=>{ ABORT=true; LOG('Abort requested. 現在のリクエスト完了後に停止します。'); };
+function checkAbort(){ if(ABORT) throw new Error('aborted'); }
+
+/* ---------- Auth ---------- */
 function token(){return sessionStorage.getItem('access_token')}
 function needToken(){const t=token();if(!t)throw new Error('no_token');return t}
-async function api(url,opt={}){
-  const headers=Object.assign({'Authorization':'Bearer '+needToken()}, opt.headers||{});
-  const res=await fetch(url, Object.assign({}, opt, {headers}));
-  if(res.status===429){const retry=Number(res.headers.get('Retry-After')||'2');LOG('429 wait',retry,'s');await sleep(retry*1000);return api(url,opt);}
-  if(!res.ok){const txt=await res.text();throw new Error('API '+res.status+': '+txt)}
-  return res.json();
-}
 async function me(){return api('https://api.spotify.com/v1/me')}
 function setAuthStatus(msg){document.getElementById('authStatus').textContent=msg}
+
+/* ---------- Global Rate Limiter (Queue + Backoff) ---------- */
+const Rate = {
+  minDelay: 350,        // 初期: gentle
+  maxDelay: 3000,       // 自動上限（429が続くとここまで引き上げ）
+  nextAt: 0,            // 次に投げてよい時刻
+  inFlight: 0,          // 同時実行数（常に1に抑える）
+  attempts429: 0        // 連続429回数
+};
+function applyRateMode(mode){
+  if(mode==='aggressive'){ Rate.minDelay=120; Rate.maxDelay=1500; }
+  else if(mode==='normal'){ Rate.minDelay=220; Rate.maxDelay=2000; }
+  else { Rate.minDelay=350; Rate.maxDelay=3000; } // gentle
+}
+async function gate(){
+  while(Rate.inFlight>0){ await sleep(10); } // 同時実行=1
+  Rate.inFlight=1;
+  const now=Date.now();
+  if(Rate.nextAt>now){ await sleep(Rate.nextAt-now); }
+}
+function release(){ Rate.inFlight=0; }
+
+async function api(url,opt={}, attempt=0){
+  checkAbort();
+  await gate();
+  const start=Date.now();
+  const headers=Object.assign({'Authorization':'Bearer '+needToken()}, opt.headers||{});
+  try{
+    const res=await fetch(url, Object.assign({}, opt, {headers}));
+    const dur=Date.now()-start;
+    if(res.status===429){
+      // Respect Retry-After
+      const retrySec = Number(res.headers.get('Retry-After')||'2');
+      // Exponential growth on minDelay (capped)
+      Rate.attempts429++;
+      const grow = Math.min(Rate.maxDelay, Math.max(Rate.minDelay*Math.pow(1.5, Rate.attempts429), retrySec*1000));
+      Rate.minDelay = Math.min(Rate.maxDelay, Math.max(Rate.minDelay, grow));
+      const jitter = Math.floor(Math.random()*300);
+      Rate.nextAt = Date.now() + Math.max(retrySec*1000, Rate.minDelay) + jitter;
+      LOG(`429 -> backoff ${(Rate.nextAt-Date.now())/1000|0}s (minDelay=${Rate.minDelay}ms, attempt=${Rate.attempts429})`);
+      release();
+      if(attempt<6){ await sleep(Math.max(0, Rate.nextAt-Date.now())); return api(url,opt,attempt+1); }
+      throw new Error('API 429 too many attempts');
+    }
+    // success
+    Rate.attempts429=0;
+    Rate.nextAt = Date.now() + Rate.minDelay; // pace 次回まで待つ
+    if(!res.ok){
+      const txt=await res.text();
+      throw new Error('API '+res.status+': '+txt);
+    }
+    const json=await res.json();
+    release();
+    return json;
+  }catch(e){
+    release();
+    throw e;
+  }
+}
 
 /* ---------- Normalizers ---------- */
 function normTitle(s){return (s||'').toLowerCase().replace(/[‐–—−]/g,'-').replace(/[’`]/g,"'").replace(/\s+/g,' ').trim();}
@@ -143,66 +211,56 @@ function normalizeRow(raw){
 /* ---------- Remixers / Aliases ---------- */
 function splitRemixers(remixer){
   if(!remixer) return [];
-  const s = String(remixer)
-    .replace(/\bfeat\.?\b/ig, ',')
-    .replace(/\s+x\s+/ig, ',')
-    .replace(/\s*&\s*/g, ',');
+  const s = String(remixer).replace(/\bfeat\.?\b/ig, ',').replace(/\s+x\s+/ig, ',').replace(/\s*&\s*/g, ',');
   return s.split(',').map(x=>x.trim()).filter(Boolean);
 }
 function tdcsAliases(){
-  return [
-    'The Darrow Chem Syndicate',
-    'Darrow Chem Syndicate',
-    'TDCS'
-  ];
+  return ['The Darrow Chem Syndicate','Darrow Chem Syndicate','TDCS'];
 }
 
 /* ---------- Query builder ---------- */
 function buildQueries(row, useCatno){
-  const qs=[];
+  const qs=new Set();
   const tRaw=String(row.title||'').trim();
   const tClean=stripParens(tRaw);
   const remixers=splitRemixers(row.remixer);
   const cat = row.catalog ? String(row.catalog).trim() : '';
   const aliases = tdcsAliases();
 
-  if(row.isrc) qs.push('isrc:'+row.isrc);
-  if(row.spotify_query && String(row.spotify_query).trim()) qs.push(String(row.spotify_query).trim());
+  if(row.isrc) qs.add('isrc:'+row.isrc);
+  if(row.spotify_query && String(row.spotify_query).trim()) qs.add(String(row.spotify_query).trim());
 
   for(const name of aliases){
-    if(tRaw) qs.push(`track:"${tRaw}" artist:"${name}"`);
-    if(tClean && tClean!==tRaw) qs.push(`track:"${tClean}" artist:"${name}"`);
+    if(tRaw) qs.add(`track:"${tRaw}" artist:"${name}"`);
+    if(tClean && tClean!==tRaw) qs.add(`track:"${tClean}" artist:"${name}"`);
     if(tRaw && remixers.length){
       for(const r of remixers){
-        qs.push(`track:"${tRaw}" ${r} remix artist:"${name}"`);
-        qs.push(`"${tRaw} (${r} Remix)" "${name}"`);
+        qs.add(`track:"${tRaw}" ${r} remix artist:"${name}"`);
+        qs.add(`"${tRaw} (${r} Remix)" "${name}"`);
       }
       if(remixers.length>=2){
         const joined = remixers.join(' ');
-        qs.push(`track:"${tRaw}" ${joined} remix artist:"${name}"`);
+        qs.add(`track:"${tRaw}" ${joined} remix artist:"${name}"`);
       }
     }
-    if(tRaw) qs.push(`${tRaw} "${name}"`);
-    if(tClean && tClean!==tRaw) qs.push(`${tClean} "${name}"`);
+    if(tRaw) qs.add(`${tRaw} "${name}"`);
+    if(tClean && tClean!==tRaw) qs.add(`${tClean} "${name}"`);
   }
   if(tRaw){
-    qs.push(`track:"${tRaw}" remix`);
-    for(const r of remixers){ qs.push(`track:"${tRaw}" "${r}" remix`); }
-    qs.push(`${tRaw} remix`);
+    qs.add(`track:"${tRaw}" remix`);
+    for(const r of remixers){ qs.add(`track:"${tRaw}" "${r}" remix`); }
+    qs.add(`${tRaw} remix`);
   }
   if(useCatno && cat && tRaw){
-    qs.push(`"${cat}" "${tRaw}"`);
-    for(const name of aliases){ qs.push(`"${cat}" "${tRaw}" "${name}"`); }
+    qs.add(`"${cat}" "${tRaw}"`);
+    for(const name of aliases){ qs.add(`"${cat}" "${tRaw}" "${name}"`); }
   }
-  return Array.from(new Set(qs));
+  return Array.from(qs);
 }
 
 /* ---------- Artist / Single checks ---------- */
-function parseArtistIds(){
-  return document.getElementById('artistIds').value.split(/[\s,]+/).map(s=>s.trim()).filter(Boolean);
-}
+function parseArtistIds(){ return document.getElementById('artistIds').value.split(/[\s,]+/).map(s=>s.trim()).filter(Boolean); }
 function mainArtistId(){ return parseArtistIds()[0] || ''; }
-
 function artistNames(arts){ return (arts||[]).map(a=>a.name).join(', '); }
 
 function hasArtist(track, whitelist, primaryOnly){
@@ -213,14 +271,6 @@ function hasArtist(track, whitelist, primaryOnly){
   }
   return arts.some(a=>whitelist.includes(a.id));
 }
-function detectPrimaryMismatch(track){
-  const arts=track?.artists||[];
-  const main = mainArtistId();
-  if(!main) return false;
-  const idx = arts.findIndex(a=>a.id===main);
-  return idx>0; // 固定メインが先頭でない＝primaryが複数 or 順序違い疑い
-}
-
 const albumTotalCache=new Map();
 async function getAlbumTotalTracks(albumId){
   if(!albumId) return null;
@@ -228,7 +278,7 @@ async function getAlbumTotalTracks(albumId){
   const data=await api('https://api.spotify.com/v1/albums/'+encodeURIComponent(albumId));
   const tt=(typeof data?.total_tracks==='number')?data.total_tracks:null;
   albumTotalCache.set(albumId,tt);
-  await sleep(30);
+  await sleep(25);
   return tt;
 }
 function singleCheckLocal(track, strict){
@@ -260,28 +310,29 @@ async function getArtistAlbums(artistId, market, groups='single'){
     const data=await api(url);
     (data.items||[]).forEach(a=>albums.push({id:a.id,total_tracks:a.total_tracks||null, album_type:a.album_type, name:a.name}));
     url=data.next;
-    await sleep(50);
+    await sleep(40);
   }
   artistAlbumsCache.set(key,albums); return albums;
 }
 
 /* ---------- Global collectors ---------- */
 let lastNotFoundRows=[];
-let lastPrimaryIssues=[]; // 修正依頼エントリ
+let lastPrimaryIssues=[];
 
-/* ---------- Resolver with “primary-mismatch adopt + record” ---------- */
+/* ---------- Match helpers ---------- */
 function titleMatch(a,b){const na=normTitle(a), nb=normTitle(b);return na===nb || na.includes(nb) || nb.includes(na);}
 
+/* ---------- Resolver with rate-friendly strategy ---------- */
 async function resolveTrack(row, market, strictSingles, whitelist, primaryOnly){
+  checkAbort();
   const useCatno = document.getElementById('useCatalogNumber').checked;
   const allowFeatured = document.getElementById('fallbackAllowFeatured').checked;
   const markets = (market && market!=='from_token')
     ? [market]
-    : ['', 'JP', 'US', 'GB', 'DE', 'FR', 'ES', 'NL', 'SE', 'BR'];
+    : ['', 'JP', 'US', 'GB', 'DE', 'FR', 'ES', 'NL', 'SE', 'BR']; // 広め
   const qs = buildQueries(row, useCatno);
 
   const consider = async (it, mkt, sourceLabel) => {
-    // シングル1–4判定（unknownならアルバム参照）
     let ok = false;
     const chk=singleCheckLocal(it, strictSingles);
     if(chk===true){ ok=true; }
@@ -291,25 +342,22 @@ async function resolveTrack(row, market, strictSingles, whitelist, primaryOnly){
     }
     if(!ok) return null;
 
-    // アーティスト条件の評価
     const arts=it.artists||[];
     const names=artistNames(arts);
     const main=mainArtistId();
-    const hasAny = arts.some(a=>whitelist.includes(a.id));
-    const isMainFirst = arts[0]?.id===main;
+    const containsMain = arts.some(a=>a.id===main);
+    const mainIsFirst = arts[0]?.id===main;
 
     if(primaryOnly){
-      if(isMainFirst){ return {uri:it.uri, issue:null}; }
-      // primaryOnlyでも allowFeatured がONなら、採用しつつ修正依頼
-      if(allowFeatured && hasAny){
+      if(mainIsFirst) return {uri:it.uri, issue:null};
+      if(allowFeatured && containsMain){
         const note = `【primary順序要修正】"${it.name}" — ${names}\nURI: ${it.uri}\n理由: 固定メイン(${main})が先頭でなく、primaryが複数/順序違いの可能性（市場:${mkt} / src:${sourceLabel}）。シングル(1–4)のため採用。`;
         return {uri:it.uri, issue:note};
       }
       return null;
     }else{
-      if(hasAny){
-        // mainが先頭でない場合は採用＋修正依頼
-        if(!isMainFirst){
+      if(containsMain){
+        if(!mainIsFirst){
           const note = `【primary順序要修正】"${it.name}" — ${names}\nURI: ${it.uri}\n理由: 固定メイン(${main})が先頭でなく、primaryが複数/順序違いの可能性（市場:${mkt} / src:${sourceLabel}）。`;
           return {uri:it.uri, issue:note};
         }
@@ -319,43 +367,48 @@ async function resolveTrack(row, market, strictSingles, whitelist, primaryOnly){
     }
   };
 
-  // A: 厳格（primaryOnly=真で先頭一致）
+  // A: 厳格（primary-only先頭一致）
   for(const mkt of markets){
     for(const q of qs){
+      checkAbort();
       try{
         const res=await searchTracks(q, mkt);
         const items=(res?.tracks?.items||[]).filter(x=>x?.uri?.startsWith('spotify:track:') && hasArtist(x,whitelist,true));
         for(const it of items){
           const r = await consider(it, mkt, 'searchA');
           if(r) return r;
-          await sleep(20);
+          await sleep(15);
         }
       }catch(e){ LOG('searchA error', e.message); }
-      await sleep(60);
+      await sleep(50);
     }
   }
+
   // B: 緩和（allowFeaturedで採用可＋修正依頼）
   for(const mkt of markets){
     for(const q of qs){
+      checkAbort();
       try{
         const res=await searchTracks(q, mkt);
         const items=(res?.tracks?.items||[]).filter(x=>x?.uri?.startsWith('spotify:track:'));
-        for(const it of items){
-          const arts=it.artists||[];
-          if(!(arts.some(a=>whitelist.includes(a.id)))) continue; // 最低でも含まれていること
+        const filtered = allowFeatured
+          ? items.filter(x => (x.artists||[]).some(a=>whitelist.includes(a.id)))
+          : items.filter(x => hasArtist(x,whitelist,primaryOnly));
+        for(const it of filtered){
           const r = await consider(it, mkt, 'searchB');
           if(r) return r;
-          await sleep(20);
+          await sleep(15);
         }
       }catch(e){ LOG('searchB error', e.message); }
-      await sleep(60);
+      await sleep(50);
     }
   }
-  // C: アーティストの single/appears_on を走査（タイトルゆる一致）
+
+  // C: アーティスト single/appears_on を走査（タイトルゆる一致）
   for(const mkt of markets){
     for(const aid of whitelist){
-      const groupsList = ['single','appears_on'];
-      for(const groups of groupsList){
+      for(const groups of ['single','appears_on']){
+        checkAbort();
         try{
           const albums=await getArtistAlbums(aid, mkt, groups);
           for(const a of albums){
@@ -365,12 +418,11 @@ async function resolveTrack(row, market, strictSingles, whitelist, primaryOnly){
             const tr=await api(`https://api.spotify.com/v1/albums/${encodeURIComponent(a.id)}/tracks?limit=50${mkt&&mkt!=='from_token'?`&market=${encodeURIComponent(mkt)}`:''}`);
             for(const t of (tr.items||[])){
               if(!titleMatch(t.name, row.title||'')) continue;
-              // 手動で track オブジェクト相当を組み立て（album型があるので最低限）
               const fakeTrack = { uri:t.uri, name:t.name, artists:t.artists||[], album:{album_type:'single', total_tracks:tt, id:a.id} };
               const r = await consider(fakeTrack, mkt, 'albums');
               if(r) return r;
             }
-            await sleep(40);
+            await sleep(30);
           }
         }catch(e){ LOG('albums error', e.message); }
       }
@@ -405,11 +457,13 @@ async function addUris(pid, uris){
       method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({uris:chunk})
     });
     LOG('added', Math.min(i+100, uris.length), '/', uris.length);
-    await sleep(100);
+    await sleep(80);
   }
 }
 
 /* ---------- Exporters ---------- */
+let lastNotFoundRows=[];
+let lastPrimaryIssues=[];
 function exportNotFound(){
   if(!lastNotFoundRows.length){ alert('not-found はありません'); return; }
   const header=['source_file','index','title','remixer','isrc','catalog'];
@@ -421,9 +475,9 @@ function exportCorrections(){
   if(!lastPrimaryIssues.length){ alert('修正依頼はありません'); return; }
   const lines = [
     '【ディストリビューター様 修正依頼（primary順序/重複primaryの可能性）】',
-    '対象アーティスト（固定メイン）: ' + mainArtistId(),
+    '固定メイン（Artist ID 先頭）: ' + mainArtistId(),
     '',
-    '以下のトラックは、Spotify上で固定メインが先頭でなく、primaryが複数/順序違いの可能性があるため、',
+    '以下のトラックは、固定メインが先頭でなく、primaryが複数/順序違いの可能性があります。',
     '「メイン＝固定アーティスト」になるようクレジット順序のご確認・修正をご検討ください。',
     '(プレイリストにはシングル1–4曲の条件を満たすため暫定採用しています)',
     ''
@@ -433,19 +487,19 @@ function exportCorrections(){
 
 /* ---------- Build (pin = [ok]のN曲目直前) ---------- */
 async function buildOneCSV(file, opts){
-  const {market, isPublic, unique, prefix, useFileName, strictSingles, whitelist, primaryOnly, pinUri, pinPos}=opts;
   LOG('--- CSV:', file.name, '---');
-
   const rows=await new Promise((resolve,reject)=>{
     Papa.parse(file,{header:true,skipEmptyLines:true,complete:r=>resolve(r.data),error:reject});
   });
   const norm=rows.map(normalizeRow).sort((a,b)=>(a._order||0)-(b._order||0));
   LOG('rows:', norm.length);
 
+  const {market,isPublic,unique,prefix,useFileName,strictSingles,whitelist,primaryOnly,pinUri,pinPos}=opts;
   const seen=new Set(); const uris=[];
   let okCount=0; const pinIndex0=Math.max(0, Number(pinPos||19)-1);
 
   for(let i=0;i<norm.length;i++){
+    checkAbort();
     const r=norm[i];
     try{
       const res=await resolveTrack(r, market, strictSingles, whitelist, primaryOnly);
@@ -461,6 +515,7 @@ async function buildOneCSV(file, opts){
         lastNotFoundRows.push({source:file.name, index:i+1, title:r.title||'', remixer:r.remixer||'', isrc:r.isrc||'', catalog:r.catalog||''});
       }
     }catch(e){
+      if(e.message==='aborted'){ LOG('中断しました'); return; }
       LOG('[!] error', i+1, (r.title||''), e.message);
       lastNotFoundRows.push({source:file.name, index:i+1, title:r.title||'', remixer:r.remixer||'', isrc:r.isrc||'', catalog:r.catalog||''});
     }
@@ -481,9 +536,11 @@ async function buildOneCSV(file, opts){
 /* ---------- UI ---------- */
 document.getElementById('btnBuild').onclick=async()=>{
   try{ needToken(); }catch(_){ alert('Sign in first'); return; }
-  lastNotFoundRows=[]; lastPrimaryIssues=[];
+  ABORT=false; lastNotFoundRows=[]; lastPrimaryIssues=[];
   const files=[...(document.getElementById('csvFiles').files||[])];
   if(!files.length){ alert('Choose CSV'); return; }
+
+  applyRateMode(document.getElementById('rateMode').value);
 
   const opts={};
   opts.isPublic=document.getElementById('isPublic').checked;
@@ -497,13 +554,14 @@ document.getElementById('btnBuild').onclick=async()=>{
   opts.pinUri=toTrackUri(document.getElementById('pinUri').value.trim());
   opts.pinPos=Number(document.getElementById('pinPos').value||19);
 
-  for(const f of files){ await buildOneCSV(f, opts); }
-
-  // 自動DL：修正依頼があれば即保存
-  if(lastPrimaryIssues.length){
-    exportCorrections();
+  for(const f of files){
+    if(ABORT) break;
+    await buildOneCSV(f, opts);
   }
-  alert('All done. 必要なら「Export not-found.csv」もどうぞ。');
+
+  if(lastPrimaryIssues.length){ exportCorrections(); }
+  if(ABORT){ alert('中断しました。ログを確認してください。'); }
+  else { alert('All done. 必要なら「Export not-found.csv」もどうぞ。'); }
 };
 document.getElementById('btnExportNF').onclick=exportNotFound;
 document.getElementById('btnExportCorr').onclick=exportCorrections;
