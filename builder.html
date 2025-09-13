@@ -1,81 +1,253 @@
-<script>
-// --- 設定 ---
-const USER_ID_OVERRIDE = "22fqn5mozguuegi2t3l2zeugy"; // ←固定
-const ENFORCE_UNIQUE = true; // 同一trackの重複禁止にしたいとき true
 
-function needToken(){ const t=sessionStorage.getItem('access_token'); if(!t) throw new Error('no_token'); return t }
-async function api(url,opts={}){ 
-  const h=Object.assign({'Authorization':'Bearer '+needToken()},opts.headers||{});
-  const r=await fetch(url,Object.assign({},opts,{headers:h}));
-  if(r.status===429){ const s=Number(r.headers.get('Retry-After')||'2'); await new Promise(z=>setTimeout(z,s*1000)); return api(url,opts); }
-  if(!r.ok) throw new Error(await r.text());
-  return r.json();
-}
-async function me(){ return api('https://api.spotify.com/v1/me') }
-async function createPlaylist(name,desc='Auto-built',isPublic=false){
-  const uid = USER_ID_OVERRIDE || (await me()).id;
-  return api(`https://api.spotify.com/v1/users/${encodeURIComponent(uid)}/playlists`,{
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name, public:isPublic, description:desc})
-  });
-}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>TDCS Playlist Builder (Per-CSV / Track-only / ISRC-first)</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+           max-width: 980px; margin: 24px auto; padding: 0 12px; background: #0b1220; color: #cfe3ff; }
+    h1 { margin: 0 0 8px; font-size: 20px; }
+    fieldset { border: 1px solid #22324f; border-radius: 10px; margin: 10px 0; padding: 12px; }
+    legend { padding: 0 8px; color: #bcd1f5; }
+    label { display: block; margin: 8px 0 4px; }
+    input[type="text"], select { width: 100%; max-width: 520px; padding: 9px; border-radius: 8px;
+                                 border: 1px solid #2d3e60; background: #091426; color: #cfe3ff; }
+    input[type="checkbox"] { transform: scale(1.05); margin-right: 6px; }
+    button { padding: 10px 14px; border-radius: 8px; border: 1px solid #3a4d75; background: #14213a; color: #e9f1ff; cursor: pointer; }
+    #log { white-space: pre-wrap; background: #091426; color: #d6e6ff; border: 1px solid #20304a; padding: 12px; border-radius: 10px; margin-top: 12px; max-height: 520px; overflow: auto; }
+    .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+    .row > * { flex: 1 1 auto; }
+    .muted { color: #8ea6cc; }
+  </style>
+</head>
+<body>
+  <h1>TDCS Playlist Builder (Per-CSV / Track-only / ISRC-first)</h1>
 
-// ★ アルバム禁止・ISRC優先の検索
-async function resolveTrackUri(row){
-  const isrc = (row.isrc||'').trim();
-  const title = String(row.title||row['Title (Remixer Remix)']||'').trim();
-  const rem   = String(row.remixer||'').trim();
+  <fieldset>
+    <legend>Auth</legend>
+    <div id="authStatus" class="muted">No token.</div>
+    <div class="row" style="margin-top:8px">
+      <button onclick="location.href='auth.html'">Sign in</button>
+      <button id="btnSignOut">Sign out (local)</button>
+    </div>
+  </fieldset>
 
-  const candidates = [];
-  if (isrc) candidates.push(`isrc:${isrc}`);
-  if (row.spotify_query) candidates.push(String(row.spotify_query).trim());
-  // フォールバック
-  candidates.push(`track:"${title}" artist:"The Darrow Chem Syndicate"`);
-  if (rem) candidates.push(`track:"${title}" ${rem} remix artist:"The Darrow Chem Syndicate"`);
+  <fieldset>
+    <legend>Settings</legend>
+    <label>Playlist name prefix
+      <input id="prefix" type="text" value="TDCS - ">
+    </label>
+    <label class="row" style="align-items:center">
+      <span><input id="useFileName" type="checkbox" checked> Use CSV filename as playlist name (prefix + filename)</span>
+    </label>
+    <div class="row">
+      <label class="row" style="align-items:center"><span><input id="isPublic" type="checkbox"> Public playlist</span></label>
+      <label class="row" style="align-items:center"><span><input id="uniqueUris" type="checkbox" checked> Unique tracks only</span></label>
+    </div>
+    <div class="row">
+      <label>Build for user (override, optional)
+        <input id="userIdOverride" type="text" placeholder="22fqn5mozguuegi2t3l2zeugy" value="22fqn5mozguuegi2t3l2zeugy">
+      </label>
+      <label>Search market
+        <select id="searchMarket">
+          <option value="from_token" selected>from_token</option>
+          <option value="JP">JP</option><option value="US">US</option><option value="GB">GB</option>
+          <option value="DE">DE</option><option value="FR">FR</option><option value="ES">ES</option>
+          <option value="NL">NL</option><option value="SE">SE</option><option value="BR">BR</option>
+        </select>
+      </label>
+    </div>
+  </fieldset>
 
-  for (const q of candidates){
-    if(!q) continue;
-    const url = `https://api.spotify.com/v1/search?q=${encodeURIComponent(q)}&type=track&limit=5&market=from_token`;
-    const res = await api(url);
-    const items = (res?.tracks?.items || []).filter(x => x?.type==='track' && x?.uri?.startsWith('spotify:track:'));
-    if (items.length) return items[0].uri; // トラックのみ受理（アルバムは絶対使わない）
-  }
-  return null;
-}
+  <fieldset>
+    <legend>CSV</legend>
+    <label>Choose CSV files (multiple)
+      <input id="csvFiles" type="file" accept=".csv" multiple>
+    </label>
+    <div class="row" style="margin-top:8px">
+      <button id="btnBuild">Build playlists (one per CSV)</button>
+    </div>
+    <div class="muted" style="margin-top:8px">
+      Columns (flexible names ok): order, Catalog number, title, remixer, isrc, spotify_query, Original file name.
+      If no ISRC column, the code will try to extract from Original file name.
+    </div>
+  </fieldset>
 
-// ★ CSVの全行を使う（フィルタ無し）
-function useAllRows(rows){
-  return rows
-    .map(r => ({...r, _order: Number(r.order||0)}))
-    .sort((a,b)=>a._order-b._order);
-}
+  <pre id="log">Ready.</pre>
 
-async function addUris(pid, uris){
-  for(let i=0;i<uris.length;i+=100){
-    const chunk=uris.slice(i,i+100);
-    await api(`https://api.spotify.com/v1/playlists/${pid}/tracks`,{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({uris:chunk})
-    });
-  }
-}
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script>
+    const LOG = (...a)=>{ const el=document.getElementById('log'); el.textContent += "\n" + a.join(' '); el.scrollTop = el.scrollHeight; };
+    const sleep = ms => new Promise(r=>setTimeout(r, ms));
 
-// エントリポイント（既存のPapa.parse完了後に呼んでOK）
-async function buildFromRows(rows, playlistName){
-  const pl = await createPlaylist(playlistName, 'All rows / Track-only (no albums)', false);
-  const uris = [];
-  const seen = new Set();
+    function token(){ return sessionStorage.getItem('access_token') }
+    function needToken(){ const t=token(); if(!t) throw new Error('no_token'); return t }
+    async function api(url, opts={}){
+      const headers = Object.assign({'Authorization':'Bearer '+needToken()}, opts.headers||{});
+      const res = await fetch(url, Object.assign({}, opts, {headers}));
+      if(res.status===429){
+        const retry = Number(res.headers.get('Retry-After')||'2');
+        LOG('429 wait', retry, 's');
+        await sleep(retry*1000);
+        return api(url, opts);
+      }
+      if(!res.ok){
+        const txt = await res.text(); throw new Error('API '+res.status+': '+txt);
+      }
+      return res.json();
+    }
+    async function me(){ return api('https://api.spotify.com/v1/me') }
+    function setAuthStatus(msg){ document.getElementById('authStatus').textContent = msg }
 
-  for (const row of useAllRows(rows)){
-    const uri = await resolveTrackUri(row);
-    if (!uri) continue;
-    if (ENFORCE_UNIQUE && seen.has(uri)) continue;
-    seen.add(uri);
-    uris.push(uri);
-  }
-  if(!uris.length) throw new Error('No tracks resolved');
+    function extractISRC(s){
+      if(!s) return '';
+      const m = String(s).match(/\b[A-Z]{2}[A-Z0-9]{3}\d{7}\b/);
+      return m ? m[0] : '';
+    }
 
-  await addUris(pl.id, uris);
-  alert('Done: '+(pl.external_urls?.spotify||'')); 
-}
-</script>
+    function normalizeRow(raw){
+      const lower = {}; for(const k in raw){ lower[k.toLowerCase()] = k; }
+      const pick = key => raw[ lower[key] ];
+      const row = {};
+      row.order = pick('order') ?? raw.order ?? '';
+      row.catalog = pick('catalog number') ?? pick('catalog') ?? pick('catalog_number') ?? '';
+      row.title = pick('title') ?? raw.title ?? pick('track') ?? pick('track title') ?? pick('title (remixer remix)') ?? '';
+      row.remixer = pick('remixer') ?? pick('remixers') ?? pick('artist') ?? '';
+      let isrc = pick('isrc') ?? '';
+      if(!isrc || String(isrc).trim()===''){
+        const ofn = pick('original file name') ?? '';
+        isrc = extractISRC(ofn);
+      }
+      row.isrc = String(isrc||'').trim();
+      row.spotify_query = pick('spotify_query') ?? '';
+      row._order = Number(row.order||0);
+      return row;
+    }
+
+    function buildQueries(row){
+      const qs = [];
+      if(row.isrc) qs.push('isrc:'+row.isrc);
+      if(row.spotify_query && String(row.spotify_query).trim()) qs.push(String(row.spotify_query).trim());
+      const t = String(row.title||'').trim();
+      const r = String(row.remixer||'').trim();
+      if(t) qs.push('track:"'+t+'" artist:"The Darrow Chem Syndicate"');
+      if(t && r) qs.push('track:"'+t+'" '+r+' remix artist:"The Darrow Chem Syndicate"');
+      if(t) qs.push(t+' "The Darrow Chem Syndicate"');
+      return qs;
+    }
+
+    async function resolveTrack(row, market){
+      const qs = buildQueries(row);
+      for(const q of qs){
+        const url = 'https://api.spotify.com/v1/search?q=' + encodeURIComponent(q) + '&type=track&limit=8&market=' + encodeURIComponent(market);
+        try{
+          const res = await api(url);
+          const items = (res?.tracks?.items||[]).filter(x => x?.type==='track' && x?.uri?.startsWith('spotify:track:'));
+          if(items.length){
+            items.sort((a,b)=> ((a.album?.album_type==='single')?0:1) - ((b.album?.album_type==='single')?0:1));
+            return items[0].uri;
+          }
+        }catch(e){
+          LOG('search error', e.message);
+        }
+        await sleep(120);
+      }
+      return null;
+    }
+
+    async function createPlaylist(name, pub){
+      const override = document.getElementById('userIdOverride').value.trim();
+      const uid = override || (await me()).id;
+      return api('https://api.spotify.com/v1/users/' + encodeURIComponent(uid) + '/playlists', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ name, public: !!pub, description: 'Per-CSV build • track-only • ISRC-first' })
+      });
+    }
+
+    async function addUris(pid, uris){
+      for(let i=0;i<uris.length;i+=100){
+        const chunk = uris.slice(i,i+100);
+        await api('https://api.spotify.com/v1/playlists/' + pid + '/tracks', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ uris: chunk })
+        });
+        LOG('added', Math.min(i+100, uris.length), '/', uris.length);
+        await sleep(120);
+      }
+    }
+
+    async function buildOneCSV(file, market, pub, unique, prefix, useFileName){
+      LOG('--- CSV:', file.name, '---');
+      const rows = await new Promise((resolve, reject)=>{
+        Papa.parse(file, { header:true, skipEmptyLines:true, complete: r=>resolve(r.data), error: reject });
+      });
+      const norm = rows.map(normalizeRow).sort((a,b)=> (a._order||0)-(b._order||0));
+      LOG('rows:', norm.length);
+
+      const seen = new Set();
+      const uris = [];
+      let idx = 0;
+      for(const r of norm){
+        idx++;
+        const uri = await resolveTrack(r, market);
+        if(uri){
+          if(unique && seen.has(uri)){
+            LOG('[dup] skip', idx, uri);
+          }else{
+            seen.add(uri); uris.push(uri);
+            LOG('[ok]', idx, uri);
+          }
+        }else{
+          LOG('[x] not found', idx, r.title||'');
+        }
+      }
+
+      const base = file.name.replace(/\.csv$/i,'').slice(0,140);
+      const name = useFileName ? (prefix + base) : (prefix || 'TDCS - playlist');
+      const pl = await createPlaylist(name, pub);
+      LOG('playlist:', pl.external_urls?.spotify || '');
+      if(uris.length) await addUris(pl.id, uris);
+      LOG('DONE', file.name, '->', pl.external_urls?.spotify || '');
+    }
+
+    document.getElementById('btnBuild').onclick = async () => {
+      try{ needToken(); }catch(_){ alert('Sign in first'); return; }
+      const files = [...(document.getElementById('csvFiles').files||[])];
+      if(!files.length){ alert('Choose CSV files'); return; }
+
+      const pub = document.getElementById('isPublic').checked;
+      const unique = document.getElementById('uniqueUris').checked;
+      const market = document.getElementById('searchMarket').value;
+      const prefix = document.getElementById('prefix').value || '';
+      const useFileName = document.getElementById('useFileName').checked;
+
+      for(const f of files){
+        await buildOneCSV(f, market, pub, unique, prefix, useFileName);
+      }
+      alert('All done.');
+    };
+
+    document.getElementById('btnSignOut').onclick = () => {
+      sessionStorage.clear();
+      localStorage.removeItem('code_verifier');
+      setAuthStatus('No token.');
+      LOG('Signed out (local).');
+    };
+
+    (async()=>{
+      try{
+        if(!token()) throw new Error('no');
+        const m = await me();
+        setAuthStatus('Signed in as ' + (m.display_name || m.id));
+      }catch(_){
+        setAuthStatus('No token.');
+      }
+    })();
+  </script>
+</body>
+</html>
