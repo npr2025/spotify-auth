@@ -1,70 +1,74 @@
 <!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Spotify Auth Callback (fixed)</title>
-  <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:860px;margin:28px auto;padding:0 12px}
-    #log{white-space:pre-wrap;background:#111;color:#e6f0ff;border:1px solid #444;padding:12px;border-radius:8px}
-    button{padding:8px 12px}
-  </style>
-</head>
-<body>
-  <h1>Spotify Auth Callback</h1>
-  <p id="status">Exchanging token…</p>
-  <p>
-    <button id="btnGo">Open app</button>
-  </p>
-  <pre id="log"></pre>
+<meta charset="utf-8">
+<title>Spotify Callback</title>
+<style>
+  body{font:14px system-ui;color:#e6f1ff;background:#0b1220;padding:20px}
+  pre{white-space:pre-wrap;background:#091426;border:1px solid #20304a;padding:12px;border-radius:8px}
+  a,button{color:#cfe3ff}
+</style>
+<h1>Finishing sign-in…</h1>
+<pre id="log">Waiting for code…</pre>
 <script>
-const log = (...a)=>{const el=document.getElementById('log'); el.textContent += '\\n' + a.join(' ') }
-function getCookie(name){ const m=document.cookie.match(new RegExp('(?:^|; )'+name+'=([^;]*)')); return m?decodeURIComponent(m[1]):null }
-function restoreVerifier(){ return sessionStorage.getItem('code_verifier')||localStorage.getItem('code_verifier')||getCookie('code_verifier') }
-function clientIdFromState(s){ try{ return JSON.parse(s).client_id||null }catch(_){ return null } }
-async function exchangeToken(code, redirectUri, clientId, verifier){
-  const body=new URLSearchParams({ grant_type:'authorization_code', code, redirect_uri:redirectUri, client_id:clientId, code_verifier:verifier });
-  const res=await fetch('https://accounts.spotify.com/api/token',{ method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body });
-  if(!res.ok){ throw new Error('token '+res.status+': '+await res.text()) }
+const LOG=(...a)=>{const el=document.getElementById('log');el.textContent+="\n"+a.join(' ')};
+
+const CLIENT_ID = '5b4dc486f92a46878665468fa5de9361';
+const REDIRECT_URI = 'https://npr2025.github.io/spotify-auth/callback.html';
+const TOKEN_URL = 'https://accounts.spotify.com/api/token';
+
+// x-www-form-urlencoded POST
+async function postForm(url, data){
+  const res = await fetch(url, {
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body: new URLSearchParams(data)
+  });
+  if(!res.ok){
+    const t=await res.text();
+    throw new Error(`HTTP ${res.status} ${t}`);
+  }
   return res.json();
 }
-function goNext(){
-  // Prefer builder_simple.html -> builder.html -> index.html
-  const candidates = ['builder_simple.html','builder.html','index.html','./'];
-  for(const p of candidates){
-    // Just navigate; if missing, user can click back
-    location.assign(p); return;
-  }
+function backToApp(){
+  const ret = sessionStorage.getItem('return_to') || '/';
+  location.href = ret;
 }
-document.getElementById('btnGo').onclick = goNext;
-
-(async()=>{
+(async ()=>{
   try{
-    const url = new URL(location.href);
-    const code = url.searchParams.get('code');
-    const state = url.searchParams.get('state');
-    const err = url.searchParams.get('error');
-    const redirectUri = location.origin + location.pathname; // exact callback URL
-    if(err){ document.getElementById('status').textContent = 'Error: '+err; log('error=',err); return }
-    if(!code){ document.getElementById('status').textContent = 'No code in URL'; log('no code'); return }
-    const verifier = restoreVerifier();
-    if(!verifier){ document.getElementById('status').textContent = 'Missing code_verifier'; log('missing code_verifier'); return }
-    let clientId = sessionStorage.getItem('client_id') || clientIdFromState(state);
-    if(!clientId){ document.getElementById('status').textContent = 'Missing client_id'; log('missing client_id'); return }
+    const qs = new URLSearchParams(location.search);
+    const err = qs.get('error');
+    if(err){ throw new Error('Spotify returned error: '+err); }
 
-    log('redirectUri', redirectUri);
-    const tok = await exchangeToken(code, redirectUri, clientId, verifier);
-    sessionStorage.setItem('access_token', tok.access_token);
-    sessionStorage.setItem('expires_in', tok.expires_in);
-    if(tok.refresh_token) sessionStorage.setItem('refresh_token', tok.refresh_token);
+    const code = qs.get('code');
+    const state = qs.get('state');
+    if(!code){ throw new Error('no code'); }
+    if(!state){ LOG('WARN: no state'); }
 
-    document.getElementById('status').textContent = 'OK — token acquired. Redirecting…';
-    setTimeout(goNext, 600);
+    const verifier = sessionStorage.getItem('code_verifier');
+    if(!verifier){ throw new Error('missing code_verifier (originが違う/ストレージが消えた可能性)'); }
+
+    LOG('Exchanging code for token…');
+    const token = await postForm(TOKEN_URL, {
+      client_id: CLIENT_ID,
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: REDIRECT_URI,
+      code_verifier: verifier
+    });
+
+    // 保存（ビルダーは sessionStorage.getItem('access_token') を参照）
+    sessionStorage.setItem('access_token', token.access_token);
+    if(token.refresh_token){ sessionStorage.setItem('refresh_token', token.refresh_token); }
+    const expiresAt = Date.now() + (token.expires_in||3600)*1000;
+    sessionStorage.setItem('access_token_expires_at', String(expiresAt));
+
+    LOG('Signed in. Returning to app…');
+    backToApp();
   }catch(e){
-    document.getElementById('status').textContent = 'Token error';
-    log(e.message);
+    LOG('ERROR:', e.message);
+    LOG('ヒント:');
+    LOG('・ダッシュボードの Redirect URI が完全一致しているか');
+    LOG('・Development mode の Users に自分のアカウントを追加済みか');
+    LOG('・auth.html も callback.html も https://npr2025.github.io/ 配下で動かしているか');
   }
 })();
 </script>
-</body>
-</html>
