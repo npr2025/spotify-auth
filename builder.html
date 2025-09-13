@@ -30,7 +30,16 @@
   <legend>Auth</legend>
   <div id="authStatus" class="muted">No token.</div>
   <div class="row" style="margin-top:8px">
-    <button onclick="location.href='auth.html'">Sign in</button>
+    <button id="btnSignIn">Sign in</button>
+<script>
+document.getElementById('btnSignIn').onclick = () => {
+  try {
+    // 今いるビルダーのURLを保存（同一オリジン内なので sessionStorage でOK）
+    sessionStorage.setItem('return_to', location.href);
+  } catch(e){}
+  location.href = 'auth.html';
+};
+</script>
     <button id="btnSignOut">Sign out (local)</button>
   </div>
 </fieldset>
