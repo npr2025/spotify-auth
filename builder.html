@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TDCS — Singles Builder</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:980px;margin:32px auto;padding:0 12px}
+  button{padding:10px 14px;border:1px solid #bbb;border-radius:8px;background:#f6f6f6;cursor:pointer}
+  #log{white-space:pre-wrap;background:#0b1220;color:#cfe3ff;padding:12px;border-radius:8px;margin-top:12px;max-height:520px;overflow:auto}
+  input[type="text"]{width:100%;max-width:620px;padding:8px;border:1px solid #bbb;border-radius:8px}
+</style>
+</head>
+<body>
+<h1>TDCS — Singles (2–4 tracks) Playlist Builder</h1>
+
+<p>
+  <button onclick="location.href='auth.html'">Sign in</button>
+  <button id="btnSignOut">Sign out</button>
+</p>
+
+<p>
+  <label>Playlist name<br>
+    <input id="plName" type="text" value="TDCS – Singles (2–4 tracks)">
+  </label>
+</p>
+
+<p>
+  <input type="file" id="csvFile" accept=".csv">
+  <button id="btnBuild">Build playlist from CSV</button>
+</p>
+
+<pre id="log">Booting…</pre>
+
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script>
+const LOG=(...a)=>document.getElementById('log').textContent+='\n'+a.join(' ');
+
+// 任意で固定ユーザーに作りたい場合（通常は null のままでOK）
+const USER_ID_OVERRIDE = null; // 例: "22fqn5mozguuegi2t3l2zeugy"
+
+function token(){ return sessionStorage.getItem('access_token') }
+function needToken(){ const t=token(); if(!t){LOG('No token. Click Sign in.'); throw new Error('no_token')} return t }
+
+async function api(url,opts={}){
+  const headers=Object.assign({'Authorization':'Bearer '+needToken()},opts.headers||{});
+  const res=await fetch(url,Object.assign({},opts,{headers}));
+  if(res.status===429){
+    const retry=Number(res.headers.get('Retry-After')||'2'); LOG('429 → wait',retry,'s');
+    await new Promise(r=>setTimeout(r,retry*1000));
+    return api(url,opts);
+  }
+  if(!res.ok){ throw new Error('API '+res.status+': '+await res.text()) }
+  return res.json();
+}
+async function me(){ return api('https://api.spotify.com/v1/me') }
+
+async function createPlaylist(name,desc='Singles-only auto-built',isPublic=false){
+  const uid = USER_ID_OVERRIDE || (await me()).id;
+  return api(`https://api.spotify.com/v1/users/${encodeURIComponent(uid)}/playlists`,{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name, public:isPublic, description:desc})
+  });
+}
+
+async function searchTopUri(q){
+  const url=`https://api.spotify.com/v1/search?q=${encodeURIComponent(q)}&type=track&limit=5`;
+  const r=await api(url);
+  return r?.tracks?.items?.[0]?.uri || null;
+}
+
+async function addUris(pid,uris){
+  for(let i=0;i<uris.length;i+=100){
+    const chunk=uris.slice(i,i+100);
+    await api(`https://api.spotify.com/v1/playlists/${pid}/tracks`,{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({uris:chunk})
+    });
+    LOG('Added',chunk.length,'tracks (total',Math.min(i+100,uris.length),')');
+  }
+}
+
+function filterSingles(rows){
+  // カタログ番号ごとに曲数集計
+  const cnt={};
+  rows.forEach(r=>{ const c=String(r['Catalog number']||'').trim(); if(c) cnt[c]=(cnt[c]||0)+1; });
+  const ok=new Set(Object.keys(cnt).filter(k=>cnt[k]>=2 && cnt[k]<=4));
+  return rows.filter(r=>ok.has(String(r['Catalog number']||'').trim()))
+             .sort((a,b)=>Number(a.order||0)-Number(b.order||0));
+}
+
+function makeQuery(row){
+  if(row.spotify_query && String(row.spotify_query).trim()) return row.spotify_query;
+  const title=String(row.title||row['Title (Remixer Remix)']||'').trim();
+  const rem=String(row.remixer||'').trim();
+  let q=title;
+  if(rem) q+=' '+rem+' remix';
+  q+=' artist:"The Darrow Chem Syndicate"';
+  return q;
+}
+
+document.getElementById('btnBuild').onclick=()=>{
+  const f=document.getElementById('csvFile').files?.[0];
+  if(!f){ alert('CSVを選択'); return }
+  Papa.parse(f,{header:true,skipEmptyLines:true,complete:async (res)=>{
+    try{
+      const rows=res.data;
+      LOG('CSV rows=',rows.length);
+
+      const singles=filterSingles(rows);
+      LOG('Filtered singles (2–4 tracks) rows=',singles.length);
+
+      const name=document.getElementById('plName').value.trim()||'TDCS – Singles (2–4 tracks)';
+      const pl=await createPlaylist(name,'Singles-only (2–4 tracks) auto-built',false);
+      LOG('Playlist created:', pl.id, pl.external_urls?.spotify);
+
+      const uris=[];
+      for(const r of singles){
+        const q=makeQuery(r);
+        const uri=await searchTopUri(q);
+        LOG('Q:',q,'→',uri||'NOHIT');
+        if(uri) uris.push(uri);
+      }
+
+      if(uris.length===0){ LOG('No URIs resolved. Done.'); return }
+      await addUris(pl.id,uris);
+      LOG('DONE →', pl.external_urls?.spotify);
+      alert('Done: '+(pl.external_urls?.spotify||''));
+    }catch(e){ LOG('Error:', e.message); alert('Error: '+e.message) }
+  }});
+};
+
+document.getElementById('btnSignOut').onclick=()=>{
+  sessionStorage.clear(); localStorage.removeItem('code_verifier');
+  LOG('Signed out (local only).');
+};
+LOG('Ready. CSVヘッダ例：order,title,remixer,Catalog number,spotify_query...');
+</script>
+</body>
+</html>
