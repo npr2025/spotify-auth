@@ -30,7 +30,7 @@
   <legend>Auth</legend>
   <div id="authStatus" class="muted">No token.</div>
   <div class="row" style="margin-top:8px">
-    <button onclick="location.href='auth.html'">Sign in</button>
+    <button id="btnSignIn">Sign in</button>
     <button id="btnSignOut">Sign out (local)</button>
   </div>
 </fieldset>
@@ -100,7 +100,7 @@
     <button id="btnExportCorr">Export distributor-correction.txt（直近の実行）</button>
   </div>
   <div class="muted" style="margin-top:8px">
-    受理列（ゆるく対応）: <code>order</code>, <code>Catalog number</code>, <code>title</code>, <code>remixer</code>, <code>isrc</code>, <code>spotify_query</code>, <code>Original file name</code><br>
+    受理列: <code>order</code>, <code>Catalog number</code>, <code>title</code>, <code>remixer</code>, <code>isrc</code>, <code>spotify_query</code>, <code>Original file name</code><br>
     ISRC列が無い場合は <em>Original file name</em> から抽出を試みます。
   </div>
 </fieldset>
@@ -118,32 +118,56 @@ function download(name, text){
   a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }
 
+/* ---------- Sign-in button: return_to を保存して auth.html へ ---------- */
+document.getElementById('btnSignIn').onclick=()=>{
+  try{ sessionStorage.setItem('return_to', location.href); }catch(_){}
+  location.href='auth.html';
+};
+
 /* ---------- Abort control ---------- */
 let ABORT=false;
 document.getElementById('btnAbort').onclick=()=>{ ABORT=true; LOG('Abort requested. 現在のリクエスト完了後に停止します。'); };
 function checkAbort(){ if(ABORT) throw new Error('aborted'); }
 
-/* ---------- Auth ---------- */
+/* ---------- Auth & Token (with auto refresh) ---------- */
 function token(){return sessionStorage.getItem('access_token')}
+function tokenExpiresAt(){return Number(sessionStorage.getItem('access_token_expires_at')||0)}
+function refreshToken(){return sessionStorage.getItem('refresh_token')}
+const CLIENT_ID='5b4dc486f92a46878665468fa5de9361';
+const TOKEN_URL='https://accounts.spotify.com/api/token';
+
+async function refreshIfNeeded(){
+  const now=Date.now(), exp=tokenExpiresAt();
+  if(token() && exp && now < exp-60*1000) return; // 60秒の余裕
+  const rt=refreshToken(); if(!rt) return; // 無ければスキップ
+  LOG('Refreshing token…');
+  const res=await fetch(TOKEN_URL,{
+    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:new URLSearchParams({ grant_type:'refresh_token', refresh_token:rt, client_id:CLIENT_ID })
+  });
+  if(res.ok){
+    const t=await res.json();
+    if(t.access_token) sessionStorage.setItem('access_token', t.access_token);
+    if(t.refresh_token) sessionStorage.setItem('refresh_token', t.refresh_token);
+    if(t.expires_in){ sessionStorage.setItem('access_token_expires_at', String(Date.now()+t.expires_in*1000)); }
+  }else{
+    LOG('Refresh failed:', res.status); // 必要ならサインアウト
+  }
+}
+
 function needToken(){const t=token();if(!t)throw new Error('no_token');return t}
-async function me(){return api('https://api.spotify.com/v1/me')}
+async function me(){await refreshIfNeeded(); return api('https://api.spotify.com/v1/me')}
 function setAuthStatus(msg){document.getElementById('authStatus').textContent=msg}
 
 /* ---------- Global Rate Limiter (Queue + Backoff) ---------- */
-const Rate = {
-  minDelay: 350,        // 初期: gentle
-  maxDelay: 3000,       // 自動上限（429が続くとここまで引き上げ）
-  nextAt: 0,            // 次に投げてよい時刻
-  inFlight: 0,          // 同時実行数（常に1に抑える）
-  attempts429: 0        // 連続429回数
-};
+const Rate = { minDelay:350, maxDelay:3000, nextAt:0, inFlight:0, attempts429:0 };
 function applyRateMode(mode){
   if(mode==='aggressive'){ Rate.minDelay=120; Rate.maxDelay=1500; }
   else if(mode==='normal'){ Rate.minDelay=220; Rate.maxDelay=2000; }
-  else { Rate.minDelay=350; Rate.maxDelay=3000; } // gentle
+  else { Rate.minDelay=350; Rate.maxDelay=3000; }
 }
 async function gate(){
-  while(Rate.inFlight>0){ await sleep(10); } // 同時実行=1
+  while(Rate.inFlight>0){ await sleep(10); }
   Rate.inFlight=1;
   const now=Date.now();
   if(Rate.nextAt>now){ await sleep(Rate.nextAt-now); }
@@ -152,18 +176,15 @@ function release(){ Rate.inFlight=0; }
 
 async function api(url,opt={}, attempt=0){
   checkAbort();
+  await refreshIfNeeded();
   await gate();
-  const start=Date.now();
   const headers=Object.assign({'Authorization':'Bearer '+needToken()}, opt.headers||{});
   try{
     const res=await fetch(url, Object.assign({}, opt, {headers}));
-    const dur=Date.now()-start;
     if(res.status===429){
-      // Respect Retry-After
       const retrySec = Number(res.headers.get('Retry-After')||'2');
-      // Exponential growth on minDelay (capped)
       Rate.attempts429++;
-      const grow = Math.min(Rate.maxDelay, Math.max(Rate.minDelay*Math.pow(1.5, Rate.attempts429), retrySec*1000));
+      const grow = Math.min(Rate.maxDelay, Math.max(Rate.minDelay*Math.pow(1.5,Rate.attempts429), retrySec*1000));
       Rate.minDelay = Math.min(Rate.maxDelay, Math.max(Rate.minDelay, grow));
       const jitter = Math.floor(Math.random()*300);
       Rate.nextAt = Date.now() + Math.max(retrySec*1000, Rate.minDelay) + jitter;
@@ -172,20 +193,15 @@ async function api(url,opt={}, attempt=0){
       if(attempt<6){ await sleep(Math.max(0, Rate.nextAt-Date.now())); return api(url,opt,attempt+1); }
       throw new Error('API 429 too many attempts');
     }
-    // success
     Rate.attempts429=0;
-    Rate.nextAt = Date.now() + Rate.minDelay; // pace 次回まで待つ
+    Rate.nextAt = Date.now() + Rate.minDelay;
     if(!res.ok){
-      const txt=await res.text();
-      throw new Error('API '+res.status+': '+txt);
+      const txt=await res.text(); throw new Error('API '+res.status+': '+txt);
     }
     const json=await res.json();
     release();
     return json;
-  }catch(e){
-    release();
-    throw e;
-  }
+  }catch(e){ release(); throw e; }
 }
 
 /* ---------- Normalizers ---------- */
@@ -214,9 +230,7 @@ function splitRemixers(remixer){
   const s = String(remixer).replace(/\bfeat\.?\b/ig, ',').replace(/\s+x\s+/ig, ',').replace(/\s*&\s*/g, ',');
   return s.split(',').map(x=>x.trim()).filter(Boolean);
 }
-function tdcsAliases(){
-  return ['The Darrow Chem Syndicate','Darrow Chem Syndicate','TDCS'];
-}
+function tdcsAliases(){ return ['The Darrow Chem Syndicate','Darrow Chem Syndicate','TDCS']; }
 
 /* ---------- Query builder ---------- */
 function buildQueries(row, useCatno){
@@ -319,17 +333,15 @@ async function getArtistAlbums(artistId, market, groups='single'){
 let lastNotFoundRows=[];
 let lastPrimaryIssues=[];
 
-/* ---------- Match helpers ---------- */
+/* ---------- Match helper ---------- */
 function titleMatch(a,b){const na=normTitle(a), nb=normTitle(b);return na===nb || na.includes(nb) || nb.includes(na);}
 
-/* ---------- Resolver with rate-friendly strategy ---------- */
+/* ---------- Resolver ---------- */
 async function resolveTrack(row, market, strictSingles, whitelist, primaryOnly){
   checkAbort();
   const useCatno = document.getElementById('useCatalogNumber').checked;
   const allowFeatured = document.getElementById('fallbackAllowFeatured').checked;
-  const markets = (market && market!=='from_token')
-    ? [market]
-    : ['', 'JP', 'US', 'GB', 'DE', 'FR', 'ES', 'NL', 'SE', 'BR']; // 広め
+  const markets = (market && market!=='from_token') ? [market] : ['', 'JP','US','GB','DE','FR','ES','NL','SE','BR'];
   const qs = buildQueries(row, useCatno);
 
   const consider = async (it, mkt, sourceLabel) => {
@@ -383,7 +395,6 @@ async function resolveTrack(row, market, strictSingles, whitelist, primaryOnly){
       await sleep(50);
     }
   }
-
   // B: 緩和（allowFeaturedで採用可＋修正依頼）
   for(const mkt of markets){
     for(const q of qs){
@@ -403,7 +414,6 @@ async function resolveTrack(row, market, strictSingles, whitelist, primaryOnly){
       await sleep(50);
     }
   }
-
   // C: アーティスト single/appears_on を走査（タイトルゆる一致）
   for(const mkt of markets){
     for(const aid of whitelist){
@@ -462,8 +472,6 @@ async function addUris(pid, uris){
 }
 
 /* ---------- Exporters ---------- */
-let lastNotFoundRows=[];
-let lastPrimaryIssues=[];
 function exportNotFound(){
   if(!lastNotFoundRows.length){ alert('not-found はありません'); return; }
   const header=['source_file','index','title','remixer','isrc','catalog'];
@@ -566,7 +574,13 @@ document.getElementById('btnBuild').onclick=async()=>{
 document.getElementById('btnExportNF').onclick=exportNotFound;
 document.getElementById('btnExportCorr').onclick=exportCorrections;
 document.getElementById('btnSignOut').onclick=()=>{ sessionStorage.clear(); localStorage.removeItem('code_verifier'); setAuthStatus('No token.'); LOG('Signed out (local).'); };
-(async()=>{ try{ if(!token()) throw 0; const m=await me(); setAuthStatus('Signed in as '+(m.display_name||m.id)); }catch(_){ setAuthStatus('No token.'); } })();
+
+(async()=>{
+  try{
+    if(!token()) throw 0;
+    const m=await me(); setAuthStatus('Signed in as '+(m.display_name||m.id));
+  }catch(_){ setAuthStatus('No token.'); }
+})();
 </script>
 </body>
 </html>
