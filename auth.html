@@ -11,10 +11,21 @@
 <script>
 const LOG=(...a)=>{const el=document.getElementById('log');el.textContent+="\n"+a.join(' ')};
 
-const CLIENT_ID = '5b4dc486f92a46878665468fa5de9361';
-const REDIRECT_URI = 'https://npr2025.github.io/spotify-auth/callback.html';
-const SCOPES = 'playlist-modify-public playlist-modify-private';
-const AUTH_URL = 'https://accounts.spotify.com/authorize';
+const CLIENT_ID   = '5b4dc486f92a46878665468fa5de9361';
+const REDIRECT_URI= 'https://npr2025.github.io/spotify-auth/callback.html';
+const SCOPES      = 'playlist-modify-public playlist-modify-private';
+const AUTH_URL    = 'https://accounts.spotify.com/authorize';
+
+// 既定の戻り先（最後の保険）。ビルダーがサブパスならそのURLに変える。
+const DEFAULT_RETURN = 'https://npr2025.github.io/index.html';
+function decideReturnTo(){
+  try{
+    const saved = sessionStorage.getItem('return_to');
+    if(saved && saved.startsWith('https://npr2025.github.io/')) return saved;
+  }catch(_){}
+  if(document.referrer && document.referrer.startsWith('https://npr2025.github.io/')) return document.referrer;
+  return DEFAULT_RETURN;
+}
 
 function b64url(bytes){
   return btoa(String.fromCharCode.apply(null, new Uint8Array(bytes)))
@@ -29,19 +40,18 @@ function randString(len=64){
   const arr=new Uint8Array(len); crypto.getRandomValues(arr);
   return Array.from(arr).map(x=>('0'+(x%256).toString(16)).slice(-2)).join('');
 }
+
 (async ()=>{
   try{
-    // 元のページに戻るための戻り先（任意）
-    sessionStorage.setItem('return_to', document.referrer || '/');
+    const returnTo = decideReturnTo();
+    sessionStorage.setItem('return_to', returnTo);
 
-    // PKCE: code_verifier / code_challenge
     const code_verifier = randString(96);
     const code_challenge = await sha256(code_verifier);
     sessionStorage.setItem('code_verifier', code_verifier);
 
-    // state にはCSRFトークン＋フォールバックとして verifier のダイジェストも入れる
-    const state_raw = randString(24);
-    const state = state_raw;
+    const stateObj = { rt: returnTo, t: randString(16) };
+    const state = btoa(unescape(encodeURIComponent(JSON.stringify(stateObj))));
 
     const params = new URLSearchParams({
       client_id: CLIENT_ID,
@@ -52,6 +62,7 @@ function randString(len=64){
       scope: SCOPES,
       state
     });
+    params.set('show_dialog','true'); // 常に同意画面を出す（アカウント切替や権限再付与に便利）
 
     const url = `${AUTH_URL}?${params.toString()}`;
     LOG('Redirecting to Spotify…');
