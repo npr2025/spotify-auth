@@ -1,0 +1,13 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Health</title>
+<pre id="o">Checking…</pre>
+<script>
+const o = document.getElementById('o');
+try{
+  const t = sessionStorage.getItem('access_token');
+  o.textContent = 'Token: ' + (t? ('present len=' + t.length) : 'NONE');
+}catch(e){
+  o.textContent = 'Error: ' + e.message;
+}
+</script>

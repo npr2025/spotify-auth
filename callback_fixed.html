@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Spotify Auth Callback (fixed)</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:860px;margin:28px auto;padding:0 12px}
+    #log{white-space:pre-wrap;background:#111;color:#e6f0ff;border:1px solid #444;padding:12px;border-radius:8px}
+    button{padding:8px 12px}
+  </style>
+</head>
+<body>
+  <h1>Spotify Auth Callback</h1>
+  <p id="status">Exchanging token…</p>
+  <p>
+    <button id="btnGo">Open app</button>
+  </p>
+  <pre id="log"></pre>
+<script>
+const log = (...a)=>{const el=document.getElementById('log'); el.textContent += '\\n' + a.join(' ') }
+function getCookie(name){ const m=document.cookie.match(new RegExp('(?:^|; )'+name+'=([^;]*)')); return m?decodeURIComponent(m[1]):null }
+function restoreVerifier(){ return sessionStorage.getItem('code_verifier')||localStorage.getItem('code_verifier')||getCookie('code_verifier') }
+function clientIdFromState(s){ try{ return JSON.parse(s).client_id||null }catch(_){ return null } }
+async function exchangeToken(code, redirectUri, clientId, verifier){
+  const body=new URLSearchParams({ grant_type:'authorization_code', code, redirect_uri:redirectUri, client_id:clientId, code_verifier:verifier });
+  const res=await fetch('https://accounts.spotify.com/api/token',{ method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body });
+  if(!res.ok){ throw new Error('token '+res.status+': '+await res.text()) }
+  return res.json();
+}
+function goNext(){
+  // Prefer builder_simple.html -> builder.html -> index.html
+  const candidates = ['builder_simple.html','builder.html','index.html','./'];
+  for(const p of candidates){
+    // Just navigate; if missing, user can click back
+    location.assign(p); return;
+  }
+}
+document.getElementById('btnGo').onclick = goNext;
+
+(async()=>{
+  try{
+    const url = new URL(location.href);
+    const code = url.searchParams.get('code');
+    const state = url.searchParams.get('state');
+    const err = url.searchParams.get('error');
+    const redirectUri = location.origin + location.pathname; // exact callback URL
+    if(err){ document.getElementById('status').textContent = 'Error: '+err; log('error=',err); return }
+    if(!code){ document.getElementById('status').textContent = 'No code in URL'; log('no code'); return }
+    const verifier = restoreVerifier();
+    if(!verifier){ document.getElementById('status').textContent = 'Missing code_verifier'; log('missing code_verifier'); return }
+    let clientId = sessionStorage.getItem('client_id') || clientIdFromState(state);
+    if(!clientId){ document.getElementById('status').textContent = 'Missing client_id'; log('missing client_id'); return }
+
+    log('redirectUri', redirectUri);
+    const tok = await exchangeToken(code, redirectUri, clientId, verifier);
+    sessionStorage.setItem('access_token', tok.access_token);
+    sessionStorage.setItem('expires_in', tok.expires_in);
+    if(tok.refresh_token) sessionStorage.setItem('refresh_token', tok.refresh_token);
+
+    document.getElementById('status').textContent = 'OK — token acquired. Redirecting…';
+    setTimeout(goNext, 600);
+  }catch(e){
+    document.getElementById('status').textContent = 'Token error';
+    log(e.message);
+  }
+})();
+</script>
+</body>
+</html>
