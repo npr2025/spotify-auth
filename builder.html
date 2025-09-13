@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>TDCS Playlist Builder — Singles-only (2–4)</title>
+  <title>TDCS Playlist Builder — Singles-only (1–4)</title>
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
            max-width: 980px; margin: 24px auto; padding: 0 12px; background: #0b1220; color: #cfe3ff; }
@@ -23,7 +23,7 @@
   </style>
 </head>
 <body>
-  <h1>TDCS Playlist Builder — Singles-only (2–4 tracks)</h1>
+  <h1>TDCS Playlist Builder — Singles-only (1–4 tracks)</h1>
 
   <fieldset>
     <legend>Auth</legend>
@@ -37,7 +37,7 @@
   <fieldset>
     <legend>Settings</legend>
     <label>Playlist name prefix
-      <input id="prefix" type="text" value="TDCS - Singles - ">
+      <input id="prefix" type="text" value="TDCS - Singles(1-4) - ">
     </label>
     <label class="row" style="align-items:center">
       <span><input id="useFileName" type="checkbox" checked> Use CSV filename as playlist name (prefix + filename)</span>
@@ -45,7 +45,7 @@
     <div class="row">
       <label class="row" style="align-items:center"><span><input id="isPublic" type="checkbox"> Public playlist</span></label>
       <label class="row" style="align-items:center"><span><input id="uniqueUris" type="checkbox" checked> Unique tracks only</span></label>
-      <label class="row" style="align-items:center"><span><input id="strictSingles" type="checkbox" checked> Strict: only picks from SINGLE releases with 2–4 tracks (skip otherwise)</span></label>
+      <label class="row" style="align-items:center"><span><input id="strictSingles" type="checkbox" checked> Strict: only picks from SINGLE releases with 1–4 tracks (skip otherwise)</span></label>
     </div>
     <div class="row">
       <label>Build for user (override, optional)
@@ -139,7 +139,7 @@
       return qs;
     }
 
-    // ----- Singles-only selection helpers -----
+    // ----- Singles-only (1–4) selection helpers -----
     const albumCache = new Map();
     async function getAlbumTotalTracks(album){
       let n = album?.total_tracks;
@@ -154,21 +154,21 @@
       return n;
     }
 
-    async function pickSingle2to4(items, strict){
+    async function pickSingle1to4(items, strict){
       const singles = items.filter(x => x?.album?.album_type === 'single');
       if(!singles.length) return null;
       const scored = [];
-      for(const it of singles.slice(0,8)){
+      for(const it of singles.slice(0,10)){
         let tt = it?.album?.total_tracks;
         if(!(typeof tt === 'number' && tt > 0)){
           tt = await getAlbumTotalTracks(it.album);
         }
         scored.push({it, tt});
       }
-      const inRange = scored.filter(s => typeof s.tt === 'number' && s.tt >= 2 && s.tt <= 4);
+      const inRange = scored.filter(s => typeof s.tt === 'number' && s.tt >= 1 && s.tt <= 4);
       if(inRange.length) return inRange[0].it;
-      if(strict) return null;
-      return singles[0];
+      if(strict) return null;           // strict: require 1–4
+      return singles[0];                 // non-strict: allow any single
     }
 
     async function resolveTrackSinglesOnly(row, market, strict){
@@ -178,7 +178,7 @@
         try{
           const res = await api(url);
           const items = (res?.tracks?.items||[]).filter(x => x?.type==='track' && x?.uri?.startsWith('spotify:track:'));
-          const chosen = await pickSingle2to4(items, strict);
+          const chosen = await pickSingle1to4(items, strict);
           if(chosen) return chosen.uri;
         }catch(e){
           LOG('search error', e.message);
@@ -195,7 +195,7 @@
       return api('https://api.spotify.com/v1/users/' + encodeURIComponent(uid) + '/playlists', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ name, public: !!pub, description: 'Singles-only (2–4) • track-only • ISRC-first' })
+        body: JSON.stringify({ name, public: !!pub, description: 'Singles-only (1–4) • track-only • ISRC-first' })
       });
     }
 
@@ -234,12 +234,12 @@
             LOG('[ok]', idx, uri);
           }
         }else{
-          LOG('[x] not found as SINGLE(2–4)', idx, r.title||'');
+          LOG('[x] not found as SINGLE(1–4)', idx, r.title||'');
         }
       }
 
       const base = file.name.replace(/\.csv$/i,'').slice(0,140);
-      const name = useFileName ? (prefix + base) : (prefix || 'TDCS - Singles');
+      const name = useFileName ? (prefix + base) : (prefix || 'TDCS - Singles(1-4)');
       const pl = await createPlaylist(name, pub);
       LOG('playlist:', pl.external_urls?.spotify || '');
       if(uris.length) await addUris(pl.id, uris);
