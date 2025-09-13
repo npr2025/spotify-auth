@@ -1,87 +1,63 @@
 <!doctype html>
-<html lang="ja">
-<head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spotify Auth (PKCE) — per-app</title>
+<title>Spotify Sign-in (PKCE)</title>
 <style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:760px;margin:40px auto;padding:0 12px}
-  button{padding:10px 14px;border:1px solid #bbb;border-radius:8px;background:#f6f6f6;cursor:pointer}
-  #log{white-space:pre-wrap;background:#0b1220;color:#cfe3ff;padding:10px;border-radius:8px;margin-top:14px}
-  input[type="text"]{width:100%;max-width:620px;padding:8px;border:1px solid #bbb;border-radius:8px}
+  body{font:14px system-ui;color:#e6f1ff;background:#0b1220;padding:20px}
+  pre{white-space:pre-wrap;background:#091426;border:1px solid #20304a;padding:12px;border-radius:8px}
+  a,button{color:#cfe3ff}
 </style>
-</head>
-<body>
-<h1>Spotify Auth (PKCE)</h1>
-
-<p>
-  <label>Client ID（URLの ?client_id= が優先）<br>
-    <input id="clientId" type="text" placeholder="paste your Client ID">
-  </label>
-</p>
-<p>
-  <label>Scopes<br>
-    <input id="scopes" type="text"
-      value="playlist-modify-public playlist-modify-private ugc-image-upload">
-  </label>
-</p>
-<p>
-  <button id="btnStart">Sign in (S256 → fallback plain)</button>
-</p>
-
-<pre id="log">Booting…</pre>
-
+<h1>Spotify Sign-in</h1>
+<pre id="log">Preparing…</pre>
 <script>
-const LOG=(...a)=>document.getElementById('log').textContent+='\n'+a.join(' ');
-const getQP=n=>new URL(location.href).searchParams.get(n);
+const LOG=(...a)=>{const el=document.getElementById('log');el.textContent+="\n"+a.join(' ')};
 
-function setCookie(n,v,days=1){
-  const d=new Date(); d.setTime(d.getTime()+days*864e5);
-  document.cookie=`${n}=${encodeURIComponent(v)}; expires=${d.toUTCString()}; path=/; SameSite=Lax`;
+const CLIENT_ID = '5b4dc486f92a46878665468fa5de9361';
+const REDIRECT_URI = 'https://npr2025.github.io/spotify-auth/callback.html';
+const SCOPES = 'playlist-modify-public playlist-modify-private';
+const AUTH_URL = 'https://accounts.spotify.com/authorize';
+
+function b64url(bytes){
+  return btoa(String.fromCharCode.apply(null, new Uint8Array(bytes)))
+    .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 }
-function randomString(n=96){
-  const cs='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
-  let s=''; crypto.getRandomValues(new Uint8Array(n)).forEach(b=>s+=cs[b%cs.length]); return s;
+async function sha256(str){
+  const enc=new TextEncoder(); const data=enc.encode(str);
+  const buf=await crypto.subtle.digest('SHA-256', data);
+  return b64url(buf);
 }
-async function sha256(s){
-  const buf=new TextEncoder().encode(s);
-  const h=await crypto.subtle.digest('SHA-256',buf);
-  return btoa(String.fromCharCode(...new Uint8Array(h))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+function randString(len=64){
+  const arr=new Uint8Array(len); crypto.getRandomValues(arr);
+  return Array.from(arr).map(x=>('0'+(x%256).toString(16)).slice(-2)).join('');
 }
+(async ()=>{
+  try{
+    // 元のページに戻るための戻り先（任意）
+    sessionStorage.setItem('return_to', document.referrer || '/');
 
-async function startAuth(){
-  let clientId=getQP('client_id')||document.getElementById('clientId').value.trim();
-  if(!clientId){ alert('client_id が未指定です'); return; }
+    // PKCE: code_verifier / code_challenge
+    const code_verifier = randString(96);
+    const code_challenge = await sha256(code_verifier);
+    sessionStorage.setItem('code_verifier', code_verifier);
 
-  const codeVerifier=randomString(96);
-  let challengeMethod='S256', codeChallenge='';
-  try{ codeChallenge=await sha256(codeVerifier) }catch(_){ challengeMethod='plain'; codeChallenge=codeVerifier }
+    // state にはCSRFトークン＋フォールバックとして verifier のダイジェストも入れる
+    const state_raw = randString(24);
+    const state = state_raw;
 
-  // 三重保存
-  localStorage.setItem('code_verifier',codeVerifier);
-  sessionStorage.setItem('code_verifier',codeVerifier);
-  setCookie('code_verifier',codeVerifier);
-  sessionStorage.setItem('client_id',clientId);
+    const params = new URLSearchParams({
+      client_id: CLIENT_ID,
+      response_type: 'code',
+      redirect_uri: REDIRECT_URI,
+      code_challenge_method: 'S256',
+      code_challenge,
+      scope: SCOPES,
+      state
+    });
 
-  const redirectUri='https://npr2025.github.io/spotify-auth/callback.html';
-  const scopes=document.getElementById('scopes').value.trim();
-  const state=JSON.stringify({t:Date.now(),client_id:clientId});
-
-  const url=new URL('https://accounts.spotify.com/authorize');
-  url.searchParams.set('client_id',clientId);
-  url.searchParams.set('response_type','code');
-  url.searchParams.set('redirect_uri',redirectUri);
-  url.searchParams.set('code_challenge_method',challengeMethod);
-  url.searchParams.set('code_challenge',codeChallenge);
-  if(scopes) url.searchParams.set('scope',scopes);
-  url.searchParams.set('state',state);
-
-  LOG('Redirecting…',challengeMethod,'client_id=',clientId);
-  location.assign(url.toString());
-}
-
-document.getElementById('btnStart').onclick=startAuth;
-LOG('Tip: 認可開始URLに ?client_id=YOUR_APP_ID を付けてもOK');
+    const url = `${AUTH_URL}?${params.toString()}`;
+    LOG('Redirecting to Spotify…');
+    location.href = url;
+  }catch(e){
+    LOG('ERROR:', e.message);
+  }
+})();
 </script>
-</body>
-</html>
