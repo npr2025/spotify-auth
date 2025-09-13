@@ -11,11 +11,28 @@
 <script>
 const LOG=(...a)=>{const el=document.getElementById('log');el.textContent+="\n"+a.join(' ')};
 
-const CLIENT_ID = '5b4dc486f92a46878665468fa5de9361';
-const REDIRECT_URI = 'https://npr2025.github.io/spotify-auth/callback.html';
-const TOKEN_URL = 'https://accounts.spotify.com/api/token';
+const CLIENT_ID   = '5b4dc486f92a46878665468fa5de9361';
+const REDIRECT_URI= 'https://npr2025.github.io/spotify-auth/callback.html';
+const TOKEN_URL   = 'https://accounts.spotify.com/api/token';
+const DEFAULT_RETURN = 'https://npr2025.github.io/index.html';
 
-// x-www-form-urlencoded POST
+function decodeState(s){
+  try{
+    const json = decodeURIComponent(escape(atob(s)));
+    return JSON.parse(json);
+  }catch(_){ return {}; }
+}
+function backToApp(){
+  let ret = DEFAULT_RETURN;
+  try{
+    const ss = sessionStorage.getItem('return_to');
+    if(ss && ss.startsWith('https://npr2025.github.io/')) ret = ss;
+  }catch(_){}
+  const qs = new URLSearchParams(location.search);
+  const st = decodeState(qs.get('state')||'');
+  if(st.rt && st.rt.startsWith('https://npr2025.github.io/')) ret = st.rt;
+  location.replace(ret);
+}
 async function postForm(url, data){
   const res = await fetch(url, {
     method:'POST',
@@ -28,23 +45,28 @@ async function postForm(url, data){
   }
   return res.json();
 }
-function backToApp(){
-  const ret = sessionStorage.getItem('return_to') || '/';
-  location.href = ret;
-}
+
 (async ()=>{
   try{
     const qs = new URLSearchParams(location.search);
     const err = qs.get('error');
-    if(err){ throw new Error('Spotify returned error: '+err); }
+    if(err){
+      const desc = qs.get('error_description') || '';
+      LOG('ERROR: Spotify returned error:', err, (desc?('— '+desc):''));
+      LOG('\n原因候補:');
+      LOG('・Development mode で「Users and access」にあなたのアカウントが追加されていない → access_denied');
+      LOG('・承認時に別アカウントでログインしている → accounts.spotify.com でログアウト→正しいアカで再ログイン');
+      LOG('・Redirect URI がダッシュボード登録と不一致');
+      LOG('\n対処後、下のリンクから再試行してください。');
+      const a=document.createElement('a'); a.href=DEFAULT_RETURN; a.textContent='Return to app'; document.body.appendChild(a);
+      return;
+    }
 
     const code = qs.get('code');
-    const state = qs.get('state');
     if(!code){ throw new Error('no code'); }
-    if(!state){ LOG('WARN: no state'); }
 
     const verifier = sessionStorage.getItem('code_verifier');
-    if(!verifier){ throw new Error('missing code_verifier (originが違う/ストレージが消えた可能性)'); }
+    if(!verifier){ throw new Error('missing code_verifier (オリジン違い/ストレージ消失の可能性)'); }
 
     LOG('Exchanging code for token…');
     const token = await postForm(TOKEN_URL, {
@@ -55,20 +77,20 @@ function backToApp(){
       code_verifier: verifier
     });
 
-    // 保存（ビルダーは sessionStorage.getItem('access_token') を参照）
     sessionStorage.setItem('access_token', token.access_token);
     if(token.refresh_token){ sessionStorage.setItem('refresh_token', token.refresh_token); }
     const expiresAt = Date.now() + (token.expires_in||3600)*1000;
     sessionStorage.setItem('access_token_expires_at', String(expiresAt));
 
-    LOG('Signed in. Returning to app…');
+    LOG('Signed in. Returning…');
     backToApp();
   }catch(e){
     LOG('ERROR:', e.message);
-    LOG('ヒント:');
-    LOG('・ダッシュボードの Redirect URI が完全一致しているか');
-    LOG('・Development mode の Users に自分のアカウントを追加済みか');
-    LOG('・auth.html も callback.html も https://npr2025.github.io/ 配下で動かしているか');
+    LOG('\nヒント:');
+    LOG('・Dashboard の Redirect URI が完全一致か？');
+    LOG('・Development mode の Users に自分のアカウントを追加済みか？');
+    LOG('・auth.html / callback.html / ビルダーが同一オリジン (https://npr2025.github.io/) で動作しているか？');
+    const a=document.createElement('a'); a.href=DEFAULT_RETURN; a.textContent='Return to app (fallback)'; document.body.appendChild(a);
   }
 })();
 </script>
