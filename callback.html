@@ -53,11 +53,7 @@ async function postForm(url, data){
     if(err){
       const desc = qs.get('error_description') || '';
       LOG('ERROR: Spotify returned error:', err, (desc?('— '+desc):''));
-      LOG('\n原因候補:');
-      LOG('・Development mode で「Users and access」にあなたのアカウントが追加されていない → access_denied');
-      LOG('・承認時に別アカウントでログインしている → accounts.spotify.com でログアウト→正しいアカで再ログイン');
-      LOG('・Redirect URI がダッシュボード登録と不一致');
-      LOG('\n対処後、下のリンクから再試行してください。');
+      LOG('\n原因候補: Development modeのUsers未追加 / 別アカで承認 / Redirect URI不一致');
       const a=document.createElement('a'); a.href=DEFAULT_RETURN; a.textContent='Return to app'; document.body.appendChild(a);
       return;
     }
@@ -66,7 +62,10 @@ async function postForm(url, data){
     if(!code){ throw new Error('no code'); }
 
     const verifier = sessionStorage.getItem('code_verifier');
-    if(!verifier){ throw new Error('missing code_verifier (オリジン違い/ストレージ消失の可能性)'); }
+    if(!verifier){
+      throw new Error('missing code_verifier（オリジン違い/別タブでauth→callbackになった可能性）');
+    }
+    LOG('code_verifier length =', verifier.length); // デバッグ表示
 
     LOG('Exchanging code for token…');
     const token = await postForm(TOKEN_URL, {
@@ -87,9 +86,8 @@ async function postForm(url, data){
   }catch(e){
     LOG('ERROR:', e.message);
     LOG('\nヒント:');
-    LOG('・Dashboard の Redirect URI が完全一致か？');
-    LOG('・Development mode の Users に自分のアカウントを追加済みか？');
-    LOG('・auth.html / callback.html / ビルダーが同一オリジン (https://npr2025.github.io/) で動作しているか？');
+    LOG('・このエラーが "invalid_grant / code_verifier invalid" の場合は、auth.html の code_verifier 生成を修正版に更新してください。');
+    LOG('・auth→callback を別オリジンや別タブで跨いでいないか（sessionStorageはタブ単位）');
     const a=document.createElement('a'); a.href=DEFAULT_RETURN; a.textContent='Return to app (fallback)'; document.body.appendChild(a);
   }
 })();
