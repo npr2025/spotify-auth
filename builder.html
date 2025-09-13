@@ -4,15 +4,15 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>TDCS Playlist Builder — Singles-only (1–4)</title>
+  <title>TDCS Playlist Builder — Singles(1–4) • ArtistID-locked • Pin @19</title>
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-           max-width: 980px; margin: 24px auto; padding: 0 12px; background: #0b1220; color: #cfe3ff; }
+           max-width: 1000px; margin: 24px auto; padding: 0 12px; background: #0b1220; color: #cfe3ff; }
     h1 { margin: 0 0 8px; font-size: 20px; }
     fieldset { border: 1px solid #22324f; border-radius: 10px; margin: 10px 0; padding: 12px; }
     legend { padding: 0 8px; color: #bcd1f5; }
     label { display: block; margin: 8px 0 4px; }
-    input[type="text"], select { width: 100%; max-width: 520px; padding: 9px; border-radius: 8px;
+    input[type="text"], input[type="number"], select { width: 100%; max-width: 640px; padding: 9px; border-radius: 8px;
                                  border: 1px solid #2d3e60; background: #091426; color: #cfe3ff; }
     input[type="checkbox"] { transform: scale(1.05); margin-right: 6px; }
     button { padding: 10px 14px; border-radius: 8px; border: 1px solid #3a4d75; background: #14213a; color: #e9f1ff; cursor: pointer; }
@@ -23,7 +23,7 @@
   </style>
 </head>
 <body>
-  <h1>TDCS Playlist Builder — Singles-only (1–4 tracks)</h1>
+  <h1>TDCS Playlist Builder — Singles(1–4) • ArtistID-locked • Pin @19</h1>
 
   <fieldset>
     <legend>Auth</legend>
@@ -31,6 +31,21 @@
     <div class="row" style="margin-top:8px">
       <button onclick="location.href='auth.html'">Sign in</button>
       <button id="btnSignOut">Sign out (local)</button>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Constraints</legend>
+    <label>Artist IDs (comma separated; results must include one of these artist IDs)
+      <input id="artistIds" type="text" value="55fvQ5I2IZUfcFT2DV02T3">
+    </label>
+    <div class="row">
+      <label>Pin track (URI or URL)
+        <input id="pinUri" type="text" value="https://open.spotify.com/track/3bBCxxbNkrl1DlBlxATNVQ">
+      </label>
+      <label>Pin at position (1-based)
+        <input id="pinPos" type="number" min="1" value="19">
+      </label>
     </div>
   </fieldset>
 
@@ -45,7 +60,7 @@
     <div class="row">
       <label class="row" style="align-items:center"><span><input id="isPublic" type="checkbox"> Public playlist</span></label>
       <label class="row" style="align-items:center"><span><input id="uniqueUris" type="checkbox" checked> Unique tracks only</span></label>
-      <label class="row" style="align-items:center"><span><input id="strictSingles" type="checkbox" checked> Strict: only picks from SINGLE releases with 1–4 tracks (skip otherwise)</span></label>
+      <label class="row" style="align-items:center"><span><input id="strictSingles" type="checkbox" checked> Strict: SINGLE with 1–4 tracks only</span></label>
     </div>
     <div class="row">
       <label>Build for user (override, optional)
@@ -71,8 +86,7 @@
       <button id="btnBuild">Build playlists (one per CSV)</button>
     </div>
     <div class="muted" style="margin-top:8px">
-      Columns (flexible names ok): order, Catalog number, title, remixer, isrc, spotify_query, Original file name.<br>
-      If no ISRC column, the code will try to extract from Original file name.
+      Columns (flexible names ok): order, Catalog number, title, remixer, isrc, spotify_query, Original file name.
     </div>
   </fieldset>
 
@@ -102,12 +116,12 @@
     async function me(){ return api('https://api.spotify.com/v1/me') }
     function setAuthStatus(msg){ document.getElementById('authStatus').textContent = msg }
 
+    // ----- CSV normalize & queries -----
     function extractISRC(s){
       if(!s) return '';
       const m = String(s).match(/\b[A-Z]{2}[A-Z0-9]{3}\d{7}\b/);
       return m ? m[0] : '';
     }
-
     function normalizeRow(raw){
       const lower = {}; for(const k in raw){ lower[k.toLowerCase()] = k; }
       const pick = key => raw[ lower[key] ];
@@ -126,7 +140,6 @@
       row._order = Number(row.order||0);
       return row;
     }
-
     function buildQueries(row){
       const qs = [];
       if(row.isrc) qs.push('isrc:'+row.isrc);
@@ -139,7 +152,7 @@
       return qs;
     }
 
-    // ----- Singles-only (1–4) selection helpers -----
+    // ----- Singles-only (1–4) + ArtistID filter -----
     const albumCache = new Map();
     async function getAlbumTotalTracks(album){
       let n = album?.total_tracks;
@@ -150,15 +163,23 @@
       const data = await api('https://api.spotify.com/v1/albums/' + encodeURIComponent(id));
       n = (typeof data?.total_tracks === 'number') ? data.total_tracks : null;
       albumCache.set(id, n);
-      await sleep(60);
+      await sleep(40);
       return n;
     }
-
-    async function pickSingle1to4(items, strict){
-      const singles = items.filter(x => x?.album?.album_type === 'single');
+    function parseArtistIds(){
+      const raw = document.getElementById('artistIds').value.trim();
+      return raw.split(/[\s,]+/).map(s=>s.trim()).filter(Boolean);
+    }
+    function hasWhitelistedArtist(track, whitelist){
+      const artists = (track?.artists||[]).map(a=>a?.id).filter(Boolean);
+      return artists.some(id => whitelist.includes(id));
+    }
+    async function pickSingle1to4_artistLocked(items, strict, whitelist){
+      const filtered = items.filter(x => x?.type==='track' && x?.uri?.startsWith('spotify:track:') && hasWhitelistedArtist(x, whitelist));
+      const singles = filtered.filter(x => x?.album?.album_type === 'single');
       if(!singles.length) return null;
       const scored = [];
-      for(const it of singles.slice(0,10)){
+      for(const it of singles.slice(0,12)){
         let tt = it?.album?.total_tracks;
         if(!(typeof tt === 'number' && tt > 0)){
           tt = await getAlbumTotalTracks(it.album);
@@ -167,27 +188,55 @@
       }
       const inRange = scored.filter(s => typeof s.tt === 'number' && s.tt >= 1 && s.tt <= 4);
       if(inRange.length) return inRange[0].it;
-      if(strict) return null;           // strict: require 1–4
-      return singles[0];                 // non-strict: allow any single
+      if(strict) return null;
+      return singles[0];
     }
-
-    async function resolveTrackSinglesOnly(row, market, strict){
+    async function resolveTrack(row, market, strict, whitelist){
       const qs = buildQueries(row);
       for(const q of qs){
-        const url = 'https://api.spotify.com/v1/search?q=' + encodeURIComponent(q) + '&type=track&limit=10&market=' + encodeURIComponent(market);
+        const url = 'https://api.spotify.com/v1/search?q=' + encodeURIComponent(q) + '&type=track&limit=12&market=' + encodeURIComponent(market);
         try{
           const res = await api(url);
-          const items = (res?.tracks?.items||[]).filter(x => x?.type==='track' && x?.uri?.startsWith('spotify:track:'));
-          const chosen = await pickSingle1to4(items, strict);
+          const items = (res?.tracks?.items||[]);
+          const chosen = await pickSingle1to4_artistLocked(items, strict, whitelist);
           if(chosen) return chosen.uri;
         }catch(e){
           LOG('search error', e.message);
         }
-        await sleep(120);
+        await sleep(100);
       }
       return null;
     }
-    // ------------------------------------------
+
+    // ----- Build helpers -----
+    function parsePinUri(){
+      let s = document.getElementById('pinUri').value.trim();
+      if(!s) return null;
+      if(s.startsWith('http')){
+        const m = s.match(/track\/([a-zA-Z0-9]+)/);
+        if(m){ return 'spotify:track:' + m[1]; }
+      }
+      return s;
+    }
+    function splicePin(uris, pinUri, pos1based, unique){
+      const idx = Math.max(0, Number(pos1based||1)-1);
+      const arr = uris.slice();
+      const already = arr.indexOf(pinUri);
+      if(already >= 0){
+        // move it to idx
+        arr.splice(already,1);
+      }
+      const safeIdx = Math.min(idx, arr.length);
+      if(unique){
+        // avoid duplicate if pinUri is in uris later
+        const rest = arr.filter(u => u !== pinUri);
+        rest.splice(safeIdx, 0, pinUri);
+        return rest;
+      } else {
+        arr.splice(safeIdx, 0, pinUri);
+        return arr;
+      }
+    }
 
     async function createPlaylist(name, pub){
       const override = document.getElementById('userIdOverride').value.trim();
@@ -195,10 +244,9 @@
       return api('https://api.spotify.com/v1/users/' + encodeURIComponent(uid) + '/playlists', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ name, public: !!pub, description: 'Singles-only (1–4) • track-only • ISRC-first' })
+        body: JSON.stringify({ name, public: !!pub, description: 'Singles(1–4) • ArtistID-locked • Pin @N' })
       });
     }
-
     async function addUris(pid, uris){
       for(let i=0;i<uris.length;i+=100){
         const chunk = uris.slice(i,i+100);
@@ -208,11 +256,11 @@
           body: JSON.stringify({ uris: chunk })
         });
         LOG('added', Math.min(i+100, uris.length), '/', uris.length);
-        await sleep(120);
+        await sleep(100);
       }
     }
 
-    async function buildOneCSV(file, market, pub, unique, prefix, useFileName, strictSingles){
+    async function buildOneCSV(file, market, pub, unique, prefix, useFileName, strictSingles, whitelist, pinUri, pinPos){
       LOG('--- CSV:', file.name, '---');
       const rows = await new Promise((resolve, reject)=>{
         Papa.parse(file, { header:true, skipEmptyLines:true, complete: r=>resolve(r.data), error: reject });
@@ -225,7 +273,7 @@
       let idx = 0;
       for(const r of norm){
         idx++;
-        const uri = await resolveTrackSinglesOnly(r, market, strictSingles);
+        const uri = await resolveTrack(r, market, strictSingles, whitelist);
         if(uri){
           if(unique && seen.has(uri)){
             LOG('[dup] skip', idx, uri);
@@ -234,8 +282,17 @@
             LOG('[ok]', idx, uri);
           }
         }else{
-          LOG('[x] not found as SINGLE(1–4)', idx, r.title||'');
+          LOG('[x] not found SINGLE(1–4) + artistID', idx, r.title||'');
         }
+      }
+
+      // Pin @ position
+      if(pinUri){
+        const before = uris.length;
+        const ordered = splicePin(uris, pinUri, pinPos, unique);
+        LOG('pin', pinUri, 'at', pinPos, '(before=', before, 'after=', ordered.length, ')');
+        // use ordered
+        uris.length = 0; Array.prototype.push.apply(uris, ordered);
       }
 
       const base = file.name.replace(/\.csv$/i,'').slice(0,140);
@@ -257,9 +314,12 @@
       const prefix = document.getElementById('prefix').value || '';
       const useFileName = document.getElementById('useFileName').checked;
       const strictSingles = document.getElementById('strictSingles').checked;
+      const whitelist = parseArtistIds();
+      const pinUri = parsePinUri();
+      const pinPos = Number(document.getElementById('pinPos').value||19);
 
       for(const f of files){
-        await buildOneCSV(f, market, pub, unique, prefix, useFileName, strictSingles);
+        await buildOneCSV(f, market, pub, unique, prefix, useFileName, strictSingles, whitelist, pinUri, pinPos);
       }
       alert('All done.');
     };
