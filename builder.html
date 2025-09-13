@@ -2,10 +2,9 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-  <meta charset="utf-8">
+  <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>TDCS Playlist Builder (Per-CSV / Track-only / ISRC-first)</title>
+  <title>TDCS Playlist Builder — Singles-only (2–4)</title>
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
            max-width: 980px; margin: 24px auto; padding: 0 12px; background: #0b1220; color: #cfe3ff; }
@@ -17,14 +16,14 @@
                                  border: 1px solid #2d3e60; background: #091426; color: #cfe3ff; }
     input[type="checkbox"] { transform: scale(1.05); margin-right: 6px; }
     button { padding: 10px 14px; border-radius: 8px; border: 1px solid #3a4d75; background: #14213a; color: #e9f1ff; cursor: pointer; }
-    #log { white-space: pre-wrap; background: #091426; color: #d6e6ff; border: 1px solid #20304a; padding: 12px; border-radius: 10px; margin-top: 12px; max-height: 520px; overflow: auto; }
+    #log { white-space: pre-wrap; background: #091426; color: #d6e6ff; border: 1px solid #20304a; padding: 12px; border-radius: 10px; margin-top: 12px; max-height: 540px; overflow: auto; }
     .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
     .row > * { flex: 1 1 auto; }
     .muted { color: #8ea6cc; }
   </style>
 </head>
 <body>
-  <h1>TDCS Playlist Builder (Per-CSV / Track-only / ISRC-first)</h1>
+  <h1>TDCS Playlist Builder — Singles-only (2–4 tracks)</h1>
 
   <fieldset>
     <legend>Auth</legend>
@@ -38,7 +37,7 @@
   <fieldset>
     <legend>Settings</legend>
     <label>Playlist name prefix
-      <input id="prefix" type="text" value="TDCS - ">
+      <input id="prefix" type="text" value="TDCS - Singles - ">
     </label>
     <label class="row" style="align-items:center">
       <span><input id="useFileName" type="checkbox" checked> Use CSV filename as playlist name (prefix + filename)</span>
@@ -46,6 +45,7 @@
     <div class="row">
       <label class="row" style="align-items:center"><span><input id="isPublic" type="checkbox"> Public playlist</span></label>
       <label class="row" style="align-items:center"><span><input id="uniqueUris" type="checkbox" checked> Unique tracks only</span></label>
+      <label class="row" style="align-items:center"><span><input id="strictSingles" type="checkbox" checked> Strict: only picks from SINGLE releases with 2–4 tracks (skip otherwise)</span></label>
     </div>
     <div class="row">
       <label>Build for user (override, optional)
@@ -71,7 +71,7 @@
       <button id="btnBuild">Build playlists (one per CSV)</button>
     </div>
     <div class="muted" style="margin-top:8px">
-      Columns (flexible names ok): order, Catalog number, title, remixer, isrc, spotify_query, Original file name.
+      Columns (flexible names ok): order, Catalog number, title, remixer, isrc, spotify_query, Original file name.<br>
       If no ISRC column, the code will try to extract from Original file name.
     </div>
   </fieldset>
@@ -139,17 +139,47 @@
       return qs;
     }
 
-    async function resolveTrack(row, market){
+    // ----- Singles-only selection helpers -----
+    const albumCache = new Map();
+    async function getAlbumTotalTracks(album){
+      let n = album?.total_tracks;
+      if(typeof n === 'number' && n > 0) return n;
+      const id = album?.id;
+      if(!id) return null;
+      if(albumCache.has(id)) return albumCache.get(id);
+      const data = await api('https://api.spotify.com/v1/albums/' + encodeURIComponent(id));
+      n = (typeof data?.total_tracks === 'number') ? data.total_tracks : null;
+      albumCache.set(id, n);
+      await sleep(60);
+      return n;
+    }
+
+    async function pickSingle2to4(items, strict){
+      const singles = items.filter(x => x?.album?.album_type === 'single');
+      if(!singles.length) return null;
+      const scored = [];
+      for(const it of singles.slice(0,8)){
+        let tt = it?.album?.total_tracks;
+        if(!(typeof tt === 'number' && tt > 0)){
+          tt = await getAlbumTotalTracks(it.album);
+        }
+        scored.push({it, tt});
+      }
+      const inRange = scored.filter(s => typeof s.tt === 'number' && s.tt >= 2 && s.tt <= 4);
+      if(inRange.length) return inRange[0].it;
+      if(strict) return null;
+      return singles[0];
+    }
+
+    async function resolveTrackSinglesOnly(row, market, strict){
       const qs = buildQueries(row);
       for(const q of qs){
-        const url = 'https://api.spotify.com/v1/search?q=' + encodeURIComponent(q) + '&type=track&limit=8&market=' + encodeURIComponent(market);
+        const url = 'https://api.spotify.com/v1/search?q=' + encodeURIComponent(q) + '&type=track&limit=10&market=' + encodeURIComponent(market);
         try{
           const res = await api(url);
           const items = (res?.tracks?.items||[]).filter(x => x?.type==='track' && x?.uri?.startsWith('spotify:track:'));
-          if(items.length){
-            items.sort((a,b)=> ((a.album?.album_type==='single')?0:1) - ((b.album?.album_type==='single')?0:1));
-            return items[0].uri;
-          }
+          const chosen = await pickSingle2to4(items, strict);
+          if(chosen) return chosen.uri;
         }catch(e){
           LOG('search error', e.message);
         }
@@ -157,6 +187,7 @@
       }
       return null;
     }
+    // ------------------------------------------
 
     async function createPlaylist(name, pub){
       const override = document.getElementById('userIdOverride').value.trim();
@@ -164,7 +195,7 @@
       return api('https://api.spotify.com/v1/users/' + encodeURIComponent(uid) + '/playlists', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ name, public: !!pub, description: 'Per-CSV build • track-only • ISRC-first' })
+        body: JSON.stringify({ name, public: !!pub, description: 'Singles-only (2–4) • track-only • ISRC-first' })
       });
     }
 
@@ -181,7 +212,7 @@
       }
     }
 
-    async function buildOneCSV(file, market, pub, unique, prefix, useFileName){
+    async function buildOneCSV(file, market, pub, unique, prefix, useFileName, strictSingles){
       LOG('--- CSV:', file.name, '---');
       const rows = await new Promise((resolve, reject)=>{
         Papa.parse(file, { header:true, skipEmptyLines:true, complete: r=>resolve(r.data), error: reject });
@@ -194,7 +225,7 @@
       let idx = 0;
       for(const r of norm){
         idx++;
-        const uri = await resolveTrack(r, market);
+        const uri = await resolveTrackSinglesOnly(r, market, strictSingles);
         if(uri){
           if(unique && seen.has(uri)){
             LOG('[dup] skip', idx, uri);
@@ -203,12 +234,12 @@
             LOG('[ok]', idx, uri);
           }
         }else{
-          LOG('[x] not found', idx, r.title||'');
+          LOG('[x] not found as SINGLE(2–4)', idx, r.title||'');
         }
       }
 
       const base = file.name.replace(/\.csv$/i,'').slice(0,140);
-      const name = useFileName ? (prefix + base) : (prefix || 'TDCS - playlist');
+      const name = useFileName ? (prefix + base) : (prefix || 'TDCS - Singles');
       const pl = await createPlaylist(name, pub);
       LOG('playlist:', pl.external_urls?.spotify || '');
       if(uris.length) await addUris(pl.id, uris);
@@ -225,9 +256,10 @@
       const market = document.getElementById('searchMarket').value;
       const prefix = document.getElementById('prefix').value || '';
       const useFileName = document.getElementById('useFileName').checked;
+      const strictSingles = document.getElementById('strictSingles').checked;
 
       for(const f of files){
-        await buildOneCSV(f, market, pub, unique, prefix, useFileName);
+        await buildOneCSV(f, market, pub, unique, prefix, useFileName, strictSingles);
       }
       alert('All done.');
     };
