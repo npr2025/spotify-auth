@@ -127,8 +127,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <script>
-/* ====== 例外は全部 #log に出す ====== */
-window.addEventListener('error', e => { const m = (e && e.message) || 'error'; LOG('[JS error]', m); });
+/* ====== error to #log ====== */
+window.addEventListener('error', e => { const m=(e&&e.message)||'error'; LOG('[JS error]', m); });
 window.addEventListener('unhandledrejection', e => { LOG('[Promise rejection]', (e.reason && e.reason.message) || e.reason || ''); });
 
 /* ====== LOG/Utils ====== */
@@ -136,14 +136,14 @@ const LOG=(...a)=>{const el=document.getElementById('log');el.textContent+="\n"+
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function download(name, text){const b=new Blob([text],{type:'text/plain;charset=utf-8;'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(u);}
 
-/* ====== ★ 安全ゲッター（null でも落とさない） ====== */
+/* ====== safe getters ====== */
 const $ = id => document.getElementById(id);
 function getEl(id){ const el=$(id); if(!el){ LOG('[warn] missing element #'+id); } return el; }
 function getChecked(id, def=false){ const el=$(id); return el ? !!el.checked : def; }
 function getValue(id, def=''){ const el=$(id); return el ? el.value : def; }
 function getMultiValues(id, def=[]){ const el=$(id); if(!el||!el.selectedOptions) return def; return [...el.selectedOptions].map(o=>o.value); }
 
-/* ====== Auth 起点 ====== */
+/* ====== Sign in ====== */
 document.getElementById('btnSignIn').onclick=()=>{ try{ sessionStorage.setItem('return_to', location.href); }catch(_){} location.href='spotify-auth/auth.html'; };
 document.getElementById('btnSelfTest').onclick=async()=>{ try{ const me=await api('https://api.spotify.com/v1/me'); LOG('Self test OK:', me.id, me.display_name||''); }catch(e){ LOG('Self test NG:', e.message); } };
 
@@ -152,7 +152,7 @@ let ABORT=false;
 document.getElementById('btnAbort').onclick=()=>{ ABORT=true; LOG('Abort requested. 現在のリクエスト完了後に停止します。'); };
 function checkAbort(){ if(ABORT) throw new Error('aborted'); }
 
-/* ====== Auth / Token（refresh内蔵） ====== */
+/* ====== Token/refresh ====== */
 function token(){return sessionStorage.getItem('access_token')}
 function tokenExpiresAt(){return Number(sessionStorage.getItem('access_token_expires_at')||0)}
 function refreshToken(){return sessionStorage.getItem('refresh_token')}
@@ -177,7 +177,7 @@ function needToken(){const t=token();if(!t){const hint=getEl('authHint'); if(hin
 async function me(){await refreshIfNeeded(); return api('https://api.spotify.com/v1/me')}
 function setAuthStatus(msg){const s=getEl('authStatus'); if(s) s.textContent=msg}
 
-/* ====== レート制御 ====== */
+/* ====== Rate limit ====== */
 const Rate = { minDelay:900, maxDelay:6000, nextAt:0, inFlight:0, attempts429:0, cooldownUntil:0 };
 function applyRateMode(mode){ if(mode==='aggressive'){Rate.minDelay=350;Rate.maxDelay=2500;} else if(mode==='normal'){Rate.minDelay=700;Rate.maxDelay=4000;} else {Rate.minDelay=900;Rate.maxDelay=6000;} }
 function jitter(ms=160){ return Math.floor(Math.random()*ms); }
@@ -213,7 +213,7 @@ async function api(url,opt={}, attempt=0){
   }catch(e){ release(); setNext(); throw e; }
 }
 
-/* ====== CSV/正規化 ====== */
+/* ====== CSV/normalize ====== */
 function normTitle(s){return (s||'').toLowerCase().replace(/[‐–—−]/g,'-').replace(/[’`]/g,"'").replace(/\s+/g,' ').trim();}
 function stripParens(s){return (s||'').replace(/\s*$begin:math:text$[^)]*$end:math:text$\s*/g,' ').replace(/\s+/g,' ').trim();}
 function extractISRC(s){if(!s)return'';const m=String(s).match(/\b[A-Z]{2}[A-Z0-9]{3}\d{7}\b/);return m?m[0]:'';}
@@ -232,8 +232,8 @@ function normalizeRow(raw){
   return row;
 }
 
-/* ====== 索引 ====== */
-const indexStore = new Map(); // key: market|artistId -> Map<titleNorm, [trackInfo…]>
+/* ====== Index ====== */
+const indexStore = new Map();
 function parseArtistIds(){ const el=getEl('artistIds'); const v=el?el.value:''; return v.split(/[\s,]+/).map(s=>s.trim()).filter(Boolean); }
 function mainArtistId(){ return parseArtistIds()[0] || ''; }
 function artistNames(arts){ return (arts||[]).map(a=>a.name).join(', '); }
@@ -277,7 +277,7 @@ async function buildIndexFor(artistId, market){
   return m;
 }
 
-/* ====== 検索フォールバック ====== */
+/* ====== Search fallback ====== */
 async function searchTracks(q, market){
   const base='https://api.spotify.com/v1/search?q='+encodeURIComponent(q)+'&type=track&limit=10';
   const url=(market && market!=='from_token') ? (base+'&market='+encodeURIComponent(market)) : base;
@@ -309,7 +309,7 @@ function buildLightQueries(row){
   return Array.from(set).slice(0,6);
 }
 
-/* ====== 判定/スコア ====== */
+/* ====== Scoring ====== */
 function albumHasMain(album){ return (album?.artists||[]).some(a=>a.id===mainArtistId()); }
 function trackHasMain(arts){ return (arts||[]).some(a=>a.id===mainArtistId()); }
 async function ensureSingle14(it){
@@ -383,7 +383,7 @@ function scoreCandidate(row, cand){
   return s;
 }
 
-/* ====== 候補収集 ====== */
+/* ====== Candidates ====== */
 async function searchTracksBundle(row, market){
   const out=[];
   if(row.isrc){
@@ -408,7 +408,7 @@ function collectIndexMatches(idx, t, t2){
   return res;
 }
 
-/* ====== 解決 ====== */
+/* ====== Resolve ====== */
 async function resolveTrack(row, marketsForIndex, marketForSearch, strictSingles, requireReleasePrimary, allowTrackOnly){
   checkAbort();
   const title=row.title||''; const n=normTitle(title), n2=normTitle(stripParens(title));
@@ -527,7 +527,7 @@ async function buildOneCSV(file, opts){
   LOG('DONE', file.name, '->', pl.external_urls?.spotify||'');
 }
 
-/* ====== UI 結線 ====== */
+/* ====== UI wiring ====== */
 document.getElementById('btnBuild').onclick=async()=>{
   try{ needToken(); }catch(_){ alert('Sign in first'); return; }
   ABORT=false; lastNotFoundRows=[];
