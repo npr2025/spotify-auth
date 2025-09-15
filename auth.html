@@ -1,84 +1,51 @@
 <!doctype html>
-<meta charset="utf-8">
-<title>Spotify Sign-in (PKCE)</title>
-<style>
-  body{font:14px system-ui;color:#e6f1ff;background:#0b1220;padding:20px}
-  pre{white-space:pre-wrap;background:#091426;border:1px solid #20304a;padding:12px;border-radius:8px}
-  a,button{color:#cfe3ff}
-</style>
-<h1>Spotify Sign-in</h1>
-<pre id="log">Preparing…</pre>
+<html lang="ja">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>TDCS Auth</title>
+<style>body{font-family:system-ui;margin:24px}</style>
+</head>
+<body>
+<h1>Starting Spotify sign-in…</h1>
+<pre id="log"></pre>
 <script>
-const LOG=(...a)=>{const el=document.getElementById('log');el.textContent+="\n"+a.join(' ')};
+const LOG=(...a)=>{document.getElementById('log').textContent += a.join(' ') + "\n";}
+const CLIENT_ID='5b4dc486f92a46878665468fa5de9361';
+const REDIRECT_URI='https://npr2025.github.io/spotify-auth/callback.html';
+const SCOPES=[
+  'playlist-modify-public',
+  'playlist-modify-private',
+  'user-read-email'
+].join(' ');
 
-const CLIENT_ID   = '5b4dc486f92a46878665468fa5de9361';
-const REDIRECT_URI= 'https://npr2025.github.io/spotify-auth/callback.html';
-const SCOPES      = 'playlist-modify-public playlist-modify-private';
-const AUTH_URL    = 'https://accounts.spotify.com/authorize';
+function b64url(bytes){
+  return btoa(String.fromCharCode.apply(null,new Uint8Array(bytes)))
+    .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+async function sha256(s){ const enc=new TextEncoder().encode(s); return crypto.subtle.digest('SHA-256', enc); }
 
-// 既定の戻り先（最後の保険）。ビルダーがサブパスならそのURLに変える。
-const DEFAULT_RETURN = 'https://npr2025.github.io/index.html';
-function decideReturnTo(){
+(async()=>{
   try{
-    const saved = sessionStorage.getItem('return_to');
-    if(saved && saved.startsWith('https://npr2025.github.io/')) return saved;
-  }catch(_){}
-  if(document.referrer && document.referrer.startsWith('https://npr2025.github.io/')) return document.referrer;
-  return DEFAULT_RETURN;
-}
+    const verifier = [...crypto.getRandomValues(new Uint8Array(64))].map(b=>('0'+b.toString(16)).slice(-2)).join('');
+    const digest = await sha256(verifier);
+    const challenge = b64url(digest);
+    const state = Math.random().toString(36).slice(2);
 
-// ---- PKCE helpers ----
-function b64urlFromBytes(bytes){
-  let bin=''; for(const b of bytes) bin+=String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-}
-function b64urlFromBuffer(buf){ return b64urlFromBytes(new Uint8Array(buf)); }
-async function sha256Ascii(str){
-  // code_verifier は ASCII subset 推奨
-  const data=new TextEncoder().encode(str);
-  const hash=await crypto.subtle.digest('SHA-256', data);
-  return b64urlFromBuffer(hash);
-}
-function genCodeVerifier(byteLen=64){
-  // 64バイト → base64url(約86文字) = 仕様内(43–128)
-  const bytes=new Uint8Array(byteLen);
-  crypto.getRandomValues(bytes);
-  return b64urlFromBytes(bytes);
-}
-function randState(len=16){
-  const bytes=new Uint8Array(len); crypto.getRandomValues(bytes);
-  return b64urlFromBytes(bytes); // 短いbase64urlでOK
-}
-
-(async ()=>{
-  try{
-    const returnTo = decideReturnTo();
-    sessionStorage.setItem('return_to', returnTo);
-
-    // ✅ 正しい長さと文字集合の code_verifier
-    const code_verifier = genCodeVerifier(64); // ≒86文字
-    const code_challenge = await sha256Ascii(code_verifier);
-    sessionStorage.setItem('code_verifier', code_verifier);
-
-    // state に戻り先も封入（保険）
-    const stateObj = { rt: returnTo, t: randState(16) };
-    const state = btoa(unescape(encodeURIComponent(JSON.stringify(stateObj))));
-
-    LOG('code_verifier length =', code_verifier.length); // 目安: 80–100台
-    LOG('code_challenge length =', code_challenge.length); // 43–128の範囲
+    sessionStorage.setItem('code_verifier', verifier);
+    sessionStorage.setItem('oauth_state', state);
 
     const params = new URLSearchParams({
+      response_type:'code',
       client_id: CLIENT_ID,
-      response_type: 'code',
       redirect_uri: REDIRECT_URI,
-      code_challenge_method: 'S256',
-      code_challenge,
+      code_challenge_method:'S256',
+      code_challenge: challenge,
+      state,
       scope: SCOPES,
-      state
+      show_dialog: 'false'
     });
-    params.set('show_dialog','true'); // 同意画面を常に出す（アカ切替しやすい）
-
-    const url = `${AUTH_URL}?${params.toString()}`;
+    const url = 'https://accounts.spotify.com/authorize?'+params.toString();
     LOG('Redirecting to Spotify…');
     location.href = url;
   }catch(e){
@@ -86,3 +53,5 @@ function randState(len=16){
   }
 })();
 </script>
+</body>
+</html>
