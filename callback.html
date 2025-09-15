@@ -5,6 +5,15 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self';
+                 connect-src https://accounts.spotify.com https://api.spotify.com https://cdn.jsdelivr.net;
+                 img-src 'self' data:;
+                 style-src 'self' 'unsafe-inline';
+                 script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline';
+                 base-uri 'none'; frame-ancestors 'none'; form-action 'none';
+                 upgrade-insecure-requests">
+  <meta name="referrer" content="no-referrer">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>TDCS Auth Callback</title>
   <style>
@@ -14,26 +23,22 @@
     h1{font-size:20px;margin:0 0 12px}
     pre{white-space:pre-wrap;background:#091426;border:1px solid #20304a;padding:12px;border-radius:10px}
     a{color:#9ec1ff}
-    button{padding:8px 12px;border:1px solid #3a4d75;background:#14213a;color:#e9f1ff;border-radius:8px;cursor:pointer;margin-right:8px}
+    .btn{display:inline-block;margin-top:8px;padding:8px 12px;border:1px solid #3a4d75;background:#14213a;color:#e9f1ff;border-radius:8px;text-decoration:none}
   </style>
 </head>
 <body>
 <h1>Finishing sign-in…</h1>
 <pre id="log">Waiting for code…</pre>
 <script>
-const APP_VER  = 'cb-v11.2';
+const APP_VER  = 'cb-v11.4';
 const CLIENT_ID = '5b4dc486f92a46878665468fa5de9361';
 const TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const REDIRECT  = 'https://npr2025.github.io/spotify-auth/callback.html';
 const log=(...a)=>{ const el=document.getElementById('log'); el.textContent += '\n' + a.join(' '); };
-
-function btn(label, href){ const a=document.createElement('a'); a.href=href; a.textContent=label; a.className='btn'; return a; }
 async function sha256(str){ return crypto.subtle.digest('SHA-256', new TextEncoder().encode(str)); }
-function b64url(buf){
-  const bin = String.fromCharCode(...new Uint8Array(buf));
-  return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-}
+function b64url(buf){ const bin=String.fromCharCode(...new Uint8Array(buf)); return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
 async function challengeFromVerifier(v){ return b64url(await sha256(v)); }
+function btn(label, href){ const a=document.createElement('a'); a.href=href; a.textContent=label; a.className='btn'; return a; }
 
 (async () => {
   const url   = new URL(location.href);
@@ -43,11 +48,7 @@ async function challengeFromVerifier(v){ return b64url(await sha256(v)); }
 
   log('APP', APP_VER);
 
-  if(error){
-    log('ERROR: Spotify returned error:', error);
-    document.body.appendChild(btn('Return to app','builder.html'));
-    return;
-  }
+  if(error){ log('ERROR:', error); document.body.appendChild(btn('Return to app','builder.html')); return; }
   if(!code){ log('ERROR: missing code'); document.body.appendChild(btn('Return to app','builder.html')); return; }
 
   const st = sessionStorage.getItem('pkce_state');
@@ -55,74 +56,60 @@ async function challengeFromVerifier(v){ return b64url(await sha256(v)); }
   const verifier = sessionStorage.getItem('code_verifier');
   const savedChallenge = sessionStorage.getItem('code_challenge');
   const appVerAuth = sessionStorage.getItem('app_ver') || '(unknown)';
+  const savedRT = sessionStorage.getItem('return_to') || 'builder.html';
 
   if(!st || st!==state){ log('ERROR: state mismatch'); document.body.appendChild(btn('Return to app','builder.html')); return; }
-  if(!verifier){ log('ERROR: code_verifier missing (別タブ/キャッシュの可能性)'); 
-    document.body.appendChild(btn('Re-run auth (no-cache)','auth.html?ts='+Date.now())); return; }
+  if(!verifier){ 
+    log('ERROR: code_verifier missing（別タブ/キャッシュ混入の可能性）'); 
+    document.body.appendChild(btn('Re-run auth','auth.html?ts='+Date.now()+'&rt='+encodeURIComponent(savedRT))); 
+    return; 
+  }
 
-  // 形式バリデーション
   const valid = /^[A-Za-z0-9\-._~]{43,128}$/.test(verifier);
   log('Method:', method, '| Verifier length:', verifier.length, '| Format OK:', valid, '| Auth page:', appVerAuth);
 
-  // 生成照合（S256時のみ）
   try{
     if(method==='S256'){
       const recalc = await challengeFromVerifier(verifier);
       const match = savedChallenge && (savedChallenge === recalc);
       log('Challenge match:', String(match));
       if(!match){
-        log('ERROR: challenge ≠ SHA256(verifier)（旧auth.htmlのキャッシュが混入の可能性）');
-        document.body.appendChild(btn('Re-run auth (force no-cache)','auth.html?ts='+Date.now()));
-        document.body.appendChild(btn('Try PLAIN method','auth.html?m=plain&ts='+Date.now()));
+        log('ERROR: challenge ≠ SHA256(verifier) → 再試行推奨');
+        document.body.appendChild(btn('Re-run (force no-cache)','auth.html?ts='+Date.now()+'&rt='+encodeURIComponent(savedRT)));
+        document.body.appendChild(btn('Try PLAIN','auth.html?m=plain&ts='+Date.now()+'&rt='+encodeURIComponent(savedRT)));
         return;
       }
     }
-  }catch(e){
-    log('WARN: challenge recompute failed:', e.message);
-  }
+  }catch(e){ log('WARN: challenge recompute failed:', e.message); }
 
   try{
     log('Exchanging code for token…');
     const body = new URLSearchParams({
       grant_type:'authorization_code',
-      code,
-      redirect_uri: REDIRECT,
-      client_id: CLIENT_ID,
-      code_verifier: verifier
+      code, redirect_uri: REDIRECT, client_id: CLIENT_ID, code_verifier: verifier
     });
     const res = await fetch(TOKEN_URL, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json'}, body });
     const txt = await res.text();
-
     if(!res.ok){
       log('ERROR: HTTP', res.status, txt);
-      sessionStorage.setItem('last_pkce_error', txt);
-
-      // 自動フォールバック提案（1回のみ）
-      if((/code_verifier was incorrect/i).test(txt) && method==='S256'){
-        log('Hint: S256で不一致。PLAINで再試行します。');
-        location.replace('auth.html?m=plain&ts='+Date.now());
+      if(/code_verifier was incorrect/i.test(txt) && method==='S256'){
+        log('Hint: S256→PLAINで自動再試行');
+        location.replace('auth.html?m=plain&ts='+Date.now()+'&rt='+encodeURIComponent(savedRT));
         return;
       }
-      document.body.appendChild(btn('Return to app (fallback)','builder.html'));
-      document.body.appendChild(btn('Re-run auth (no-cache)','auth.html?ts='+Date.now()));
-      if(method!=='PLAIN') document.body.appendChild(btn('Try PLAIN method','auth.html?m=plain&ts='+Date.now()));
+      document.body.appendChild(btn('Return to app','builder.html'));
       return;
     }
-
     const tok = JSON.parse(txt);
     sessionStorage.setItem('access_token', tok.access_token);
     if(tok.refresh_token) sessionStorage.setItem('refresh_token', tok.refresh_token);
     if(tok.expires_in) sessionStorage.setItem('access_token_expires_at', String(Date.now()+tok.expires_in*1000));
 
-    // 一度使った verifier/state は破棄
     ['code_verifier','pkce_state','code_challenge','pkce_method','app_ver','last_pkce_error'].forEach(k=>sessionStorage.removeItem(k));
 
     const ret = sessionStorage.getItem('return_to') || 'https://npr2025.github.io/spotify-auth/builder.html';
     location.replace(ret);
-  }catch(e){
-    log('ERROR:', e.message);
-    document.body.appendChild(btn('Return to app','builder.html'));
-  }
+  }catch(e){ log('ERROR:', e.message); document.body.appendChild(btn('Return to app','builder.html')); }
 })();
 </script>
 </body>
