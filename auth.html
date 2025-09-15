@@ -75,7 +75,7 @@ async function challengeFromVerifier(verifier){
     url.searchParams.set('state', state);
 
     log('Redirecting to Spotify…');
-    location.replace(url.toString());
+    location.replace(url.toString()); // 同一タブ遷移（sessionStorage維持）
   }catch(e){
     log('ERROR:', e.message);
     const a=document.createElement('a'); a.href='builder.html'; a.textContent='Return to app (fallback)'; document.body.appendChild(a);
