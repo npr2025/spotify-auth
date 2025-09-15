@@ -3,70 +3,75 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Spotify Auth — Start</title>
+  <title>TDCS Auth (PKCE)</title>
   <style>
-    :root{color-scheme:dark}
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:#0b1220;color:#cfe3ff;
-         max-width:760px;margin:24px auto;padding:0 12px}
-    code{background:#091426;padding:2px 4px;border-radius:6px}
+    :root { color-scheme: dark; }
+    body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
+           background:#0b1220;color:#cfe3ff;max-width:760px;margin:40px auto;padding:0 16px; }
+    h1{font-size:20px;margin:0 0 12px}
     button{padding:10px 14px;border-radius:8px;border:1px solid #3a4d75;background:#14213a;color:#e9f1ff;cursor:pointer;}
+    pre{white-space:pre-wrap;background:#091426;border:1px solid #20304a;padding:12px;border-radius:10px}
+    a{color:#9ec1ff}
   </style>
 </head>
 <body>
 <h1>Finishing sign-in…</h1>
-<p id="log">Preparing PKCE…</p>
-<p><button id="retry">Open consent manually</button></p>
+<pre id="log">Preparing…</pre>
 <script>
-const CLIENT_ID='5b4dc486f92a46878665468fa5de9361';
-const REDIRECT_URI=location.origin + '/spotify-auth/callback.html';
-const SCOPE='playlist-modify-public playlist-modify-private user-read-email';
-const LOG=(...a)=>{document.getElementById('log').textContent=a.join(' ')};
+const CLIENT_ID = '5b4dc486f92a46878665468fa5de9361';
+const REDIRECT_URI = 'https://npr2025.github.io/spotify-auth/callback.html';
+const SCOPE = [
+  'playlist-modify-public',
+  'playlist-modify-private',
+  'user-read-email'
+].join(' ');
 
-function base64url(buf){
-  return btoa(String.fromCharCode(...new Uint8Array(buf)))
+const log = (...a)=>{ const el=document.getElementById('log'); el.textContent += '\n' + a.join(' '); };
+
+async function sha256(buf){ return crypto.subtle.digest('SHA-256', buf); }
+function base64url(b){
+  return btoa(String.fromCharCode(...new Uint8Array(b)))
     .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 }
-function genRandomString(len=96){
-  const bytes=new Uint8Array(len); crypto.getRandomValues(bytes);
-  const text=Array.from(bytes).map(b=>('0'+b.toString(16)).slice(-2)).join('');
-  return text.slice(0,128);
+async function pkceChallenge(verifier){
+  const enc=new TextEncoder().encode(verifier);
+  const hash=await sha256(enc);
+  return base64url(hash);
 }
-async function sha256(verifier){
-  const data=new TextEncoder().encode(verifier);
-  const digest=await crypto.subtle.digest('SHA-256', data);
-  return base64url(digest);
+function randomString(len=64){
+  const a=new Uint8Array(len); crypto.getRandomValues(a);
+  return Array.from(a).map(x=>('0'+x.toString(16)).slice(-2)).join('');
 }
 
-(async()=>{
+(async () => {
   try{
-    const ret=sessionStorage.getItem('return_to') || (location.origin + '/spotify-auth/builder.html');
-    localStorage.setItem('return_to', ret);
+    const state = randomString(24);
+    const verifier = base64url(new TextEncoder().encode(randomString(40)));
+    const challenge = await pkceChallenge(new TextEncoder().encode(verifier));
 
-    const code_verifier = genRandomString(64);
-    localStorage.setItem('code_verifier', code_verifier);
+    sessionStorage.setItem('pkce_state', state);
+    sessionStorage.setItem('code_verifier', verifier);
+    // どこへ戻すか（builder.html 既定）
+    const ret = (sessionStorage.getItem('return_to') || 'https://npr2025.github.io/spotify-auth/builder.html');
+    sessionStorage.setItem('return_to', ret);
 
-    const code_challenge = await sha256(code_verifier);
-    const state = Math.random().toString(36).slice(2);
-    localStorage.setItem('oauth_state', state);
+    const url = new URL('https://accounts.spotify.com/authorize');
+    url.searchParams.set('response_type','code');
+    url.searchParams.set('client_id', CLIENT_ID);
+    url.searchParams.set('redirect_uri', REDIRECT_URI);
+    url.searchParams.set('scope', SCOPE);
+    url.searchParams.set('code_challenge_method','S256');
+    url.searchParams.set('code_challenge', challenge);
+    url.searchParams.set('state', state);
 
-    const params = new URLSearchParams({
-      response_type:'code',
-      client_id:CLIENT_ID,
-      redirect_uri:REDIRECT_URI,
-      code_challenge_method:'S256',
-      code_challenge:code_challenge,
-      scope:SCOPE,
-      state
-    });
-    const url='https://accounts.spotify.com/authorize?'+params.toString();
-    LOG('Redirecting to Spotify…');
-    location.href=url;
+    log('Redirecting to Spotify…');
+    location.href = url.toString();
   }catch(e){
-    LOG('PKCE init error:', e.message||String(e));
+    log('ERROR:', e.message);
+    log('Return to app');
+    const a=document.createElement('a'); a.href='builder.html'; a.textContent='Return to app (fallback)'; document.body.appendChild(a);
   }
 })();
-
-document.getElementById('retry').onclick=()=>{ location.reload(); };
 </script>
 </body>
 </html>
