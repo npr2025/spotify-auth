@@ -19,7 +19,6 @@
 <script>
 const CLIENT_ID = '5b4dc486f92a46878665468fa5de9361';
 const TOKEN_URL = 'https://accounts.spotify.com/api/token';
-
 const log=(...a)=>{ const el=document.getElementById('log'); el.textContent += '\n' + a.join(' '); };
 
 (async () => {
@@ -30,10 +29,7 @@ const log=(...a)=>{ const el=document.getElementById('log'); el.textContent += '
 
   if(error){
     log('ERROR: Spotify returned error:', error);
-    log('ヒント:');
-    log('・ダッシュボードの Redirect URI が完全一致しているか');
-    log('・Development mode の Users に自分を追加済みか');
-    log('・auth.html も callback.html も https://npr2025.github.io/spotify-auth/ 配下で動いているか');
+    log('ヒント: Redirect URI 完全一致 / Development Users 追加 / 同一オリジン (https://npr2025.github.io/)');
     const a=document.createElement('a'); a.href='builder.html'; a.textContent='Return to app'; document.body.appendChild(a);
     return;
   }
@@ -44,6 +40,7 @@ const log=(...a)=>{ const el=document.getElementById('log'); el.textContent += '
 
   const verifier = sessionStorage.getItem('code_verifier');
   if(!verifier){ log('ERROR: code_verifier missing'); const a=document.createElement('a'); a.href='builder.html'; a.textContent='Return to app'; document.body.appendChild(a); return; }
+  log('Verifier length:', verifier.length); // デバッグ表示（仕様は 43–128）
 
   try{
     log('Exchanging code for token…');
@@ -58,10 +55,7 @@ const log=(...a)=>{ const el=document.getElementById('log'); el.textContent += '
     const txt = await res.text();
     if(!res.ok){
       log('ERROR: HTTP', res.status, txt);
-      log('ヒント:');
-      log('・Redirect URI 完全一致か？');
-      log('・Development Users 追加済みか？');
-      log('・auth/callback/builder が同一オリジン (https://npr2025.github.io/) か？');
+      log('ヒント: Redirect URI / Development Users / 同一オリジンを再確認');
       const a=document.createElement('a'); a.href='builder.html'; a.textContent='Return to app (fallback)'; document.body.appendChild(a);
       return;
     }
@@ -69,7 +63,8 @@ const log=(...a)=>{ const el=document.getElementById('log'); el.textContent += '
     sessionStorage.setItem('access_token', tok.access_token);
     if(tok.refresh_token) sessionStorage.setItem('refresh_token', tok.refresh_token);
     if(tok.expires_in) sessionStorage.setItem('access_token_expires_at', String(Date.now()+tok.expires_in*1000));
-    // 1回使った verifier/state は消しておく
+
+    // 一度使った verifier/state は破棄（再利用事故防止）
     sessionStorage.removeItem('code_verifier');
     sessionStorage.removeItem('pkce_state');
 
