@@ -44,8 +44,8 @@
     <input id="artistIds" type="text" value="55fvQ5I2IZUfcFT2DV02T3">
   </label>
   <label><input id="strictSingles" type="checkbox" checked> Singlesのみ（1–4曲）</label>
-  <label><input id="requireReleasePrimary" type="checkbox" checked> アルバムのアーティストに基準IDが含まれる場合のみ採用（共同名義OK／順序不問）</label>
-  <label><input id="allowTrackOnlyIfNoAlbumPrimary" type="checkbox"> 上が不可なら track.artists に基準IDがあれば採用（feat.誤爆の可能性あり）</label>
+  <label><input id="requireReleasePrimary" type="checkbox" checked> リリース側アーティストに基準IDが含まれる場合のみ採用（共同名義OK・順序不問）</label>
+  <label><input id="allowTrackOnlyIfNoAlbumPrimary" type="checkbox"> ↑満たせない時は track.artists に基準IDがあれば採用</label>
   <label><input id="useCatalogNumber" type="checkbox" checked> Catalog numberも検索語に使う（例: NPR226）</label>
   <div class="row">
     <label>Pin track (URL/URI)
@@ -127,16 +127,23 @@
 
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <script>
-/* ====== まず例外は全部 #log に出す ====== */
+/* ====== 例外は全部 #log に出す ====== */
 window.addEventListener('error', e => { const m = (e && e.message) || 'error'; LOG('[JS error]', m); });
 window.addEventListener('unhandledrejection', e => { LOG('[Promise rejection]', (e.reason && e.reason.message) || e.reason || ''); });
 
-/* ====== 基本ユーティリティ ====== */
+/* ====== LOG/Utils ====== */
 const LOG=(...a)=>{const el=document.getElementById('log');el.textContent+="\n"+a.join(' ');el.scrollTop=el.scrollHeight;}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function download(name, text){const b=new Blob([text],{type:'text/plain;charset=utf-8;'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(u);}
 
-/* ====== サインイン起点 ====== */
+/* ====== ★ 安全ゲッター（null でも落とさない） ====== */
+const $ = id => document.getElementById(id);
+function getEl(id){ const el=$(id); if(!el){ LOG('[warn] missing element #'+id); } return el; }
+function getChecked(id, def=false){ const el=$(id); return el ? !!el.checked : def; }
+function getValue(id, def=''){ const el=$(id); return el ? el.value : def; }
+function getMultiValues(id, def=[]){ const el=$(id); if(!el||!el.selectedOptions) return def; return [...el.selectedOptions].map(o=>o.value); }
+
+/* ====== Auth 起点 ====== */
 document.getElementById('btnSignIn').onclick=()=>{ try{ sessionStorage.setItem('return_to', location.href); }catch(_){} location.href='spotify-auth/auth.html'; };
 document.getElementById('btnSelfTest').onclick=async()=>{ try{ const me=await api('https://api.spotify.com/v1/me'); LOG('Self test OK:', me.id, me.display_name||''); }catch(e){ LOG('Self test NG:', e.message); } };
 
@@ -166,15 +173,15 @@ async function refreshIfNeeded(){
     if(t.expires_in){ sessionStorage.setItem('access_token_expires_at', String(Date.now()+t.expires_in*1000)); }
   }else{ LOG('Refresh failed:', res.status, await res.text()); }
 }
-function needToken(){const t=token();if(!t){document.getElementById('authHint').style.display='block';throw new Error('no_token');}return t}
+function needToken(){const t=token();if(!t){const hint=getEl('authHint'); if(hint) hint.style.display='block'; throw new Error('no_token');}return t}
 async function me(){await refreshIfNeeded(); return api('https://api.spotify.com/v1/me')}
-function setAuthStatus(msg){document.getElementById('authStatus').textContent=msg}
+function setAuthStatus(msg){const s=getEl('authStatus'); if(s) s.textContent=msg}
 
 /* ====== レート制御 ====== */
 const Rate = { minDelay:900, maxDelay:6000, nextAt:0, inFlight:0, attempts429:0, cooldownUntil:0 };
 function applyRateMode(mode){ if(mode==='aggressive'){Rate.minDelay=350;Rate.maxDelay=2500;} else if(mode==='normal'){Rate.minDelay=700;Rate.maxDelay=4000;} else {Rate.minDelay=900;Rate.maxDelay=6000;} }
 function jitter(ms=160){ return Math.floor(Math.random()*ms); }
-function startCooldown(){ const sec=Number(document.getElementById('cooldownSec').value||30); Rate.cooldownUntil=Date.now()+sec*1000; LOG(`→ cooldown ${sec}s`); }
+function startCooldown(){ const sec=Number(getValue('cooldownSec',30)); Rate.cooldownUntil=Date.now()+sec*1000; LOG(`→ cooldown ${sec}s`); }
 async function gate(){
   const now=Date.now(); if(Rate.cooldownUntil>now){ const w=Rate.cooldownUntil-now; LOG(`cooldown ${Math.ceil(w/1000)}s`); await sleep(w); }
   while(Rate.inFlight>0){ await sleep(8); }
@@ -206,7 +213,7 @@ async function api(url,opt={}, attempt=0){
   }catch(e){ release(); setNext(); throw e; }
 }
 
-/* ====== 正規化/CSV ====== */
+/* ====== CSV/正規化 ====== */
 function normTitle(s){return (s||'').toLowerCase().replace(/[‐–—−]/g,'-').replace(/[’`]/g,"'").replace(/\s+/g,' ').trim();}
 function stripParens(s){return (s||'').replace(/\s*$begin:math:text$[^)]*$end:math:text$\s*/g,' ').replace(/\s+/g,' ').trim();}
 function extractISRC(s){if(!s)return'';const m=String(s).match(/\b[A-Z]{2}[A-Z0-9]{3}\d{7}\b/);return m?m[0]:'';}
@@ -227,7 +234,7 @@ function normalizeRow(raw){
 
 /* ====== 索引 ====== */
 const indexStore = new Map(); // key: market|artistId -> Map<titleNorm, [trackInfo…]>
-function parseArtistIds(){ return document.getElementById('artistIds').value.split(/[\s,]+/).map(s=>s.trim()).filter(Boolean); }
+function parseArtistIds(){ const el=getEl('artistIds'); const v=el?el.value:''; return v.split(/[\s,]+/).map(s=>s.trim()).filter(Boolean); }
 function mainArtistId(){ return parseArtistIds()[0] || ''; }
 function artistNames(arts){ return (arts||[]).map(a=>a.name).join(', '); }
 
@@ -288,7 +295,7 @@ function buildLightQueries(row){
   const t2=stripParens(t);
   const remixers=splitRemixers(row.remixer);
   const aliases=tdcsAliases();
-  const useCat=document.getElementById('useCatalogNumber').checked;
+  const useCat=getChecked('useCatalogNumber', true);
   const cat=row.catalog?String(row.catalog).trim():'';
 
   if(row.isrc) set.add('isrc:'+row.isrc);
@@ -302,7 +309,7 @@ function buildLightQueries(row){
   return Array.from(set).slice(0,6);
 }
 
-/* ====== マッチ判定 ====== */
+/* ====== 判定/スコア ====== */
 function albumHasMain(album){ return (album?.artists||[]).some(a=>a.id===mainArtistId()); }
 function trackHasMain(arts){ return (arts||[]).some(a=>a.id===mainArtistId()); }
 async function ensureSingle14(it){
@@ -313,8 +320,6 @@ async function ensureSingle14(it){
   const data=await api('https://api.spotify.com/v1/albums/'+encodeURIComponent(it.album.id));
   return (typeof data.total_tracks==='number' && data.total_tracks>=1 && data.total_tracks<=4);
 }
-
-/* ====== スコア ====== */
 function normalizeForMatch(s){
   return String(s||'')
     .toLowerCase()
@@ -379,7 +384,7 @@ function scoreCandidate(row, cand){
 }
 
 /* ====== 候補収集 ====== */
-async function searchBundle(row, market){
+async function searchTracksBundle(row, market){
   const out=[];
   if(row.isrc){
     try{ const r=await searchTracks('isrc:'+row.isrc, market); out.push(...(r?.tracks?.items||[])); }catch(e){ LOG('isrc search err', e.message); }
@@ -416,7 +421,7 @@ async function resolveTrack(row, marketsForIndex, marketForSearch, strictSingles
       cands.push(...arr.map(x=>({ ...x, origin:'index', market:mkt })));
     }
   }
-  cands.push(...(await searchBundle(row, marketForSearch)).map(x=>({ ...x, origin:'search', market:marketForSearch })));
+  cands.push(...(await searchTracksBundle(row, marketForSearch)).map(x=>({ ...x, origin:'search', market:marketForSearch })));
 
   const seen=new Set(); cands=cands.filter(x=>x?.uri && !seen.has(x.uri) && seen.add(x.uri));
 
@@ -442,7 +447,7 @@ async function resolveTrack(row, marketsForIndex, marketForSearch, strictSingles
 /* ====== Pin / Playlist ====== */
 function toTrackUri(s){ if(!s) return null; if(String(s).startsWith('http')){ const m=String(s).match(/track\/([A-Za-z0-9]+)/); if(m) return 'spotify:track:'+m[1]; } return s; }
 async function createPlaylist(name, isPublic){
-  const override=document.getElementById('userIdOverride').value.trim();
+  const override=getValue('userIdOverride','').trim();
   const uid=override || (await me()).id;
   return api('https://api.spotify.com/v1/users/'+encodeURIComponent(uid)+'/playlists',{
     method:'POST', headers:{'Content-Type':'application/json'},
@@ -526,25 +531,26 @@ async function buildOneCSV(file, opts){
 document.getElementById('btnBuild').onclick=async()=>{
   try{ needToken(); }catch(_){ alert('Sign in first'); return; }
   ABORT=false; lastNotFoundRows=[];
-  const files=[...(document.getElementById('csvFiles').files||[])];
+  const files=[...(getEl('csvFiles')?.files||[])];
   if(!files.length){ alert('Choose CSV'); return; }
 
-  applyRateMode(document.getElementById('rateMode').value);
+  applyRateMode(getValue('rateMode','gentle'));
 
   const opts={};
-  opts.isPublic=document.getElementById('isPublic').checked;
-  opts.unique=document.getElementById('uniqueUris').checked;
-  opts.market=document.getElementById('searchMarket').value;
-  opts.preloadIndex=document.getElementById('preloadIndex').checked;
-  opts.marketsIndex=[...document.getElementById('indexMarkets').selectedOptions].map(o=>o.value);
-  opts.prefix=document.getElementById('prefix').value||'';
-  opts.useFileName=document.getElementById('useFileName').checked;
-  opts.strictSingles=document.getElementById('strictSingles').checked;
-  opts.requireReleasePrimary=document.getElementById('requireReleasePrimary').checked;
-  opts.allowTrackOnly=document.getElementById('allowTrackOnly').checked;
-  opts.pinUri=toTrackUri(document.getElementById('pinUri').value.trim());
-  opts.pinPos=Number(document.getElementById('pinPos').value||20);
-  opts.rowDelayMs=Number(document.getElementById('rowDelayMs').value||80);
+  opts.isPublic=getChecked('isPublic',false);
+  opts.unique=getChecked('uniqueUris',true);
+  opts.market=getValue('searchMarket','from_token');
+  opts.preloadIndex=getChecked('preloadIndex',true);
+  const idx = getMultiValues('indexMarkets',['JP','US','GB']);
+  opts.marketsIndex=idx.length?idx:['JP','US','GB'];
+  opts.prefix=getValue('prefix','');
+  opts.useFileName=getChecked('useFileName',true);
+  opts.strictSingles=getChecked('strictSingles',true);
+  opts.requireReleasePrimary=getChecked('requireReleasePrimary',true);
+  opts.allowTrackOnly=getChecked('allowTrackOnly',false);
+  opts.pinUri=toTrackUri(getValue('pinUri','').trim());
+  opts.pinPos=Number(getValue('pinPos','20')||20);
+  opts.rowDelayMs=Number(getValue('rowDelayMs','80')||80);
 
   for(const f of files){ if(ABORT) break; await buildOneCSV(f, opts); }
 
@@ -552,17 +558,17 @@ document.getElementById('btnBuild').onclick=async()=>{
   else { alert('All done. 必要なら「Export not-found.csv」もどうぞ。'); }
 };
 document.getElementById('btnExportNF').onclick=exportNotFound;
-document.getElementById('btnSignOut').onclick=()=>{ sessionStorage.clear(); localStorage.removeItem('code_verifier'); setAuthStatus('No token.'); document.getElementById('authHint').style.display='block'; LOG('Signed out (local).'); };
+document.getElementById('btnSignOut').onclick=()=>{ sessionStorage.clear(); localStorage.removeItem('code_verifier'); const s=getEl('authStatus'); if(s) s.textContent='No token.'; const h=getEl('authHint'); if(h) h.style.display='block'; LOG('Signed out (local).'); };
 
 (async()=>{
   try{
     if(!token()) throw 0;
     const m=await me();
     setAuthStatus('Signed in as '+(m.display_name||m.id));
-    document.getElementById('authHint').style.display='none';
+    const h=getEl('authHint'); if(h) h.style.display='none';
   }catch(_){
     setAuthStatus('No token.');
-    document.getElementById('authHint').style.display='block';
+    const h=getEl('authHint'); if(h) h.style.display='block';
   }
 })();
 </script>
