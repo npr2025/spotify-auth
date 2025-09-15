@@ -15,7 +15,7 @@
   </style>
 </head>
 <body>
-<h1>Finishing sign-in…</h1>
+<h1>Starting sign-in…</h1>
 <pre id="log">Preparing…</pre>
 <script>
 const CLIENT_ID = '5b4dc486f92a46878665468fa5de9361';
@@ -28,33 +28,43 @@ const SCOPE = [
 
 const log = (...a)=>{ const el=document.getElementById('log'); el.textContent += '\n' + a.join(' '); };
 
-async function sha256(buf){ return crypto.subtle.digest('SHA-256', buf); }
-function base64url(b){
-  return btoa(String.fromCharCode(...new Uint8Array(b)))
-    .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-}
-async function pkceChallenge(verifier){
-  const enc=new TextEncoder().encode(verifier);
-  const hash=await sha256(enc);
-  return base64url(hash);
-}
-function randomString(len=64){
+// ---- PKCE helpers (正しい作り方) ----
+function randomVerifier(len=64){
+  // 仕様準拠: [A-Z a-z 0-9 - . _ ~] から 43-128 文字
+  const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
   const a=new Uint8Array(len); crypto.getRandomValues(a);
-  return Array.from(a).map(x=>('0'+x.toString(16)).slice(-2)).join('');
+  let out=''; for(let i=0;i<len;i++) out += chars[a[i] % chars.length];
+  return out;
+}
+async function sha256(str){
+  const data=new TextEncoder().encode(str);
+  return crypto.subtle.digest('SHA-256', data);
+}
+function base64url(buf){
+  const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+  return b64.replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+async function challengeFromVerifier(verifier){
+  const hash=await sha256(verifier);
+  return base64url(hash);
 }
 
 (async () => {
   try{
-    const state = randomString(24);
-    const verifier = base64url(new TextEncoder().encode(randomString(40)));
-    const challenge = await pkceChallenge(new TextEncoder().encode(verifier));
-
-    sessionStorage.setItem('pkce_state', state);
-    sessionStorage.setItem('code_verifier', verifier);
-    // どこへ戻すか（builder.html 既定）
-    const ret = (sessionStorage.getItem('return_to') || 'https://npr2025.github.io/spotify-auth/builder.html');
+    // どこへ戻すか（未設定なら builder.html）
+    const ret = sessionStorage.getItem('return_to') || 'https://npr2025.github.io/spotify-auth/builder.html';
     sessionStorage.setItem('return_to', ret);
 
+    // 1. PKCE 生成（文字列のまま保持）
+    const state = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+    const verifier = randomVerifier(64);
+    const challenge = await challengeFromVerifier(verifier);
+
+    // 2. 一時情報を保存（同一タブ・同一オリジンで有効）
+    sessionStorage.setItem('pkce_state', state);
+    sessionStorage.setItem('code_verifier', verifier);
+
+    // 3. authorize へ
     const url = new URL('https://accounts.spotify.com/authorize');
     url.searchParams.set('response_type','code');
     url.searchParams.set('client_id', CLIENT_ID);
@@ -65,10 +75,9 @@ function randomString(len=64){
     url.searchParams.set('state', state);
 
     log('Redirecting to Spotify…');
-    location.href = url.toString();
+    location.replace(url.toString());
   }catch(e){
     log('ERROR:', e.message);
-    log('Return to app');
     const a=document.createElement('a'); a.href='builder.html'; a.textContent='Return to app (fallback)'; document.body.appendChild(a);
   }
 })();
