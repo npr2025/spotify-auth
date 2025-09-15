@@ -5,6 +5,15 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self';
+                 connect-src https://accounts.spotify.com https://api.spotify.com https://cdn.jsdelivr.net;
+                 img-src 'self' data:;
+                 style-src 'self' 'unsafe-inline';
+                 script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline';
+                 base-uri 'none'; frame-ancestors 'none'; form-action 'none';
+                 upgrade-insecure-requests">
+  <meta name="referrer" content="no-referrer">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>TDCS Auth (PKCE)</title>
   <style>
@@ -20,18 +29,16 @@
 <h1>Starting sign-in…</h1>
 <pre id="log">Preparing…</pre>
 <script>
-const APP_VER   = 'auth-v11.2';
+const APP_VER   = 'auth-v11.4';
 const CLIENT_ID = '5b4dc486f92a46878665468fa5de9361';
 const REDIRECT  = 'https://npr2025.github.io/spotify-auth/callback.html';
 const DEFAULT_RETURN = 'https://npr2025.github.io/spotify-auth/builder.html';
-const SCOPE = ['playlist-modify-public','playlist-modify-private','user-read-email'].join(' ');
+const SCOPE = ['playlist-modify-public','playlist-modify-private','user-read-email','user-read-private'].join(' ');
 
 const log = (...a)=>{ const el=document.getElementById('log'); el.textContent += '\n' + a.join(' '); };
 const qs  = new URL(location.href).searchParams;
 
-// ---- helpers ----
 function randomVerifier(len=64){
-  // RFC7636: unreserved [A-Z a-z 0-9 - . _ ~], length 43..128
   const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
   const a=new Uint8Array(len); crypto.getRandomValues(a);
   let out=''; for(let i=0;i<len;i++) out+=chars[a[i]%chars.length];
@@ -46,22 +53,28 @@ async function challengeFromVerifier(v){ return b64url(await sha256(v)); }
 
 (async () => {
   try{
-    // 起動時に旧キーを掃除（混線対策）
+    // セッション汚染排除
     ['pkce_state','code_verifier','code_challenge','pkce_method','access_token',
      'refresh_token','access_token_expires_at','last_pkce_error'].forEach(k=>sessionStorage.removeItem(k));
 
-    // return_to は ?rt= か既定値
-    const rt = qs.get('rt') || DEFAULT_RETURN;
+    // return_to（同一オリジン＆/spotify-auth/配下のみに限定）
+    const existingRT = sessionStorage.getItem('return_to');
+    const rtRaw = (qs.get('rt') || existingRT || DEFAULT_RETURN);
+    let rt = DEFAULT_RETURN;
+    try {
+      const u = new URL(rtRaw, location.origin);
+      if (u.origin === location.origin && u.pathname.startsWith('/spotify-auth/')) {
+        rt = u.toString();
+      }
+    } catch(_) {}
     sessionStorage.setItem('return_to', rt);
 
-    // 方式（?m=plain で明示切替、既定は S256）
+    // メソッド決定
     const method = (qs.get('m')||'S256').toUpperCase()==='PLAIN' ? 'plain' : 'S256';
-
     const state    = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now());
     const verifier = randomVerifier(64);
     const challenge = method==='S256' ? await challengeFromVerifier(verifier) : verifier;
 
-    // 保存（callback で照合する）
     sessionStorage.setItem('pkce_state', state);
     sessionStorage.setItem('code_verifier', verifier);
     sessionStorage.setItem('code_challenge', challenge);
@@ -73,7 +86,6 @@ async function challengeFromVerifier(v){ return b64url(await sha256(v)); }
     log('Challenge sample:', challenge.slice(0,16)+'…');
     log('Return to:', rt);
 
-    // 認可へ（同一タブ遷移）
     const url = new URL('https://accounts.spotify.com/authorize');
     url.searchParams.set('response_type','code');
     url.searchParams.set('client_id', CLIENT_ID);
