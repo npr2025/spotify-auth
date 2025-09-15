@@ -18,7 +18,7 @@
 <p><button id="retry">Open consent manually</button></p>
 <script>
 const CLIENT_ID='5b4dc486f92a46878665468fa5de9361';
-const REDIRECT_URI='https://npr2025.github.io/spotify-auth/callback.html';
+const REDIRECT_URI=location.origin + '/spotify-auth/callback.html';
 const SCOPE='playlist-modify-public playlist-modify-private user-read-email';
 const LOG=(...a)=>{document.getElementById('log').textContent=a.join(' ')};
 
@@ -29,7 +29,7 @@ function base64url(buf){
 function genRandomString(len=96){
   const bytes=new Uint8Array(len); crypto.getRandomValues(bytes);
   const text=Array.from(bytes).map(b=>('0'+b.toString(16)).slice(-2)).join('');
-  return text.slice(0,128); // Spotify: <=128
+  return text.slice(0,128);
 }
 async function sha256(verifier){
   const data=new TextEncoder().encode(verifier);
@@ -39,8 +39,7 @@ async function sha256(verifier){
 
 (async()=>{
   try{
-    // return_to: builder から来た場所に戻す（同一オリジンのみ）
-    const ret=sessionStorage.getItem('return_to') || 'https://npr2025.github.io/builder.html';
+    const ret=sessionStorage.getItem('return_to') || (location.origin + '/spotify-auth/builder.html');
     localStorage.setItem('return_to', ret);
 
     const code_verifier = genRandomString(64);
@@ -67,9 +66,7 @@ async function sha256(verifier){
   }
 })();
 
-document.getElementById('retry').onclick=()=>{
-  location.reload();
-};
+document.getElementById('retry').onclick=()=>{ location.reload(); };
 </script>
 </body>
 </html>
