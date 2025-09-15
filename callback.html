@@ -18,12 +18,12 @@
 <h1>Finishing sign-in…</h1>
 <pre id="log">Waiting for code…</pre>
 <p>
-  <a class="button" id="back" href="https://npr2025.github.io/builder.html">Return to app (fallback)</a>
+  <a class="button" id="back" href="/spotify-auth/builder.html">Return to app (fallback)</a>
   <button id="retry">Retry</button>
 </p>
 <script>
 const CLIENT_ID='5b4dc486f92a46878665468fa5de9361';
-const REDIRECT_URI='https://npr2025.github.io/spotify-auth/callback.html';
+const REDIRECT_URI=location.origin + '/spotify-auth/callback.html';
 const TOKEN_URL='https://accounts.spotify.com/api/token';
 const LOG=(...a)=>{document.getElementById('log').textContent += '\n'+a.join(' ')}
 
@@ -54,7 +54,7 @@ async function exchange(code, verifier){
       LOG('ERROR: Spotify returned error:', err);
       LOG('ヒント:\n・Dashboardの Redirect URI が完全一致か: '+REDIRECT_URI+
           '\n・Development mode の Users に自分のアカウントを追加済みか'+
-          '\n・auth.html / callback.html / builder.html が https://npr2025.github.io/ 配下か');
+          '\n・auth.html / callback.html / builder.html が '+location.origin+' 配下か');
       return;
     }
     const code=params.get('code');
@@ -63,7 +63,7 @@ async function exchange(code, verifier){
     const state=params.get('state');
     const stateSaved=localStorage.getItem('oauth_state');
     if(state && stateSaved && state!==stateSaved){
-      LOG('WARN: state mismatch（続行はするが再発ならクリアしてやり直し推奨）');
+      LOG('WARN: state mismatch（続行はするが再発ならクリア推奨）');
     }
 
     LOG('Exchanging code for token…');
@@ -86,19 +86,18 @@ async function exchange(code, verifier){
     LOG('OK. Token stored in sessionStorage.');
 
     // return
-    const ret = localStorage.getItem('return_to') || 'https://npr2025.github.io/builder.html';
+    const ret = localStorage.getItem('return_to') || (location.origin + '/spotify-auth/builder.html');
     LOG('Returning to:', ret);
     location.replace(ret);
   }catch(e){
     LOG('ERROR:', e.message||String(e));
     if(/\binvalid_grant\b/.test(e.message)){
-      LOG('ヒント（invalid_grant）:\n・Redirect URI が完全一致か（Dashboard）\n・同一オリジンで動作しているか（github.io）\n・code_verifier が auth→callback で上書き/消去されていないか（localStorage 使用）\n・一度戻ると code は再利用できないので auth からやり直す');
+      LOG('ヒント（invalid_grant）:\n・Redirect URI が完全一致か（Dashboard）\n・同一オリジンで動作しているか（github.io）\n・code_verifier が auth→callback で上書き/消去されていないか（localStorage 使用）\n・一度戻ると code は再利用不可なので auth からやり直し');
     }
   }
 })();
 
-document.getElementById('retry').onclick=()=>{ location.href='auth.html'; };
-document.getElementById('back').onclick=(e)=>{ /* just link */ };
+document.getElementById('retry').onclick=()=>{ location.href='./auth.html'; };
 </script>
 </body>
 </html>
