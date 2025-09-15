@@ -44,8 +44,7 @@
     <input id="artistIds" type="text" value="55fvQ5I2IZUfcFT2DV02T3">
   </label>
   <label><input id="strictSingles" type="checkbox" checked> Singlesのみ（1–4曲）</label>
-  <label><input id="requireReleasePrimary" type="checkbox" checked> リリース側アーティストに基準IDが含まれる場合のみ採用（共同名義OK・順序不問）</label>
-  <label><input id="allowTrackOnlyIfNoAlbumPrimary" type="checkbox"> ↑満たせない時は track.artists に基準IDがあれば採用</label>
+  <label><input id="anyPrimary" type="checkbox" checked> リリース or トラックの primary に基準IDが含まれれば採用（順序ゆるい／共同名義OK）</label>
   <label><input id="useCatalogNumber" type="checkbox" checked> Catalog numberも検索語に使う（例: NPR226）</label>
   <div class="row">
     <label>Pin track (URL/URI)
@@ -144,7 +143,7 @@ function getValue(id, def=''){ const el=$(id); return el ? el.value : def; }
 function getMultiValues(id, def=[]){ const el=$(id); if(!el||!el.selectedOptions) return def; return [...el.selectedOptions].map(o=>o.value); }
 
 /* ====== Sign in ====== */
-document.getElementById('btnSignIn').onclick=()=>{ try{ sessionStorage.setItem('return_to', location.href); }catch(_){} location.href='spotify-auth/auth.html'; };
+document.getElementById('btnSignIn').onclick=()=>{ try{ sessionStorage.setItem('return_to', location.href); }catch(_){} location.href='./auth.html'; };
 document.getElementById('btnSelfTest').onclick=async()=>{ try{ const me=await api('https://api.spotify.com/v1/me'); LOG('Self test OK:', me.id, me.display_name||''); }catch(e){ LOG('Self test NG:', e.message); } };
 
 /* ====== Abort ====== */
@@ -355,7 +354,7 @@ function remixNameScore(tokens, candName){
 }
 function primaryPresenceScore(it){
   if(albumHasMain(it.album)) return 20;
-  if(trackHasMain(it.artists)) return 8;
+  if(trackHasMain(it.artists)) return 12;
   return -30;
 }
 function singleScore(album){
@@ -409,9 +408,12 @@ function collectIndexMatches(idx, t, t2){
 }
 
 /* ====== Resolve ====== */
-async function resolveTrack(row, marketsForIndex, marketForSearch, strictSingles, requireReleasePrimary, allowTrackOnly){
+async function resolveTrack(row, marketsForIndex, marketForSearch){
   checkAbort();
   const title=row.title||''; const n=normTitle(title), n2=normTitle(stripParens(title));
+  const strictSingles = getChecked('strictSingles', true);
+  const anyPrimary = getChecked('anyPrimary', true);
+
   let cands=[];
 
   for(const mkt of marketsForIndex){
@@ -428,11 +430,11 @@ async function resolveTrack(row, marketsForIndex, marketForSearch, strictSingles
   const filtered=[];
   for(const it of cands){
     if(!(await ensureSingle14(it))) continue;
-    if(requireReleasePrimary){
-      if(albumHasMain(it.album)){ filtered.push(it); continue; }
-      if(allowTrackOnly && trackHasMain(it.artists)){ filtered.push(it); continue; }
+    if(anyPrimary){
+      if(albumHasMain(it.album) || trackHasMain(it.artists)) filtered.push(it);
     }else{
-      if(trackHasMain(it.artists) || albumHasMain(it.album)){ filtered.push(it); continue; }
+      // 厳密：アルバム(リリース)側に基準IDを要求
+      if(albumHasMain(it.album)) filtered.push(it);
     }
   }
   if(!filtered.length) return null;
@@ -483,7 +485,7 @@ async function buildOneCSV(file, opts){
   const norm=rows.map(normalizeRow).sort((a,b)=>(a._order||0)-(b._order||0));
   LOG('rows:', norm.length);
 
-  const {isPublic,unique,prefix,useFileName,strictSingles,requireReleasePrimary,allowTrackOnly,market,marketsIndex,pinUri,pinPos,rowDelayMs}=opts;
+  const {isPublic,unique,prefix,useFileName,market,marketsIndex,pinUri,pinPos,rowDelayMs}=opts;
 
   if(opts.preloadIndex){
     for(const mkt of marketsIndex){
@@ -500,7 +502,7 @@ async function buildOneCSV(file, opts){
     checkAbort();
     const r=norm[i];
     try{
-      const res=await resolveTrack(r, marketsIndex, market, strictSingles, requireReleasePrimary, allowTrackOnly);
+      const res=await resolveTrack(r, marketsIndex, market);
       if(res && res.uri){
         if(pinUri && okCount===pinIndex0){ if(!unique || !seen.has(pinUri)){ uris.push(pinUri); seen.add(pinUri); LOG('pin @', pinIndex0+1, pinUri); } }
         if(!unique || !seen.has(res.uri)){ uris.push(res.uri); seen.add(res.uri); okCount++; LOG('[ok]', i+1, res.uri); }
@@ -545,9 +547,6 @@ document.getElementById('btnBuild').onclick=async()=>{
   opts.marketsIndex=idx.length?idx:['JP','US','GB'];
   opts.prefix=getValue('prefix','');
   opts.useFileName=getChecked('useFileName',true);
-  opts.strictSingles=getChecked('strictSingles',true);
-  opts.requireReleasePrimary=getChecked('requireReleasePrimary',true);
-  opts.allowTrackOnly=getChecked('allowTrackOnly',false);
   opts.pinUri=toTrackUri(getValue('pinUri','').trim());
   opts.pinPos=Number(getValue('pinPos','20')||20);
   opts.rowDelayMs=Number(getValue('rowDelayMs','80')||80);
