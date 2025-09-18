@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>TDCS Primary Seek – Spotify Auditor (Core Export / URI / Robust RL)</title>
+  <title>TDCS Primary Seek – Spotify Auditor (with Track Artists List)</title>
   <link rel="preconnect" href="https://accounts.spotify.com"/>
   <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
   <style>
@@ -68,30 +68,31 @@
 <section class="card">
   <h2>エクスポート</h2>
   <div class="row">
-    <button id="downloadCoreBtn" disabled>結果CSVをダウンロード（コア列）</button>
-    <button id="exportUriBtn" disabled>URIリストCSVをダウンロード（全トラック）</button>
+    <button id="downloadCoreBtn" disabled>結果CSV（コア+トラックアーティスト）</button>
+    <button id="exportUriBtn" disabled>URIリストCSV（全トラック）</button>
   </div>
   <div class="small muted">
-    コア列のみ出力：<code>spotify_url,UPC,Album title,Album version,Track title,spotify_found_via,spotify_album_id,album_type,album_artists,album_artist_ids,track_artists_distinct,inferred_category,reasons,error</code>
+    追加列：<code>album_all_track_artists, album_all_track_artists_ex_tdcs, track_artists_distinct_ex_tdcs</code>
   </div>
 </section>
 
 <section class="card">
-  <h2>最新の結果（サンプル10行／コア列のみ表示）</h2>
+  <h2>最新の結果（サンプル10行）</h2>
   <table id="previewTbl"><thead></thead><tbody></tbody></table>
 </section>
 
 <script>
 const TARGET_ARTIST_ID = "55fvQ5I2IZUfcFT2DV02T3";
-const CHECKPOINT_KEY = "tdcs_audit_checkpoint_v3";
+const CHECKPOINT_KEY = "tdcs_audit_checkpoint_trackartists_v1";
 
 const PREVIEW_COLS = [
   'spotify_url','UPC','Album title','Album version','Track title',
   'spotify_found_via','spotify_album_id','album_type',
   'album_artists','album_artist_ids','track_artists_distinct',
+  'track_artists_distinct_ex_tdcs','album_all_track_artists_ex_tdcs',
   'inferred_category','reasons','error'
 ];
-const CORE_COLS = PREVIEW_COLS.slice(); // 同一
+const CORE_COLS = PREVIEW_COLS.slice();
 
 function log(msg){ const el=document.getElementById('log'); el.textContent+=msg+"\n"; el.scrollTop=el.scrollHeight; }
 function setAuthStatus(ok, text){ const el=document.getElementById('authStatus'); el.textContent=text; el.className = ok ? 'ok' : 'bad'; }
@@ -172,14 +173,12 @@ async function api(path, token, params={}, opt={}){
 function detectCols(header){
   const lc=header.map(h=>String(h||'').toLowerCase());
   function pick(...c){ for(const x of c){ const i=lc.indexOf(String(x).toLowerCase()); if(i>-1) return header[i]; } return null; }
-  return {
-    url: pick('spotify_url','url','link'),
-    upc: pick('upc','UPC'),
-    isrc: pick('isrc','ISRC'),
-    album: pick('album title','album'),
-    version: pick('album version','version'),
-    track: pick('track title','track')
-  };
+  return { url: pick('spotify_url','url','link'),
+           upc: pick('upc','UPC'),
+           isrc: pick('isrc','ISRC'),
+           album: pick('album title','album'),
+           version: pick('album version','version'),
+           track: pick('track title','track') };
 }
 function parseSpotifyUrl(u){
   try{ const m=u.match(/open\.spotify\.com\/(album|track)\/([A-Za-z0-9]+)/); if(m) return {type:m[1], id:m[2]}; }catch(e){}
@@ -209,7 +208,7 @@ const upcCache=new Map();
 const isrcCache=new Map();
 const albumAuditCache=new Map();
 
-// ---- finders ----
+// ---- finders & audit ----
 async function findByUPC(upc, token){
   if(!upc) return null;
   if(upcCache.has(upc)) return upcCache.get(upc);
@@ -242,16 +241,40 @@ async function auditAlbum(albumId, token){
   if(!albumId) return null;
   if(albumAuditCache.has(albumId)) return albumAuditCache.get(albumId);
   const a=await api('/v1/albums/'+albumId, token);
-  // paging for tracks
+
+  // tracks paging
   let items=[], offset=0, limit=50, page;
   do{
     page = await api('/v1/albums/'+albumId+'/tracks', token, {limit, offset});
     items = items.concat(page.items||[]);
     offset += limit;
   } while(page && page.next);
-  const trackArtists=new Set();
-  (items||[]).forEach(tr => (tr.artists||[]).forEach(ar=>trackArtists.add(ar.id)));
-  const out={ album_type:a.album_type, album_artists:(a.artists||[]).map(x=>({id:x.id,name:x.name})), track_artists_count:trackArtists.size, tracks:items||[] };
+
+  // 集合（全トラックのartistsの名前）
+  const allNamesSet = new Set();
+  const allNamesExTDCS = new Set();
+  (items||[]).forEach(tr=>{
+    (tr.artists||[]).forEach(ar=>{
+      const name = (ar.name||'').trim();
+      if(!name) return;
+      allNamesSet.add(name);
+      if(ar.id !== TARGET_ARTIST_ID) allNamesExTDCS.add(name);
+    });
+  });
+
+  // 整形
+  const allNames = Array.from(allNamesSet);
+  const allNamesEx = Array.from(allNamesExTDCS);
+
+  const trackArtists = new Set((items||[]).flatMap(tr => (tr.artists||[]).map(ar=>ar.id)));
+  const out={
+    album_type:a.album_type,
+    album_artists:(a.artists||[]).map(x=>({id:x.id,name:x.name})),
+    track_artists_count:trackArtists.size,
+    tracks:items||[],
+    all_track_artist_names: allNames,
+    all_track_artist_names_ex_tdcs: allNamesEx
+  };
   albumAuditCache.set(albumId,out); return out;
 }
 
@@ -268,14 +291,11 @@ function classify(aRes){
   if(albumArtistIds.length>1 && (!includesTDCS || albumArtistIds.some(id=>id!==TARGET_ARTIST_ID))) reasons.push('multiple album artists: '+albumArtistIds.length);
   if(aRes.track_artists_count>5) reasons.push('many distinct track artists (~'+aRes.track_artists_count+')');
 
-  // 基本カテゴリ
   if(isCompilation) cat='COMPILATION';
   else if(includesTDCS && albumArtistIds.length===1) cat='ALBUM';
   else if(includesTDCS) cat='LIKELY_ALBUM';
   else cat='UNKNOWN';
 
-  // “コンピ臭い”追加フラグ：公式がsingle/albumでも、
-  // 参加アーティスト多数 or アルバムアーティスト複数なら SUSPECT_COMPILATION に格上げ
   if(!isCompilation && (aRes.track_artists_count>=7 || (albumArtistIds.length>1 && !includesTDCS))){
     cat='SUSPECT_COMPILATION';
     if(!reasons.includes('suspect')) reasons.push('suspect: many artists and/or multiple album artists');
@@ -360,11 +380,13 @@ async function runAudit(fromCheckpoint){
       }
 
       // Audit
-      let aRes=null, category='UNKNOWN', reasons=[];
+      let aRes=null, category='UNKNOWN', reasons=[], namesAll=[], namesEx=[];
       if(albumId){
         aRes=await auditAlbum(albumId, token);
         const cl=classify(aRes);
         category=cl.category; reasons=cl.reasons;
+        namesAll = (aRes.all_track_artist_names||[]);
+        namesEx = (aRes.all_track_artist_names_ex_tdcs||[]);
       }
 
       const rowOut=Object.assign({}, row, {
@@ -375,6 +397,10 @@ async function runAudit(fromCheckpoint){
         album_artists: aRes ? (aRes.album_artists.map(x=>x.name).join(' ; ')) : '',
         album_artist_ids: aRes ? (aRes.album_artists.map(x=>x.id).join(' ; ')) : '',
         track_artists_distinct: aRes ? aRes.track_artists_count : '',
+        // ★ 追加：アーティスト名リスト（アルバム内）
+        track_artists_distinct_ex_tdcs: namesEx.length || '',
+        album_all_track_artists: namesAll.join(' ; '),
+        album_all_track_artists_ex_tdcs: namesEx.join(' ; '),
         inferred_category: category,
         reasons: reasons.join(' | ')
       });
@@ -393,7 +419,7 @@ async function runAudit(fromCheckpoint){
     }
   }
 
-  // finalize (core CSV only)
+  // finalize CSV（コア+トラックアーティスト列）
   const ordered=_results.map(x=>x||{});
   const coreRows = ordered.map(r=>{
     const o={}; CORE_COLS.forEach(k=> o[k]= (r[k]==null?'':r[k])); return o;
@@ -402,7 +428,7 @@ async function runAudit(fromCheckpoint){
   const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const coreBtn = document.getElementById('downloadCoreBtn');
-  coreBtn.onclick = ()=>{ const a=document.createElement('a'); a.href=url; a.download='spotify_audit_result_core.csv'; document.body.appendChild(a); a.click(); a.remove(); };
+  coreBtn.onclick = ()=>{ const a=document.createElement('a'); a.href=url; a.download='spotify_audit_result_core_with_track_artists.csv'; document.body.appendChild(a); a.click(); a.remove(); };
   coreBtn.disabled=false;
 
   setPreview(coreRows);
@@ -439,9 +465,7 @@ document.getElementById('exportUriBtn').addEventListener('click', async ()=>{
       log('URI export album '+albumId+' → '+(e.message||e));
     }
   }
-  // uniq by track_id
   const seen=new Set(); const uniq=rows.filter(r=>{ if(seen.has(r.track_id)) return false; seen.add(r.track_id); return true; });
-
   const header=['album_id','album_url','track_id','track_uri','track_url','track_name','disc_number','track_number'];
   const csv = rowsToCSVSubset(uniq, header);
   const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
