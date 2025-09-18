@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>TDCS Primary Seek – Spotify Auditor (with Track Artists List)</title>
+  <title>TDCS Primary Seek – Compilation Reason Auditor (Detailed)</title>
   <link rel="preconnect" href="https://accounts.spotify.com"/>
   <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
   <style>
     body { font-family: system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial,'Noto Sans JP'; margin: 2rem; }
     header { margin-bottom: 1rem; }
-    h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
+    h1 { font-size: 1.35rem; margin: 0 0 .25rem; }
     .card { border: 1px solid #ddd; border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
     .row { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; }
     button { padding: .6rem 1rem; border-radius: 8px; border: 1px solid #999; background: #111; color: #fff; cursor: pointer; }
@@ -28,7 +28,7 @@
 </head>
 <body>
 <header>
-  <h1>TDCS Primary Seek – Spotify Auditor</h1>
+  <h1>TDCS Primary Seek – Compilation Reason Auditor</h1>
   <div class="muted small">
     Client ID: <code>378ef0f44b36499abd10d118ddbddc98</code> |
     Redirect URI: <code>https://npr2025.github.io/spotify-auth/callback.html</code>
@@ -41,7 +41,7 @@
     <a href="./auth.html"><button>Spotifyに接続</button></a>
     <div id="authStatus" class="muted">未接続</div>
   </div>
-  <div class="small muted">※ PKCEで取得したトークンは localStorage に保存されます。</div>
+  <div class="small muted">※ PKCEで取得したトークンは localStorage に保存されます（キー: <code>sp_token</code>）。</div>
 </section>
 
 <section class="card">
@@ -51,12 +51,10 @@
     <input type="file" id="csvFile" accept=".csv"/>
     <label>最小間隔(ms)：<input type="number" id="minDelayMs" value="700" min="0" step="50" style="width:7rem;"/></label>
     <label>最大バックオフ(ms)：<input type="number" id="maxBackoffMs" value="10000" min="500" step="500" style="width:7rem;"/></label>
-    <label>最大リトライ回数：<input type="number" id="maxRetries" value="7" min="0" step="1" style="width:5rem;"/></label>
-    <button id="startBtn" disabled>監査スタート</button>
-    <button id="resumeBtn" disabled>中断から再開</button>
+    <label>最大リトライ：<input type="number" id="maxRetries" value="7" min="0" step="1" style="width:5rem;"/></label>
+    <button id="startBtn" disabled>詳細監査スタート</button>
   </div>
   <div id="fileInfo" class="small muted"></div>
-  <div class="small">ヒント: UPC/ISRC/URL重複はキャッシュでAPIコールを削減。定期的に自動保存（localStorage）します。</div>
 </section>
 
 <section class="card">
@@ -68,11 +66,18 @@
 <section class="card">
   <h2>エクスポート</h2>
   <div class="row">
-    <button id="downloadCoreBtn" disabled>結果CSV（コア+トラックアーティスト）</button>
-    <button id="exportUriBtn" disabled>URIリストCSV（全トラック）</button>
+    <button id="downloadDetailedBtn" disabled>詳細CSVをダウンロード</button>
   </div>
   <div class="small muted">
-    追加列：<code>album_all_track_artists, album_all_track_artists_ex_tdcs, track_artists_distinct_ex_tdcs</code>
+    主要出力列：<code>
+      spotify_url, UPC, Album title, Album version, Track title, album_type, album_artist_count,
+      album_artists, album_artist_ids, tracks_total, tracks_with_tdcs, tracks_without_tdcs,
+      track_artists_distinct, track_artists_distinct_ex_tdcs,
+      album_all_track_artists, album_all_track_artists_ex_tdcs,
+      tracks_multiple_primary_count, tracks_multiple_primary_ratio,
+      per_track_primary_artists, per_track_non_tdcs_artists,
+      detailed_reasons
+    </code>
   </div>
 </section>
 
@@ -82,18 +87,13 @@
 </section>
 
 <script>
-const TARGET_ARTIST_ID = "55fvQ5I2IZUfcFT2DV02T3";
-const CHECKPOINT_KEY = "tdcs_audit_checkpoint_trackartists_v1";
+/* =================== 設定 =================== */
+const TARGET_ARTIST_ID = "55fvQ5I2IZUfcFT2DV02T3"; // The Darrow Chem Syndicate
+// しきい値（必要なら調整）
+const NON_TDCS_UNIQUE_THRESHOLD = 4;     // TDCS以外のユニーク人数がこの値以上で警告
+const MULTI_PRIMARY_TRACKS_THRESHOLD = 0.4; // 複数プライマリー曲の比率がこの値以上で警告
 
-const PREVIEW_COLS = [
-  'spotify_url','UPC','Album title','Album version','Track title',
-  'spotify_found_via','spotify_album_id','album_type',
-  'album_artists','album_artist_ids','track_artists_distinct',
-  'track_artists_distinct_ex_tdcs','album_all_track_artists_ex_tdcs',
-  'inferred_category','reasons','error'
-];
-const CORE_COLS = PREVIEW_COLS.slice();
-
+/* ================ ユーティリティ ================ */
 function log(msg){ const el=document.getElementById('log'); el.textContent+=msg+"\n"; el.scrollTop=el.scrollHeight; }
 function setAuthStatus(ok, text){ const el=document.getElementById('authStatus'); el.textContent=text; el.className = ok ? 'ok' : 'bad'; }
 function setRate(text){ document.getElementById('ratePill').textContent=text; }
@@ -103,8 +103,40 @@ function getStoredToken(){
   try{ const obj=JSON.parse(raw); if(Date.now()<obj.expires_at) return obj; }catch(e){}
   return null;
 }
+function detectCols(header){
+  const lc=header.map(h=>String(h||'').toLowerCase());
+  function pick(...c){ for(const x of c){ const i=lc.indexOf(String(x).toLowerCase()); if(i>-1) return header[i]; } return null; }
+  return { url: pick('spotify_url','url','link'),
+           upc: pick('upc','UPC'),
+           isrc: pick('isrc','ISRC'),
+           album: pick('album title','album'),
+           version: pick('album version','version'),
+           track: pick('track title','track') };
+}
+function parseSpotifyUrl(u){
+  try{ const m=u.match(/open\.spotify\.com\/(album|track)\/([A-Za-z0-9]+)/); if(m) return {type:m[1], id:m[2]}; }catch(e){}
+  return null;
+}
+function rowsToCSV(rows){
+  if(!rows.length) return '';
+  const header=Object.keys(rows[0]);
+  const esc=v=> (v==null?'':'"'+String(v).replace(/"/g,'""')+'"');
+  return [header.map(esc).join(','), ...rows.map(r=> header.map(h=>esc(r[h])).join(','))].join('\r\n');
+}
+function setPreview(rows){
+  const tblh=document.querySelector('#previewTbl thead');
+  const tblb=document.querySelector('#previewTbl tbody');
+  tblh.innerHTML=''; tblb.innerHTML='';
+  const sample=rows.slice(0,10);
+  if(!sample.length) return;
+  const header=Object.keys(sample[0]);
+  const trh=document.createElement('tr');
+  header.forEach(h=>{ const th=document.createElement('th'); th.textContent=h; trh.appendChild(th); });
+  tblh.appendChild(trh);
+  sample.forEach(r=>{ const tr=document.createElement('tr'); header.forEach(h=>{ const td=document.createElement('td'); td.textContent=(r[h]==null?'':r[h]); tr.appendChild(td); }); tblb.appendChild(tr); });
+}
 
-// ---- robust fetch with RL/5xx retry + jitter ----
+/* ============== レート制御つきAPI ============== */
 async function api(path, token, params={}, opt={}){
   const minDelay = opt.minDelayMs ?? (parseInt(document.getElementById('minDelayMs').value,10) || 700);
   const maxBackoff = opt.maxBackoffMs ?? (parseInt(document.getElementById('maxBackoffMs').value,10) || 10000);
@@ -169,46 +201,14 @@ async function api(path, token, params={}, opt={}){
   }
 }
 
-// ---- CSV helpers ----
-function detectCols(header){
-  const lc=header.map(h=>String(h||'').toLowerCase());
-  function pick(...c){ for(const x of c){ const i=lc.indexOf(String(x).toLowerCase()); if(i>-1) return header[i]; } return null; }
-  return { url: pick('spotify_url','url','link'),
-           upc: pick('upc','UPC'),
-           isrc: pick('isrc','ISRC'),
-           album: pick('album title','album'),
-           version: pick('album version','version'),
-           track: pick('track title','track') };
-}
-function parseSpotifyUrl(u){
-  try{ const m=u.match(/open\.spotify\.com\/(album|track)\/([A-Za-z0-9]+)/); if(m) return {type:m[1], id:m[2]}; }catch(e){}
-  return null;
-}
-function rowsToCSVSubset(rows, cols){
-  if(!rows.length) return '';
-  const header=cols;
-  const esc=v=> (v==null?'':'"'+String(v).replace(/"/g,'""')+'"');
-  return [header.map(esc).join(','), ...rows.map(r=> header.map(h=>esc(r[h])).join(','))].join('\r\n');
-}
-function setPreview(rows){
-  const tblh=document.querySelector('#previewTbl thead');
-  const tblb=document.querySelector('#previewTbl tbody');
-  tblh.innerHTML=''; tblb.innerHTML='';
-  const sample=rows.filter(Boolean).slice(0,10);
-  if(!sample.length) return;
-  const header=PREVIEW_COLS.filter(h=> h in sample[0]);
-  const trh=document.createElement('tr');
-  header.forEach(h=>{ const th=document.createElement('th'); th.textContent=h; trh.appendChild(th); });
-  tblh.appendChild(trh);
-  sample.forEach(r=>{ const tr=document.createElement('tr'); header.forEach(h=>{ const td=document.createElement('td'); td.textContent=(r[h]==null?'':r[h]); tr.appendChild(td); }); tblb.appendChild(tr); });
-}
-
-// ---- caches ----
+/* ================= キャッシュ ================= */
 const upcCache=new Map();
 const isrcCache=new Map();
 const albumAuditCache=new Map();
 
-// ---- finders & audit ----
+/* ============== 検索＆監査ロジック ============== */
+function detectColsInCSV(header){ return detectCols(header); }
+
 async function findByUPC(upc, token){
   if(!upc) return null;
   if(upcCache.has(upc)) return upcCache.get(upc);
@@ -229,20 +229,22 @@ async function findByISRC(isrc, token){
 }
 async function findByText(row, cols, token){
   const parts=[];
-  if(cols.album && row[cols.album]) parts.push('album:"'+row[cols.album].trim()+'"');
+  if(cols.album && row[cols.album]) parts.push('album:"'+String(row[cols.album]).trim()+'"');
   parts.push('artist:"The Darrow Chem Syndicate"');
-  if(cols.version && row[cols.version]) parts.push('"'+row[cols.version].trim()+'"');
+  if(cols.version && row[cols.version]) parts.push('"'+String(row[cols.version]).trim()+'"');
   const q=parts.join(' ');
   const res=await api('/v1/search', token, {q, type:'album', limit:1});
   if(res.albums?.items?.length){ const a=res.albums.items[0]; return {albumId:a.id, url:a.external_urls.spotify}; }
   return null;
 }
+
 async function auditAlbum(albumId, token){
   if(!albumId) return null;
   if(albumAuditCache.has(albumId)) return albumAuditCache.get(albumId);
+
   const a=await api('/v1/albums/'+albumId, token);
 
-  // tracks paging
+  // tracks with paging
   let items=[], offset=0, limit=50, page;
   do{
     page = await api('/v1/albums/'+albumId+'/tracks', token, {limit, offset});
@@ -250,108 +252,113 @@ async function auditAlbum(albumId, token){
     offset += limit;
   } while(page && page.next);
 
-  // 集合（全トラックのartistsの名前）
-  const allNamesSet = new Set();
-  const allNamesExTDCS = new Set();
+  // collect artists
+  const trackArtistIdsPerTrack = [];
+  const trackArtistNamesPerTrack = [];
+  const trackNames = [];
+
+  const setAllIds = new Set();
+  const setAllNonTdcsIds = new Set();
+  const setAllNames = new Set();
+  const setAllNonTdcsNames = new Set();
+
+  let tracksWithTDCS = 0, tracksWithoutTDCS = 0, multiPrimaryCount = 0;
+
   (items||[]).forEach(tr=>{
-    (tr.artists||[]).forEach(ar=>{
-      const name = (ar.name||'').trim();
-      if(!name) return;
-      allNamesSet.add(name);
-      if(ar.id !== TARGET_ARTIST_ID) allNamesExTDCS.add(name);
+    const ids = (tr.artists||[]).map(ar=>ar.id);
+    const names = (tr.artists||[]).map(ar=>ar.name);
+    const hasTDCS = ids.includes(TARGET_ARTIST_ID);
+    if(hasTDCS) tracksWithTDCS++; else tracksWithoutTDCS++;
+    if(ids.length>1) multiPrimaryCount++;
+
+    trackNames.push(tr.name||'');
+    trackArtistIdsPerTrack.push(ids);
+    trackArtistNamesPerTrack.push(names);
+
+    ids.forEach(id=> setAllIds.add(id));
+    names.forEach((nm,idx)=>{
+      const id = ids[idx];
+      if(nm) setAllNames.add(nm);
+      if(id !== TARGET_ARTIST_ID && nm) setAllNonTdcsNames.add(nm);
+      if(id !== TARGET_ARTIST_ID) setAllNonTdcsIds.add(id);
     });
   });
 
-  // 整形
-  const allNames = Array.from(allNamesSet);
-  const allNamesEx = Array.from(allNamesExTDCS);
-
-  const trackArtists = new Set((items||[]).flatMap(tr => (tr.artists||[]).map(ar=>ar.id)));
-  const out={
-    album_type:a.album_type,
-    album_artists:(a.artists||[]).map(x=>({id:x.id,name:x.name})),
-    track_artists_count:trackArtists.size,
-    tracks:items||[],
-    all_track_artist_names: allNames,
-    all_track_artist_names_ex_tdcs: allNamesEx
+  const out = {
+    album_type: a.album_type,
+    album_artists: (a.artists||[]).map(x=>({id:x.id,name:x.name})),
+    tracks_total: (items||[]).length,
+    tracks_with_tdcs: tracksWithTDCS,
+    tracks_without_tdcs: tracksWithoutTDCS,
+    track_artists_count: setAllIds.size,
+    track_artists_count_ex_tdcs: setAllNonTdcsIds.size,
+    all_track_artist_names: Array.from(setAllNames),
+    all_track_artist_names_ex_tdcs: Array.from(setAllNonTdcsNames),
+    tracks_multiple_primary_count: multiPrimaryCount,
+    tracks_multiple_primary_ratio: (items?.length? (multiPrimaryCount/items.length):0),
+    trackNames, trackArtistNamesPerTrack
   };
-  albumAuditCache.set(albumId,out); return out;
+
+  albumAuditCache.set(albumId, out);
+  return out;
 }
 
-// ---- classification ----
-function classify(aRes){
-  const reasons=[]; let cat='UNKNOWN';
-  if(!aRes) return {category:cat, reasons:['album fetch failed']};
+function buildReasonsDetailed(aRes){
+  const reasons = [];
+  if(!aRes) return ['album fetch failed'];
 
   const isCompilation = aRes.album_type && aRes.album_type.toLowerCase()==='compilation';
-  const albumArtistIds=(aRes.album_artists||[]).map(x=>x.id);
-  const includesTDCS=albumArtistIds.includes(TARGET_ARTIST_ID);
-
   if(isCompilation) reasons.push('album_type=compilation');
-  if(albumArtistIds.length>1 && (!includesTDCS || albumArtistIds.some(id=>id!==TARGET_ARTIST_ID))) reasons.push('multiple album artists: '+albumArtistIds.length);
-  if(aRes.track_artists_count>5) reasons.push('many distinct track artists (~'+aRes.track_artists_count+')');
 
-  if(isCompilation) cat='COMPILATION';
-  else if(includesTDCS && albumArtistIds.length===1) cat='ALBUM';
-  else if(includesTDCS) cat='LIKELY_ALBUM';
-  else cat='UNKNOWN';
-
-  if(!isCompilation && (aRes.track_artists_count>=7 || (albumArtistIds.length>1 && !includesTDCS))){
-    cat='SUSPECT_COMPILATION';
-    if(!reasons.includes('suspect')) reasons.push('suspect: many artists and/or multiple album artists');
+  if(aRes.album_artists && aRes.album_artists.length>1){
+    reasons.push('multiple album artists: '+aRes.album_artists.length);
   }
-  return {category:cat, reasons};
+
+  if((aRes.tracks_without_tdcs||0) > 0){
+    reasons.push(`tracks without TDCS primary: ${aRes.tracks_without_tdcs}/${aRes.tracks_total||0}`);
+  }
+
+  if((aRes.track_artists_count_ex_tdcs||0) >= NON_TDCS_UNIQUE_THRESHOLD){
+    reasons.push(`many distinct non-TDCS track artists: ~${aRes.track_artists_count_ex_tdcs}`);
+  }
+
+  if((aRes.tracks_multiple_primary_ratio||0) >= MULTI_PRIMARY_TRACKS_THRESHOLD){
+    const pct = Math.round((aRes.tracks_multiple_primary_ratio)*100);
+    reasons.push(`many tracks with multiple primary artists: ${aRes.tracks_multiple_primary_count}/${aRes.tracks_total} (~${pct}%)`);
+  }
+
+  if(!reasons.length) reasons.push('no strong compilation indicators');
+  return reasons;
 }
 
-// ---- checkpoint I/O ----
-function saveCheckpoint(state){ try{ localStorage.setItem(CHECKPOINT_KEY, JSON.stringify(state)); }catch(e){} }
-function loadCheckpoint(){ try{ const raw=localStorage.getItem(CHECKPOINT_KEY); return raw? JSON.parse(raw): null; }catch(e){ return null; } }
-function clearCheckpoint(){ localStorage.removeItem(CHECKPOINT_KEY); }
-
-// ---- globals ----
-let _rows=[], _cols={}, _results=[], _nextIndex=0;
+/* ================== 実行フロー ================== */
+let _rows=[], _cols={}, _out=[];
 
 document.getElementById('csvFile').addEventListener('change', (ev)=>{
   const file=ev.target.files[0]; if(!file) return;
   document.getElementById('fileInfo').textContent = file.name+' / '+(file.size/1024).toFixed(1)+' KB';
   Papa.parse(file, { header:true, skipEmptyLines:true, complete:(res)=>{
-    _rows=res.data; _cols=detectCols(res.meta.fields||[]);
-    _results=new Array(_rows.length).fill(null); _nextIndex=0;
+    _rows = res.data; _cols = detectColsInCSV(res.meta.fields||[]);
     document.getElementById('startBtn').disabled=false;
-    document.getElementById('resumeBtn').disabled=false;
     log('CSV loaded: '+_rows.length+' rows');
     log('Detected columns: '+JSON.stringify(_cols));
   }});
 });
 
-document.getElementById('startBtn').addEventListener('click', ()=> runAudit(false));
-document.getElementById('resumeBtn').addEventListener('click', ()=> runAudit(true));
+document.getElementById('startBtn').addEventListener('click', runAudit);
 
-async function runAudit(fromCheckpoint){
+async function runAudit(){
   const tokenObj=getStoredToken(); if(!tokenObj){ alert('先に Spotify に接続してください。'); return; }
   const token=tokenObj.access_token;
   const prog=document.getElementById('prog'); prog.max=_rows.length;
+  _out = [];
 
-  if(fromCheckpoint){
-    const cp=loadCheckpoint();
-    if(cp && cp.total===_rows.length){
-      _results=cp.results; _nextIndex=cp.nextIndex;
-      setPreview(_results.filter(Boolean));
-      log('Resumed at row '+(_nextIndex+1));
-    } else {
-      log('No checkpoint or CSV changed. Starting fresh.');
-      _results=new Array(_rows.length).fill(null); _nextIndex=0;
-    }
-  } else {
-    _results=new Array(_rows.length).fill(null); _nextIndex=0;
-    clearCheckpoint();
-  }
-
-  for(let i=_nextIndex; i<_rows.length; i++){
+  for(let i=0;i<_rows.length;i++){
     const row=_rows[i];
     try{
       let albumId=null, resolvedUrl='', foundVia='';
-      // URL
+
+      // 1) URL
       if(_cols.url && row[_cols.url]){
         const pu=parseSpotifyUrl(String(row[_cols.url]).trim());
         if(pu){
@@ -363,120 +370,84 @@ async function runAudit(fromCheckpoint){
           }
         }
       }
-      // UPC
+      // 2) UPC
       if(!albumId && _cols.upc && row[_cols.upc]){
         const r=await findByUPC(String(row[_cols.upc]).trim(), token);
         if(r){ albumId=r.albumId; resolvedUrl=r.url; foundVia='upc'; }
       }
-      // ISRC
+      // 3) ISRC
       if(!albumId && _cols.isrc && row[_cols.isrc]){
         const r=await findByISRC(String(row[_cols.isrc]).trim(), token);
         if(r){ albumId=r.albumId; resolvedUrl=r.albumUrl || r.url; foundVia='isrc'; }
       }
-      // text search
+      // 4) text
       if(!albumId){
         const r=await findByText(row, _cols, token);
         if(r){ albumId=r.albumId; resolvedUrl=r.url; foundVia='search'; }
       }
 
-      // Audit
-      let aRes=null, category='UNKNOWN', reasons=[], namesAll=[], namesEx=[];
+      let aRes=null; let rowOut=null;
       if(albumId){
         aRes=await auditAlbum(albumId, token);
-        const cl=classify(aRes);
-        category=cl.category; reasons=cl.reasons;
-        namesAll = (aRes.all_track_artist_names||[]);
-        namesEx = (aRes.all_track_artist_names_ex_tdcs||[]);
+        const reasons = buildReasonsDetailed(aRes);
+
+        // per-track columns: "Track — A ; B" / "Track — (non-TDCS only)"
+        const perTrackPrimary = [];
+        const perTrackNonTDCS = [];
+        const names = aRes.trackArtistNamesPerTrack || [];
+        const tnames = aRes.trackNames || [];
+        for(let k=0;k<names.length;k++){
+          const list = names[k] || [];
+          const non = list.filter(nm => nm && !aRes.all_track_artist_names_ex_tdcs ? false : (nm && aRes.all_track_artist_names_ex_tdcs.includes(nm)));
+          perTrackPrimary.push(`${tnames[k]||''} — ${list.join(' ; ')}`);
+          const nonList = list.filter(nm => (aRes.all_track_artist_names_ex_tdcs||[]).includes(nm));
+          perTrackNonTDCS.push(`${tnames[k]||''} — ${nonList.join(' ; ')}`);
+        }
+
+        rowOut = Object.assign({}, row, {
+          spotify_found_via: foundVia,
+          spotify_album_id: albumId,
+          spotify_url: resolvedUrl,
+          album_type: aRes.album_type || '',
+          album_artist_count: (aRes.album_artists||[]).length,
+          album_artists: (aRes.album_artists||[]).map(x=>x.name).join(' ; '),
+          album_artist_ids: (aRes.album_artists||[]).map(x=>x.id).join(' ; '),
+          tracks_total: aRes.tracks_total || 0,
+          tracks_with_tdcs: aRes.tracks_with_tdcs || 0,
+          tracks_without_tdcs: aRes.tracks_without_tdcs || 0,
+          track_artists_distinct: aRes.track_artists_count || 0,
+          track_artists_distinct_ex_tdcs: aRes.track_artists_count_ex_tdcs || 0,
+          album_all_track_artists: (aRes.all_track_artist_names||[]).join(' ; '),
+          album_all_track_artists_ex_tdcs: (aRes.all_track_artist_names_ex_tdcs||[]).join(' ; '),
+          tracks_multiple_primary_count: aRes.tracks_multiple_primary_count || 0,
+          tracks_multiple_primary_ratio: aRes.tracks_multiple_primary_ratio || 0,
+          per_track_primary_artists: perTrackPrimary.join(' | '),
+          per_track_non_tdcs_artists: perTrackNonTDCS.join(' | '),
+          detailed_reasons: reasons.join(' | ')
+        });
+      } else {
+        rowOut = Object.assign({}, row, { error: 'not found in Spotify (URL/UPC/ISRC/search failed)' });
       }
-
-      const rowOut=Object.assign({}, row, {
-        spotify_found_via: foundVia || '',
-        spotify_album_id: albumId || '',
-        spotify_url: resolvedUrl || '',
-        album_type: aRes ? aRes.album_type : '',
-        album_artists: aRes ? (aRes.album_artists.map(x=>x.name).join(' ; ')) : '',
-        album_artist_ids: aRes ? (aRes.album_artists.map(x=>x.id).join(' ; ')) : '',
-        track_artists_distinct: aRes ? aRes.track_artists_count : '',
-        // ★ 追加：アーティスト名リスト（アルバム内）
-        track_artists_distinct_ex_tdcs: namesEx.length || '',
-        album_all_track_artists: namesAll.join(' ; '),
-        album_all_track_artists_ex_tdcs: namesEx.join(' ; '),
-        inferred_category: category,
-        reasons: reasons.join(' | ')
-      });
-      _results[i]=rowOut;
-
+      _out.push(rowOut);
     }catch(e){
-      log('Row '+(i+1)+': ERROR -> '+(e.message||e));
-      _results[i]=Object.assign({}, row, { error: String(e.message||e) });
+      log(`Row ${i+1}: ERROR -> ${e.message||e}`);
+      _out.push(Object.assign({}, row, { error: String(e.message||e) }));
     }
-
-    // checkpoint & progress
     prog.value = i+1;
-    _nextIndex = i+1;
-    if(i%10===0){
-      saveCheckpoint({ total:_rows.length, nextIndex:_nextIndex, results:_results });
-    }
   }
 
-  // finalize CSV（コア+トラックアーティスト列）
-  const ordered=_results.map(x=>x||{});
-  const coreRows = ordered.map(r=>{
-    const o={}; CORE_COLS.forEach(k=> o[k]= (r[k]==null?'':r[k])); return o;
-  });
-  const csv = rowsToCSVSubset(coreRows, CORE_COLS);
+  // export
+  const csv = rowsToCSV(_out);
   const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
-  const coreBtn = document.getElementById('downloadCoreBtn');
-  coreBtn.onclick = ()=>{ const a=document.createElement('a'); a.href=url; a.download='spotify_audit_result_core_with_track_artists.csv'; document.body.appendChild(a); a.click(); a.remove(); };
-  coreBtn.disabled=false;
-
-  setPreview(coreRows);
-  document.getElementById('exportUriBtn').disabled=false;
-  clearCheckpoint();
+  const btn = document.getElementById('downloadDetailedBtn');
+  btn.onclick = ()=>{ const a=document.createElement('a'); a.href=url; a.download='spotify_compilation_reasons_detailed.csv'; document.body.appendChild(a); a.click(); a.remove(); };
+  btn.disabled=false;
+  setPreview(_out);
   log('Done.');
 }
 
-// ---- track URI export ----
-document.getElementById('exportUriBtn').addEventListener('click', async ()=>{
-  const tokenObj=getStoredToken(); if(!tokenObj){ alert('先に Spotify に接続'); return; }
-  const token=tokenObj.access_token;
-
-  const albums = Array.from(new Set((_results||[]).map(r=>r?.spotify_album_id).filter(Boolean)));
-  const rows = [];
-  for(const albumId of albums){
-    try{
-      let aRes = albumAuditCache.get(albumId);
-      if(!aRes){ aRes = await auditAlbum(albumId, token); }
-      const albumUrl = (_results.find(r=>r?.spotify_album_id===albumId)?.spotify_url) || ('https://open.spotify.com/album/'+albumId);
-      for(const t of (aRes.tracks||[])){
-        rows.push({
-          album_id: albumId,
-          album_url: albumUrl,
-          track_id: t.id,
-          track_uri: 'spotify:track:'+t.id,
-          track_url: 'https://open.spotify.com/track/'+t.id,
-          track_name: t.name || '',
-          disc_number: t.disc_number || '',
-          track_number: t.track_number || ''
-        });
-      }
-    }catch(e){
-      log('URI export album '+albumId+' → '+(e.message||e));
-    }
-  }
-  const seen=new Set(); const uniq=rows.filter(r=>{ if(seen.has(r.track_id)) return false; seen.add(r.track_id); return true; });
-  const header=['album_id','album_url','track_id','track_uri','track_url','track_name','disc_number','track_number'];
-  const csv = rowsToCSVSubset(uniq, header);
-  const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = 'spotify_track_uris.csv';
-  document.body.appendChild(a); a.click(); a.remove();
-  log('Exported '+uniq.length+' track URIs.');
-});
-
-// ---- init ----
+/* =============== 起動時 =============== */
 (function init(){
   const tok=getStoredToken();
   if(tok) setAuthStatus(true,'トークンOK（有効）'); else setAuthStatus(false,'未接続');
