@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>TDCS Primary Seek – Spotify Auditor</title>
+  <title>TDCS Primary Seek – Spotify Auditor (Rate-Limit Friendly)</title>
   <link rel="preconnect" href="https://accounts.spotify.com"/>
   <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
   <style>
@@ -24,11 +24,12 @@
     th, td { border: 1px solid #eee; padding: .5rem; text-align: left; font-size: .9rem; }
     .small { font-size: .88rem; }
     footer { margin-top: 2rem; font-size: .85rem; }
+    .pill { display:inline-block; padding:.1rem .5rem; border:1px solid #ccc; border-radius:999px; font-size:.8rem; background:#f6f6f6; }
   </style>
 </head>
 <body>
   <header>
-    <h1>TDCS Primary Seek – Spotify Auditor (Web API)</h1>
+    <h1>TDCS Primary Seek – Spotify Auditor (Rate-Limit Friendly)</h1>
     <div class="muted small">Client ID: <code>378ef0f44b36499abd10d118ddbddc98</code> | Redirect URI: <code>https://npr2025.github.io/spotify-auth/callback.html</code></div>
   </header>
 
@@ -38,7 +39,7 @@
       <a href="./auth.html"><button>Spotifyに接続</button></a>
       <div id="authStatus" class="muted">未接続</div>
     </div>
-    <div class="small muted">※ 公開メタデータのみを利用。トークンはブラウザの localStorage に保存されます。</div>
+    <div class="small muted">※ トークンは localStorage に保存。レート制限は自動リトライ＋バックオフで回避します。</div>
   </section>
 
   <section class="card">
@@ -46,17 +47,19 @@
     <p class="muted small">対応列（自動検出）：<code>spotify_url</code> / <code>UPC</code> / <code>ISRC</code> / <code>Album title</code> / <code>Album version</code> / <code>Track title</code></p>
     <div class="row">
       <input type="file" id="csvFile" accept=".csv"/>
-      <label>遅延(ms)：<input type="number" id="delayMs" value="150" min="0" step="50" style="width:7rem;"/></label>
+      <label>最小間隔(ms)：<input type="number" id="minDelayMs" value="500" min="0" step="50" style="width:7rem;"/></label>
+      <label>最大バックオフ(ms)：<input type="number" id="maxBackoffMs" value="8000" min="500" step="500" style="width:7rem;"/></label>
       <button id="startBtn" disabled>監査スタート</button>
       <a id="downloadOut" class="muted" download="spotify_audit_result.csv">結果CSVをダウンロード</a>
     </div>
     <div id="fileInfo" class="small muted"></div>
+    <div class="small">ヒント: UPC/ISRC重複は自動でキャッシュしてAPIコールを削減します。</div>
   </section>
 
   <section class="card">
-    <h2>進捗</h2>
+    <h2>進捗 <span id="ratePill" class="pill">idle</span></h2>
     <progress id="prog" value="0" max="100"></progress>
-    <div id="log" class="small mono" style="white-space:pre-wrap; max-height:240px; overflow:auto;"></div>
+    <div id="log" class="small mono" style="white-space:pre-wrap; max-height:260px; overflow:auto;"></div>
   </section>
 
   <section class="card">
@@ -64,13 +67,14 @@
     <table id="previewTbl"><thead></thead><tbody></tbody></table>
   </section>
 
-  <footer class="muted">© Nipponeer Records — Uses Spotify Web API. No server or secret required.</footer>
+  <footer class="muted">© Nipponeer Records — Rate-limit aware client for Spotify Web API.</footer>
 
 <script>
 const TARGET_ARTIST_ID = "55fvQ5I2IZUfcFT2DV02T3";
 
 function log(msg) { const el = document.getElementById('log'); el.textContent += msg + "\n"; el.scrollTop = el.scrollHeight; }
 function setAuthStatus(ok, text) { const el = document.getElementById('authStatus'); el.textContent = text; el.className = ok ? 'ok' : 'bad'; }
+function setRate(text) { document.getElementById('ratePill').textContent = text; }
 
 function getStoredToken() {
   const raw = localStorage.getItem('sp_token');
@@ -79,14 +83,45 @@ function getStoredToken() {
   return null;
 }
 
-async function api(path, token, params={}) {
-  const url = new URL('https://api.spotify.com' + path);
-  Object.entries(params).forEach(([k,v]) => v!=null && url.searchParams.set(k, v));
-  const res = await fetch(url.toString(), { headers: { 'Authorization': 'Bearer ' + token } });
-  if (!res.ok) { const t = await res.text(); throw new Error('HTTP ' + res.status + ': ' + t); }
-  return res.json();
+// ---- Rate-limit aware fetch wrapper ----
+async function api(path, token, params={}, opt={}) {
+  const minDelay = opt.minDelayMs ?? (parseInt(document.getElementById('minDelayMs').value,10)||500);
+  const maxBackoff = opt.maxBackoffMs ?? (parseInt(document.getElementById('maxBackoffMs').value,10)||8000);
+  let backoff = minDelay;
+
+  while (true) {
+    const url = new URL('https://api.spotify.com' + path);
+    Object.entries(params).forEach(([k,v]) => v!=null && url.searchParams.set(k, v));
+    const t0 = Date.now();
+    const res = await fetch(url.toString(), { headers: { 'Authorization': 'Bearer ' + token } });
+
+    if (res.status !== 429 && res.ok) {
+      const elapsed = Date.now() - t0;
+      const waitLeft = Math.max(minDelay - elapsed, 0);
+      if (waitLeft > 0) { setRate('throttle ' + waitLeft + 'ms'); await new Promise(r => setTimeout(r, waitLeft)); }
+      setRate('ok');
+      return res.json();
+    }
+
+    const body = await res.text();
+
+    // 429 handling with Retry-After header + exponential backoff
+    if (res.status === 429) {
+      const retryAfter = parseFloat(res.headers.get('Retry-After') || '0'); // seconds
+      const delay = Math.max(minDelay, retryAfter ? retryAfter * 1000 : backoff);
+      setRate('429 → wait ' + delay + 'ms');
+      log('429 → backoff ' + delay + 'ms' + (retryAfter ? ' (Retry-After='+retryAfter+'s)':'' ));
+      await new Promise(r => setTimeout(r, delay));
+      backoff = Math.min(Math.floor(backoff * 1.6), maxBackoff);
+      continue;
+    }
+
+    // Other error → throw
+    throw new Error('HTTP ' + res.status + ': ' + body);
+  }
 }
 
+// ---- CSV helpers ----
 function detectCols(header) {
   const lc = header.map(h => String(h||'').toLowerCase());
   function pick(...cands) { for (const c of cands) { const i = lc.indexOf(String(c).toLowerCase()); if (i>-1) return header[i]; } return null; }
@@ -99,57 +134,69 @@ function detectCols(header) {
     track: pick('track title','track')
   };
 }
-
 function parseSpotifyUrl(u) { 
   try { const m = u.match(/open\.spotify\.com\/(album|track)\/([A-Za-z0-9]+)/); if (m) return { type: m[1], id: m[2] }; } catch(e){}
   return null;
 }
 
-async function findSpotifyForRow(row, cols, token) { 
-  if (cols.url && row[cols.url]) {
-    const pu = parseSpotifyUrl(row[cols.url].trim());
-    if (pu) return { via: 'url', type: pu.type, id: pu.id, url: 'https://open.spotify.com/' + pu.type + '/' + pu.id };
+// ---- Caches (reduce API calls) ----
+const upcCache = new Map();        // upc -> { albumId, url } | null
+const isrcCache = new Map();       // isrc -> { trackId, albumId, url, albumUrl } | null
+const albumAuditCache = new Map(); // albumId -> { album_type, album_artists, track_artists_count }
+
+async function findByUPC(upc, token) {
+  if (!upc) return null;
+  if (upcCache.has(upc)) return upcCache.get(upc);
+  const q = 'upc:' + upc;
+  const res = await api('/v1/search', token, { q, type: 'album', limit: 1 });
+  let out = null;
+  if (res.albums && res.albums.items && res.albums.items.length) {
+    const a = res.albums.items[0];
+    out = { albumId: a.id, url: a.external_urls.spotify };
   }
-  if (cols.upc && row[cols.upc]) {
-    const q = 'upc:' + row[cols.upc].trim();
-    const res = await api('/v1/search', token, { q, type: 'album', limit: 1 });
-    if (res.albums && res.albums.items && res.albums.items.length) { 
-      const a = res.albums.items[0];
-      return { via: 'upc', type: 'album', id: a.id, url: a.external_urls.spotify };
-    }
+  upcCache.set(upc, out);
+  return out;
+}
+async function findByISRC(isrc, token) {
+  if (!isrc) return null;
+  if (isrcCache.has(isrc)) return isrcCache.get(isrc);
+  const q = 'isrc:' + isrc;
+  const res = await api('/v1/search', token, { q, type: 'track', limit: 1 });
+  let out = null;
+  if (res.tracks && res.tracks.items && res.tracks.items.length) {
+    const t = res.tracks.items[0];
+    out = { trackId: t.id, albumId: t.album.id, url: t.external_urls.spotify, albumUrl: t.album.external_urls.spotify };
   }
-  if (cols.isrc && row[cols.isrc]) {
-    const q = 'isrc:' + row[cols.isrc].trim();
-    const res = await api('/v1/search', token, { q, type: 'track', limit: 1 });
-    if (res.tracks && res.tracks.items && res.tracks.items.length) { 
-      const t = res.tracks.items[0];
-      return { via: 'isrc', type: 'track', id: t.id, url: t.external_urls.spotify, album_id: t.album.id, album_url: t.album.external_urls.spotify };
-    }
-  }
+  isrcCache.set(isrc, out);
+  return out;
+}
+async function findByText(row, cols, token) {
   const parts = [];
   if (cols.album && row[cols.album]) parts.push('album:"' + row[cols.album].trim() + '"');
   parts.push('artist:"The Darrow Chem Syndicate"');
   if (cols.version && row[cols.version]) parts.push('"' + row[cols.version].trim() + '"');
   const q = parts.join(' ');
   const res = await api('/v1/search', token, { q, type: 'album', limit: 1 });
-  if (res.albums && res.albums.items && res.albums.items.length) { 
+  if (res.albums && res.albums.items && res.albums.items.length) {
     const a = res.albums.items[0];
-    return { via: 'search', type: 'album', id: a.id, url: a.external_urls.spotify };
+    return { albumId: a.id, url: a.external_urls.spotify };
   }
   return null;
 }
-
-async function auditAlbum(albumId, token) { 
+async function auditAlbum(albumId, token) {
+  if (!albumId) return null;
+  if (albumAuditCache.has(albumId)) return albumAuditCache.get(albumId);
   const a = await api('/v1/albums/' + albumId, token);
-  const album_type = a.album_type; // 'album' | 'single' | 'compilation'
+  const album_type = a.album_type;
   const album_artists = (a.artists || []).map(x => ({ id: x.id, name: x.name }));
   const t = await api('/v1/albums/' + albumId + '/tracks', token, { limit: 50 });
   const trackArtists = new Set();
   (t.items || []).forEach(tr => (tr.artists || []).forEach(ar => trackArtists.add(ar.id)));
-  return { album_type, album_artists, track_artists_count: trackArtists.size };
+  const out = { album_type, album_artists, track_artists_count: trackArtists.size };
+  albumAuditCache.set(albumId, out);
+  return out;
 }
-
-function classify(findRes, aRes) { 
+function classify(aRes) {
   const reasons = [];
   let cat = 'UNKNOWN';
   if (!aRes) return { category: cat, reasons: ['album fetch failed'] };
@@ -159,20 +206,19 @@ function classify(findRes, aRes) {
   if (isCompilation) reasons.push('album_type=compilation');
   if (albumArtistIds.length > 1 && (!includesTDCS || albumArtistIds.some(id => id !== TARGET_ARTIST_ID))) { reasons.push('multiple album artists: ' + albumArtistIds.length); }
   if (aRes.track_artists_count > 5) reasons.push('many distinct track artists (~' + aRes.track_artists_count + ')');
-
   if (isCompilation) cat = 'COMPILATION';
   else if (includesTDCS && albumArtistIds.length === 1) cat = 'ALBUM';
   else if (includesTDCS) cat = 'LIKELY_ALBUM';
   return { category: cat, reasons };
 }
 
-function rowsToCSV(rows) { 
+// ---- CSV I/O ----
+function rowsToCSV(rows) {
   const header = Object.keys(rows[0] || {});
   const esc = v => (v==null ? '' : ('"'+String(v).replace(/"/g,'""')+'"'));
   return [header.map(esc).join(','), ...rows.map(r => header.map(h => esc(r[h])).join(','))].join('\r\n');
 }
-
-function setPreview(rows) { 
+function setPreview(rows) {
   const tblh = document.querySelector('#previewTbl thead');
   const tblb = document.querySelector('#previewTbl tbody');
   tblh.innerHTML=''; tblb.innerHTML='';
@@ -185,16 +231,18 @@ function setPreview(rows) {
   sample.forEach(r => { const tr = document.createElement('tr'); header.forEach(h => { const td = document.createElement('td'); td.textContent = r[h]; tr.appendChild(td); }); tblb.appendChild(tr); });
 }
 
+// ---- Main pipeline ----
+let _rows = [], _cols = {};
 document.getElementById('csvFile').addEventListener('change', (ev) => { 
   const file = ev.target.files[0];
   if (!file) return;
   document.getElementById('fileInfo').textContent = file.name + ' / ' + (file.size/1024).toFixed(1) + ' KB';
   Papa.parse(file, { header: true, skipEmptyLines: true, complete: (res) => { 
-    window._parsedRows = res.data;
-    window._cols = detectCols(res.meta.fields || []);
+    _rows = res.data;
+    _cols = detectCols(res.meta.fields || []);
     document.getElementById('startBtn').disabled = false;
-    log('CSV loaded: ' + window._parsedRows.length + ' rows');
-    log('Detected columns: ' + JSON.stringify(window._cols));
+    log('CSV loaded: ' + _rows.length + ' rows');
+    log('Detected columns: ' + JSON.stringify(_cols));
   } });
 });
 
@@ -202,35 +250,61 @@ document.getElementById('startBtn').addEventListener('click', async () => {
   const tokenObj = getStoredToken();
   if (!tokenObj) { alert('先に Spotify に接続してください（上のボタン）。'); return; }
   const token = tokenObj.access_token;
-  const delay = parseInt(document.getElementById('delayMs').value, 10) || 0;
 
   const out = [];
   const prog = document.getElementById('prog');
-  const rows = window._parsedRows || [];
-  const cols = window._cols || {}
-  const N = rows.length;
+  const N = _rows.length;
   prog.value = 0; prog.max = N;
 
-  for (let i=0;i<N;i++) { 
-    const row = rows[i];
+  // ---- Build worklist with dedup by UPC / ISRC / URL ----
+  const work = _rows.map((row, idx) => ({ row, idx }));
+  const resultByIdx = new Map();
+
+  for (let i=0;i<work.length;i++) {
+    const { row, idx } = work[i];
     try {
-      const findRes = await findSpotifyForRow(row, cols, token);
-      let albumId = null, resolvedUrl = null, foundVia = null;
-      if (findRes) { 
-        foundVia = findRes.via;
-        if (findRes.type === 'album') { albumId = findRes.id; resolvedUrl = findRes.url; }
-        else if (findRes.type === 'track') { albumId = findRes.album_id || null; resolvedUrl = findRes.album_url || findRes.url; }
+      // Resolve album via URL / UPC / ISRC / text (with caches)
+      let albumId=null, resolvedUrl='', foundVia='';
+      // 1) direct spotify_url
+      if (_cols.url && row[_cols.url]) {
+        const pu = parseSpotifyUrl(row[_cols.url].trim());
+        if (pu) {
+          foundVia = 'url';
+          if (pu.type === 'album') { albumId = pu.id; resolvedUrl = 'https://open.spotify.com/album/' + pu.id; }
+          if (pu.type === 'track') { // fetch album via track
+            const tr = await api('/v1/tracks/' + pu.id, token);
+            albumId = tr.album.id; resolvedUrl = tr.album.external_urls.spotify;
+          }
+        }
       }
-      let aRes = null, category='UNKNOWN', reasons=[];
-      if (albumId) { 
+      // 2) UPC
+      if (!albumId && _cols.upc && row[_cols.upc]) {
+        const r = await findByUPC(row[_cols.upc].trim(), token);
+        if (r) { albumId = r.albumId; resolvedUrl = r.url; foundVia = 'upc'; }
+      }
+      // 3) ISRC
+      if (!albumId && _cols.isrc && row[_cols.isrc]) {
+        const r = await findByISRC(row[_cols.isrc].trim(), token);
+        if (r) { albumId = r.albumId; resolvedUrl = r.albumUrl || r.url; foundVia = 'isrc'; }
+      }
+      // 4) text search
+      if (!albumId) {
+        const r = await findByText(row, _cols, token);
+        if (r) { albumId = r.albumId; resolvedUrl = r.url; foundVia = 'search'; }
+      }
+
+      // Audit album
+      let aRes=null, category='UNKNOWN', reasons=[];
+      if (albumId) {
         aRes = await auditAlbum(albumId, token);
-        const cl = classify(findRes, aRes);
+        const cl = classify(aRes);
         category = cl.category; reasons = cl.reasons;
       }
+
       const rowOut = Object.assign({}, row, {
         spotify_found_via: foundVia || '',
         spotify_album_id: albumId || '',
-        spotify_url: resolvedUrl || (findRes ? findRes.url : ''),
+        spotify_url: resolvedUrl || '',
         album_type: aRes ? aRes.album_type : '',
         album_artists: aRes ? (aRes.album_artists.map(x => x.name).join(' ; ')) : '',
         album_artist_ids: aRes ? (aRes.album_artists.map(x => x.id).join(' ; ')) : '',
@@ -238,31 +312,30 @@ document.getElementById('startBtn').addEventListener('click', async () => {
         inferred_category: category,
         reasons: reasons.join(' | ')
       });
-      out.push(rowOut);
-    } catch(e) { 
-      log('Row ' + (i+1) + ': ERROR -> ' + e.message);
-      const rowOut = Object.assign({}, row, { error: e.message });
-      out.push(rowOut);
+      resultByIdx.set(idx, rowOut);
+
+    } catch(e) {
+      log('Row ' + (idx+1) + ': ERROR -> ' + (e.message || e));
+      resultByIdx.set(idx, Object.assign({}, row, { error: String(e.message || e) }));
     }
     prog.value = i+1;
-    if (delay) await new Promise(r => setTimeout(r, delay));
   }
 
-  const csv = rowsToCSV(out);
+  const ordered = [...resultByIdx.keys()].sort((a,b)=>a-b).map(k => resultByIdx.get(k));
+  const csv = rowsToCSV(ordered);
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const dl = document.getElementById('downloadOut');
   dl.href = url; dl.download = 'spotify_audit_result.csv'; dl.className='';
-  setPreview(out);
+  setPreview(ordered);
   log('Done.');
 });
 
-function init() { 
+(function init() {
   const tok = getStoredToken();
   if (tok) setAuthStatus(true, 'トークンOK（有効）');
   else setAuthStatus(false, '未接続');
-}
-init();
+})();
 </script>
 </body>
 </html>
