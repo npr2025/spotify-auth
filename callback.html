@@ -8,88 +8,59 @@
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial,'Noto Sans JP';margin:2rem}
     .card{border:1px solid #ddd;border-radius:10px;padding:1rem;max-width:720px}
     code{background:#f6f6f6;padding:.15rem .35rem;border-radius:4px}
-    .muted{color:#666}
     .ok{color:#0a7f29}.bad{color:#b00020}
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Spotify 認可リダイレクト</h1>
-    <div id="msg" class="muted">処理中…</div>
+    <div id="msg">処理中…</div>
     <p><a href="./fulltracks_ultra_safe_v2.html">ツールへ戻る</a></p>
   </div>
 
 <script>
-const CLIENT_ID = "378ef0f44b36499abd10d118ddbddc98";
-const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
+const CLIENT_ID="378ef0f44b36499abd10d118ddbddc98";
+const REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
 
-async function exchangeCodeForToken(code, verifier){
-  const body = new URLSearchParams({
-    client_id: CLIENT_ID,
-    grant_type: 'authorization_code',
+async function exchange(code, verifier){
+  const body=new URLSearchParams({
+    client_id:CLIENT_ID,
+    grant_type:'authorization_code',
     code,
-    redirect_uri: REDIRECT_URI,
-    code_verifier: verifier
+    redirect_uri:REDIRECT_URI,
+    code_verifier:verifier
   });
-
-  const res = await fetch('https://accounts.spotify.com/api/token', {
-    method: 'POST',
-    headers: { 'Content-Type':'application/x-www-form-urlencoded' },
+  const res=await fetch('https://accounts.spotify.com/api/token',{
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
     body
   });
-
-  if(!res.ok){
-    const text = await res.text().catch(()=> '');
-    throw new Error('token exchange failed: '+res.status+' '+text);
-  }
+  if(!res.ok) throw new Error(await res.text());
   return await res.json();
 }
 
-(function(){
-  const el = document.getElementById('msg');
-  const sp = new URLSearchParams(location.search);
-  const code = sp.get('code');
-  const state = sp.get('state');
-  const error = sp.get('error');
+(async function(){
+  const el=document.getElementById('msg');
+  const sp=new URLSearchParams(location.search);
+  const code=sp.get('code'); const state=sp.get('state'); const err=sp.get('error');
+  if(err){el.innerHTML=`<span class=bad>エラー: ${err}</span>`;return;}
+  if(!code){el.innerHTML=`<span class=bad>エラー: code なし</span>`;return;}
+  if(sessionStorage.getItem('sp_state')!==state){
+    el.innerHTML=`<span class=bad>state 不一致</span>`;return;
+  }
+  const verifier=sessionStorage.getItem('sp_pkce_verifier');
+  if(!verifier){el.innerHTML=`<span class=bad>verifier 不明</span>`;return;}
 
-  if(error){
-    el.innerHTML = `<span class="bad">エラー: ${error}</span>`;
-    return;
+  try{
+    const tok=await exchange(code,verifier);
+    const expires_at=Date.now()+(tok.expires_in*1000)-10000;
+    const store={access_token:tok.access_token,token_type:tok.token_type||'Bearer',scope:tok.scope||'',expires_at};
+    localStorage.setItem('sp_token',JSON.stringify(store));
+    el.innerHTML=`<span class=ok>認証OK: 有効期限 ${new Date(expires_at).toLocaleString()}</span>`;
+    setTimeout(()=>location.href='./fulltracks_ultra_safe_v2.html',800);
+  }catch(e){
+    el.innerHTML=`<span class=bad>交換失敗: ${e.message}</span>`;
   }
-  if(!code){
-    el.innerHTML = `<span class="bad">エラー: code がありません。</span>`;
-    return;
-  }
-  const savedState = sessionStorage.getItem('sp_state');
-  if(savedState && state && savedState !== state){
-    el.innerHTML = `<span class="bad">エラー: state 不一致。</span>`;
-    return;
-  }
-  const verifier = sessionStorage.getItem('sp_pkce_verifier');
-  if(!verifier){
-    el.innerHTML = `<span class="bad">エラー: code_verifier が見つかりません。auth.html からやり直してください。</span>`;
-    return;
-  }
-
-  exchangeCodeForToken(code, verifier)
-    .then(tok=>{
-      // tok: { access_token, token_type, expires_in, scope, refresh_token? }
-      const now = Date.now();
-      const expires_at = now + (parseInt(tok.expires_in||'3600',10)*1000) - 10_000; // 余裕ぶん引く
-      const store = {
-        access_token: tok.access_token,
-        token_type: tok.token_type || 'Bearer',
-        scope: tok.scope || '',
-        expires_at
-      };
-      localStorage.setItem('sp_token', JSON.stringify(store));
-      el.innerHTML = `<span class="ok">認証OK。トークン保存しました（有効期限: ${new Date(expires_at).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'})}）。</span>`;
-      // 任意：戻り先。fulltracksに直帰するなら↓
-      setTimeout(()=> { window.location.href = './fulltracks_ultra_safe_v2.html'; }, 800);
-    })
-    .catch(e=>{
-      el.innerHTML = `<span class="bad">トークン交換エラー: ${e.message}</span>`;
-    });
 })();
 </script>
 </body>
