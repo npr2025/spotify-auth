@@ -1,22 +1,18 @@
 <!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Spotify 認可リダイレクト</title>
-  <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial,'Noto Sans JP';margin:2rem}
-    .card{border:1px solid #ddd;border-radius:10px;padding:1rem;max-width:720px}
-    code{background:#f6f6f6;padding:.15rem .35rem;border-radius:4px}
-    .ok{color:#0a7f29}.bad{color:#b00020}
-  </style>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Spotify 認可リダイレクト</title>
+<style>
+ body{font-family:system-ui;margin:2rem}
+ .ok{color:#0a7f29}.bad{color:#b00020}
+</style>
 </head>
 <body>
-  <div class="card">
-    <h1>Spotify 認可リダイレクト</h1>
-    <div id="msg">処理中…</div>
-    <p><a href="./fulltracks_ultra_safe_v2.html">ツールへ戻る</a></p>
-  </div>
+<h1>Spotify 認可リダイレクト</h1>
+<div id="msg">処理中…</div>
+<p><a href="./fulltracks_ultra_safe_v2.html">ツールへ戻る</a></p>
 
 <script>
 const CLIENT_ID="378ef0f44b36499abd10d118ddbddc98";
@@ -30,36 +26,39 @@ async function exchange(code, verifier){
     redirect_uri:REDIRECT_URI,
     code_verifier:verifier
   });
-  const res=await fetch('https://accounts.spotify.com/api/token',{
-    method:'POST',
-    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+  const res=await fetch("https://accounts.spotify.com/api/token",{
+    method:"POST",
+    headers:{"Content-Type":"application/x-www-form-urlencoded"},
     body
   });
-  if(!res.ok) throw new Error(await res.text());
-  return await res.json();
+  const txt=await res.text();
+  if(!res.ok) throw new Error(res.status+" "+txt);
+  return JSON.parse(txt);
 }
 
-(async function(){
-  const el=document.getElementById('msg');
+(async ()=>{
+  const msg=document.getElementById("msg");
   const sp=new URLSearchParams(location.search);
-  const code=sp.get('code'); const state=sp.get('state'); const err=sp.get('error');
-  if(err){el.innerHTML=`<span class=bad>エラー: ${err}</span>`;return;}
-  if(!code){el.innerHTML=`<span class=bad>エラー: code なし</span>`;return;}
-  if(sessionStorage.getItem('sp_state')!==state){
-    el.innerHTML=`<span class=bad>state 不一致</span>`;return;
+  const code=sp.get("code"), state=sp.get("state"), err=sp.get("error");
+  if(err){ msg.innerHTML=`<span class=bad>エラー: ${err}</span>`; return; }
+  if(!code){ msg.innerHTML=`<span class=bad>エラー: code なし</span>`; return; }
+  if(sessionStorage.getItem("sp_state")!==state){
+    msg.innerHTML=`<span class=bad>state 不一致</span>`; return;
   }
-  const verifier=sessionStorage.getItem('sp_pkce_verifier');
-  if(!verifier){el.innerHTML=`<span class=bad>verifier 不明</span>`;return;}
+  const verifier=sessionStorage.getItem("sp_pkce_verifier");
+  if(!verifier){ msg.innerHTML=`<span class=bad>verifier 不明</span>`; return; }
 
   try{
     const tok=await exchange(code,verifier);
-    const expires_at=Date.now()+(tok.expires_in*1000)-10000;
-    const store={access_token:tok.access_token,token_type:tok.token_type||'Bearer',scope:tok.scope||'',expires_at};
-    localStorage.setItem('sp_token',JSON.stringify(store));
-    el.innerHTML=`<span class=ok>認証OK: 有効期限 ${new Date(expires_at).toLocaleString()}</span>`;
-    setTimeout(()=>location.href='./fulltracks_ultra_safe_v2.html',800);
+    const expires_at=Date.now()+tok.expires_in*1000-10000;
+    const store={access_token:tok.access_token,token_type:tok.token_type||"Bearer",scope:tok.scope||"",expires_at};
+    localStorage.setItem("sp_token",JSON.stringify(store));
+    console.log("sp_token 保存:", store);
+    msg.innerHTML=`<span class=ok>認証成功: 有効期限 ${new Date(expires_at).toLocaleString()}</span>`;
+    setTimeout(()=>location.href="./fulltracks_ultra_safe_v2.html",1500);
   }catch(e){
-    el.innerHTML=`<span class=bad>交換失敗: ${e.message}</span>`;
+    console.error("交換失敗",e);
+    msg.innerHTML=`<span class=bad>交換失敗: ${e.message}</span>`;
   }
 })();
 </script>
