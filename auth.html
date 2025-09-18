@@ -6,39 +6,71 @@
   <title>Spotify Auth — TDCS Primary Seek</title>
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial, 'Noto Sans JP'; margin: 2rem; }
-    .card { border: 1px solid #ddd; border-radius: 10px; padding: 1.2rem; max-width: 720px; }
+    .card { border: 1px solid #ddd; border-radius: 10px; padding: 1.2rem; max-width: 760px; }
     button { padding: .7rem 1.1rem; border-radius: 8px; border: 1px solid #999; background: #111; color: #fff; cursor: pointer; }
     code { background: #f6f6f6; padding: .15rem .35rem; border-radius: 4px; }
     .muted { color: #666; }
+    .ok { color: #0a7f29; }
+    .bad { color: #b00020; }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Spotify 認証（Implicit Grant）</h1>
-    <p class="muted">Client ID: <code>378ef0f44b36499abd10d118ddbddc98</code><br/>Redirect URI: <code>https://npr2025.github.io/spotify-auth/callback.html</code></p>
-    <p>「接続」ボタンでSpotifyに遷移し、戻ってきたらトークンが保存されます（ブラウザの <code>localStorage</code>）。</p>
-    <p><button id="connectBtn">Spotifyに接続</button> <a href="./index.html" style="margin-left: 1rem;">監査ツールへ戻る</a></p>
-    <p><button id="clearBtn" style="background:#eee;color:#111;">保存トークン削除</button> <span id="status" class="muted"></span></p>
+    <p class="muted">
+      Client ID: <code>378ef0f44b36499abd10d118ddbddc98</code><br/>
+      Redirect URI: <code>https://npr2025.github.io/spotify-auth/callback.html</code>
+    </p>
+    <ol>
+      <li>Spotify Dashboard → <strong>Redirect URIs</strong> に上記URLを<strong>完全一致</strong>で追加して保存。</li>
+      <li>アプリが <em>Development</em> の場合、<strong>Users and Access</strong> で自分のSpotifyアカウントを <strong>Tester</strong> に追加。</li>
+    </ol>
+    <p>
+      <button id="connectBtn">Spotifyに接続</button>
+      <a href="./index.html" style="margin-left: 1rem;">監査ツールへ戻る</a>
+    </p>
+    <p>
+      <button id="clearBtn" style="background:#eee;color:#111;">保存トークン削除</button>
+      <span id="status" class="muted"></span>
+    </p>
+    <div id="diag" class="muted" style="margin-top:1rem;"></div>
   </div>
+
 <script>
 const CLIENT_ID = "378ef0f44b36499abd10d118ddbddc98";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
+const EXPECTED_PREFIX = "https://npr2025.github.io/spotify-auth/";
+
 function buildAuthUrl() {
   const state = Math.random().toString(36).slice(2);
   localStorage.setItem('sp_state', state);
-  const scope = encodeURIComponent(''); // public metadata only
-  const url = "https://accounts.spotify.com/authorize"
-    + "?client_id=" + encodeURIComponent(CLIENT_ID)
-    + "&response_type=token"
-    + "&redirect_uri=" + encodeURIComponent(REDIRECT_URI)
-    + "&state=" + state
-    + "&scope=" + scope
-    + "&show_dialog=true";
-  return url;
+  const params = new URLSearchParams({
+    client_id: CLIENT_ID,
+    response_type: 'token',
+    redirect_uri: REDIRECT_URI,
+    state,
+    scope: '' // public metadata only
+  });
+  return "https://accounts.spotify.com/authorize?" + params.toString();
 }
+
+function checkOrigin() {
+  const here = location.href;
+  if (!here.startsWith(EXPECTED_PREFIX)) {
+    document.getElementById('diag').innerHTML =
+      'このページは <code>' + EXPECTED_PREFIX + '</code> から開いてください。<br/>'+
+      'GitHub Pages へ正しく配置されているか、URLが一致しているかを確認してください。';
+    return false;
+  }
+  return true;
+}
+
 document.getElementById('connectBtn').addEventListener('click', () => {
-  window.location.href = buildAuthUrl();
+  if (!checkOrigin()) return;
+  // 新規タブで開く（ポップアップブロック回避）
+  window.open(buildAuthUrl(), '_blank', 'noopener,noreferrer');
 });
+
 document.getElementById('clearBtn').addEventListener('click', () => {
   localStorage.removeItem('sp_token');
   document.getElementById('status').textContent = '削除しました。';
