@@ -19,40 +19,37 @@
       Client ID: <code>378ef0f44b36499abd10d118ddbddc98</code><br>
       Redirect URI: <code>https://npr2025.github.io/spotify-auth/callback.html</code>
     </p>
-    <p><button id="connectBtn">Spotifyに接続</button> <a href="./fulltracks_ultra_safe_v2.html" style="margin-left:1rem">戻る</a></p>
+    <p>
+      <button id="connectBtn">Spotifyに接続</button>
+      <a href="./fulltracks_ultra_safe_v2.html" style="margin-left:1rem">戻る</a>
+    </p>
     <p><button id="clearBtn" style="background:#eee;color:#111">保存トークン削除</button> <span id="status" class="muted"></span></p>
   </div>
 
 <script>
-// 固定値（Spotifyダッシュボードと一致させる）
 const CLIENT_ID = "378ef0f44b36499abd10d118ddbddc98";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
-// 今回は公開情報だけなので scope は空でOK（必要なら追加）
-const SCOPE = "";
+const SCOPE = ""; // 必要なら追加
 
-// PKCE helpers
-function base64urlencode(a) {
+function base64urlencode(a){
   return btoa(String.fromCharCode.apply(null, new Uint8Array(a)))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 }
-async function sha256(plain) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(plain);
-  return await crypto.subtle.digest('SHA-256', data);
+async function sha256(str){
+  const buf = new TextEncoder().encode(str);
+  return await crypto.subtle.digest('SHA-256', buf);
 }
-function randomString(length=64){
+function randomString(len=64){
   const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
-  let result=''; const arr=new Uint8Array(length); crypto.getRandomValues(arr);
-  for(const c of arr) result += chars[c % chars.length];
-  return result;
+  const arr=new Uint8Array(len); crypto.getRandomValues(arr);
+  return Array.from(arr, b=>chars[b%chars.length]).join('');
 }
 
-async function beginAuth() {
+async function beginAuth(){
   const verifier = randomString(64);
   const challenge = base64urlencode(await sha256(verifier));
   const state = Math.random().toString(36).slice(2);
 
-  // 後で callback.html で使う
   sessionStorage.setItem('sp_pkce_verifier', verifier);
   sessionStorage.setItem('sp_state', state);
 
@@ -65,16 +62,14 @@ async function beginAuth() {
     scope: SCOPE,
     state
   });
-
-  // 認可画面へ
-  window.location.href = 'https://accounts.spotify.com/authorize?' + params.toString();
+  location.href = 'https://accounts.spotify.com/authorize?' + params.toString();
 }
 
-document.getElementById('connectBtn').addEventListener('click', beginAuth);
-document.getElementById('clearBtn').addEventListener('click', ()=>{
+document.getElementById('connectBtn').onclick = beginAuth;
+document.getElementById('clearBtn').onclick = ()=>{
   localStorage.removeItem('sp_token');
-  document.getElementById('status').textContent = 'sp_token を削除しました。';
-});
+  document.getElementById('status').textContent='sp_token 削除しました';
+};
 </script>
 </body>
 </html>
