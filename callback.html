@@ -53,9 +53,11 @@ async function exchange(code, verifier){
     const expires_at=Date.now()+tok.expires_in*1000-10000;
     const store={access_token:tok.access_token,token_type:tok.token_type||"Bearer",scope:tok.scope||"",expires_at};
     localStorage.setItem("sp_token",JSON.stringify(store));
+    // URLに残る ?code=... を消しておく（Back押下時の混乱回避）
+    try{ history.replaceState(null,"",REDIRECT_URI); }catch{}
     console.log("sp_token 保存:", store);
     msg.innerHTML=`<span class=ok>認証成功: 有効期限 ${new Date(expires_at).toLocaleString()}</span>`;
-    setTimeout(()=>location.href="./fulltracks_ultra_safe_v2.html",1500);
+    setTimeout(()=>location.assign("./fulltracks_ultra_safe_v2.html"),1200);
   }catch(e){
     console.error("交換失敗",e);
     msg.innerHTML=`<span class=bad>交換失敗: ${e.message}</span>`;
