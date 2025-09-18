@@ -3,86 +3,77 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Spotify Auth (PKCE) — TDCS Primary Seek</title>
+  <title>Spotify Auth (PKCE) — TDCS</title>
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial, 'Noto Sans JP'; margin: 2rem; }
-    .card { border: 1px solid #ddd; border-radius: 10px; padding: 1.2rem; max-width: 760px; }
-    button { padding: .7rem 1.1rem; border-radius: 8px; border: 1px solid #999; background: #111; color: #fff; cursor: pointer; }
-    code { background: #f6f6f6; padding: .15rem .35rem; border-radius: 4px; }
-    .muted { color: #666; }
-    .bad { color: #b00020; }
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial,'Noto Sans JP';margin:2rem}
+    .card{border:1px solid #ddd;border-radius:10px;padding:1rem;max-width:720px}
+    button{padding:.7rem 1.1rem;border-radius:8px;border:1px solid #999;background:#111;color:#fff;cursor:pointer}
+    code{background:#f6f6f6;padding:.15rem .35rem;border-radius:4px}
+    .muted{color:#666}
   </style>
 </head>
 <body>
   <div class="card">
-    <h1>Spotify 認証（Authorization Code with PKCE）</h1>
+    <h1>Spotify 認証（PKCE）</h1>
     <p class="muted">
-      Client ID: <code>378ef0f44b36499abd10d118ddbddc98</code><br/>
+      Client ID: <code>378ef0f44b36499abd10d118ddbddc98</code><br>
       Redirect URI: <code>https://npr2025.github.io/spotify-auth/callback.html</code>
     </p>
-    <ol>
-      <li>Spotify Dashboard → <strong>Redirect URIs</strong> に上記URLを<strong>完全一致</strong>で登録＆保存。</li>
-      <li>アプリが <em>Development</em> の場合、<strong>Users and Access</strong> に自分のSpotifyアカウントを <strong>Tester</strong> 追加。</li>
-    </ol>
-    <p>
-      <button id="connectBtn">Spotifyに接続（PKCE）</button>
-      <a href="./index.html" style="margin-left: 1rem;">監査ツールへ戻る</a>
-    </p>
-    <div id="diag" class="muted"></div>
+    <p><button id="connectBtn">Spotifyに接続</button> <a href="./fulltracks_ultra_safe_v2.html" style="margin-left:1rem">戻る</a></p>
+    <p><button id="clearBtn" style="background:#eee;color:#111">保存トークン削除</button> <span id="status" class="muted"></span></p>
   </div>
 
 <script>
+// 固定値（Spotifyダッシュボードと一致させる）
 const CLIENT_ID = "378ef0f44b36499abd10d118ddbddc98";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
-const EXPECTED_PREFIX = "https://npr2025.github.io/spotify-auth/";
+// 今回は公開情報だけなので scope は空でOK（必要なら追加）
+const SCOPE = "";
 
-function base64urlencode(buffer) {
-  return btoa(String.fromCharCode.apply(null, new Uint8Array(buffer)))
+// PKCE helpers
+function base64urlencode(a) {
+  return btoa(String.fromCharCode.apply(null, new Uint8Array(a)))
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
-function randomString(len=96) {
-  const arr = new Uint8Array(len);
-  crypto.getRandomValues(arr);
-  return Array.from(arr, b => ('0' + b.toString(16)).slice(-2)).join('');
-}
-async function sha256(str) {
-  const enc = new TextEncoder();
-  const data = enc.encode(str);
+async function sha256(plain) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(plain);
   return await crypto.subtle.digest('SHA-256', data);
 }
-async function startAuthPKCE() {
-  const code_verifier = randomString(64);
-  const digest = await sha256(code_verifier);
-  const code_challenge = base64urlencode(digest);
+function randomString(length=64){
+  const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+  let result=''; const arr=new Uint8Array(length); crypto.getRandomValues(arr);
+  for(const c of arr) result += chars[c % chars.length];
+  return result;
+}
+
+async function beginAuth() {
+  const verifier = randomString(64);
+  const challenge = base64urlencode(await sha256(verifier));
   const state = Math.random().toString(36).slice(2);
 
-  localStorage.setItem('sp_pkce_verifier', code_verifier);
-  localStorage.setItem('sp_state', state);
+  // 後で callback.html で使う
+  sessionStorage.setItem('sp_pkce_verifier', verifier);
+  sessionStorage.setItem('sp_state', state);
 
   const params = new URLSearchParams({
     client_id: CLIENT_ID,
     response_type: 'code',
     redirect_uri: REDIRECT_URI,
     code_challenge_method: 'S256',
-    code_challenge,
-    state,
-    scope: '' // public metadata only
+    code_challenge: challenge,
+    scope: SCOPE,
+    state
   });
-  const url = "https://accounts.spotify.com/authorize?" + params.toString();
-  window.location.assign(url);
+
+  // 認可画面へ
+  window.location.href = 'https://accounts.spotify.com/authorize?' + params.toString();
 }
-function checkOrigin() {
-  if (!location.href.startsWith(EXPECTED_PREFIX)) {
-    document.getElementById('diag').innerHTML =
-      '<span class="bad">このページは <code>'+EXPECTED_PREFIX+
-      '</code> から開いてください（URL完全一致）。</span>';
-    return false;
-  }
-  return true;
-}
-document.getElementById('connectBtn').addEventListener('click', () => {
-  if (!checkOrigin()) return;
-  startAuthPKCE();
+
+document.getElementById('connectBtn').addEventListener('click', beginAuth);
+document.getElementById('clearBtn').addEventListener('click', ()=>{
+  localStorage.removeItem('sp_token');
+  document.getElementById('status').textContent = 'sp_token を削除しました。';
 });
 </script>
 </body>
