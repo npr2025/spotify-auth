@@ -36,32 +36,52 @@ async function exchange(code, verifier){
   return JSON.parse(txt);
 }
 
-(async ()=>{
+(function(){
   const msg=document.getElementById("msg");
   const sp=new URLSearchParams(location.search);
-  const code=sp.get("code"), state=sp.get("state"), err=sp.get("error");
-  if(err){ msg.innerHTML=`<span class=bad>エラー: ${err}</span>`; return; }
+  const code  = sp.get("code");
+  const state = sp.get("state");
+  const cookieState = (document.cookie.match(/(?:^|;\\s*)sp_state=([^;]+)/)||[])[1] || "";
+
+  const storedState = sessionStorage.getItem("sp_state")
+                   || localStorage.getItem("sp_state")
+                   || cookieState;
+
   if(!code){ msg.innerHTML=`<span class=bad>エラー: code なし</span>`; return; }
-  if(sessionStorage.getItem("sp_state")!==state){
+  if(storedState !== state){
     msg.innerHTML=`<span class=bad>state 不一致</span>`; return;
   }
-  const verifier=sessionStorage.getItem("sp_pkce_verifier");
+
+  let verifier = sessionStorage.getItem("sp_pkce_verifier")
+               || localStorage.getItem("sp_pkce_verifier")
+               || "";
   if(!verifier){ msg.innerHTML=`<span class=bad>verifier 不明</span>`; return; }
 
-  try{
-    const tok=await exchange(code,verifier);
-    const expires_at=Date.now()+tok.expires_in*1000-10000;
-    const store={access_token:tok.access_token,token_type:tok.token_type||"Bearer",scope:tok.scope||"",expires_at};
-    localStorage.setItem("sp_token",JSON.stringify(store));
-    // URLに残る ?code=... を消しておく（Back押下時の混乱回避）
-    try{ history.replaceState(null,"",REDIRECT_URI); }catch{}
-    console.log("sp_token 保存:", store);
-    msg.innerHTML=`<span class=ok>認証成功: 有効期限 ${new Date(expires_at).toLocaleString()}</span>`;
-    setTimeout(()=>location.assign("./fulltracks_ultra_safe_v2.html"),1200);
-  }catch(e){
-    console.error("交換失敗",e);
-    msg.innerHTML=`<span class=bad>交換失敗: ${e.message}</span>`;
-  }
+  (async ()=>{
+    try{
+      const tok=await exchange(code,verifier);
+      const expires_at=Date.now()+tok.expires_in*1000-10000;
+      const store={access_token:tok.access_token,token_type:tok.token_type||"Bearer",scope:tok.scope||"",expires_at};
+      localStorage.setItem("sp_token",JSON.stringify(store));
+
+      // URL掃除・一時データ掃除
+      try{ history.replaceState(null,"",REDIRECT_URI); }catch{}
+      try{
+        sessionStorage.removeItem("sp_pkce_verifier");
+        sessionStorage.removeItem("sp_state");
+        localStorage.removeItem("sp_pkce_verifier");
+        localStorage.removeItem("sp_state");
+        document.cookie = "sp_state=; Max-Age=0; Path=/; SameSite=Lax";
+      }catch{}
+
+      console.log("sp_token 保存:", store);
+      msg.innerHTML=`<span class=ok>認証成功: 有効期限 ${new Date(expires_at).toLocaleString()}</span>`;
+      setTimeout(()=>location.assign("./fulltracks_ultra_safe_v2.html"),1200);
+    }catch(e){
+      console.error("交換失敗",e);
+      msg.innerHTML=`<span class=bad>交換失敗: ${e.message}</span>`;
+    }
+  })();
 })();
 </script>
 </body>
