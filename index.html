@@ -3,128 +3,175 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>TDCS Primary Seek – Spotify Auditor (Rate-Limit Friendly)</title>
+  <title>TDCS Primary Seek – Spotify Auditor (Core Export / URI / Robust RL)</title>
   <link rel="preconnect" href="https://accounts.spotify.com"/>
   <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial, 'Noto Sans JP', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol'; margin: 2rem; }
+    body { font-family: system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial,'Noto Sans JP'; margin: 2rem; }
     header { margin-bottom: 1rem; }
     h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
     .card { border: 1px solid #ddd; border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
     .row { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; }
-    button { padding: .6rem 1rem; border-radius: 8px; border: 1px solid #999; background: #111; color: white; cursor: pointer; }
+    button { padding: .6rem 1rem; border-radius: 8px; border: 1px solid #999; background: #111; color: #fff; cursor: pointer; }
     button[disabled] { opacity: .5; cursor: not-allowed; }
     input[type=file] { border: 1px dashed #bbb; padding: .75rem; border-radius: 8px; background: #fafafa; }
-    code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }
+    code,.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono','Courier New', monospace; }
     .muted { color: #666; }
     .ok { color: #0a7f29; }
     .bad { color: #b00020; }
     progress { width: 100%; height: 14px; }
     table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #eee; padding: .5rem; text-align: left; font-size: .9rem; }
+    th,td { border: 1px solid #eee; padding: .5rem; text-align: left; font-size: .9rem; }
     .small { font-size: .88rem; }
-    footer { margin-top: 2rem; font-size: .85rem; }
     .pill { display:inline-block; padding:.1rem .5rem; border:1px solid #ccc; border-radius:999px; font-size:.8rem; background:#f6f6f6; }
   </style>
 </head>
 <body>
-  <header>
-    <h1>TDCS Primary Seek – Spotify Auditor (Rate-Limit Friendly)</h1>
-    <div class="muted small">Client ID: <code>378ef0f44b36499abd10d118ddbddc98</code> | Redirect URI: <code>https://npr2025.github.io/spotify-auth/callback.html</code></div>
-  </header>
+<header>
+  <h1>TDCS Primary Seek – Spotify Auditor</h1>
+  <div class="muted small">
+    Client ID: <code>378ef0f44b36499abd10d118ddbddc98</code> |
+    Redirect URI: <code>https://npr2025.github.io/spotify-auth/callback.html</code>
+  </div>
+</header>
 
-  <section class="card">
-    <h2>1) 接続</h2>
-    <div class="row">
-      <a href="./auth.html"><button>Spotifyに接続</button></a>
-      <div id="authStatus" class="muted">未接続</div>
-    </div>
-    <div class="small muted">※ トークンは localStorage に保存。レート制限は自動リトライ＋バックオフで回避します。</div>
-  </section>
+<section class="card">
+  <h2>1) 接続</h2>
+  <div class="row">
+    <a href="./auth.html"><button>Spotifyに接続</button></a>
+    <div id="authStatus" class="muted">未接続</div>
+  </div>
+  <div class="small muted">※ PKCEで取得したトークンは localStorage に保存されます。</div>
+</section>
 
-  <section class="card">
-    <h2>2) CSVをアップロード</h2>
-    <p class="muted small">対応列（自動検出）：<code>spotify_url</code> / <code>UPC</code> / <code>ISRC</code> / <code>Album title</code> / <code>Album version</code> / <code>Track title</code></p>
-    <div class="row">
-      <input type="file" id="csvFile" accept=".csv"/>
-      <label>最小間隔(ms)：<input type="number" id="minDelayMs" value="500" min="0" step="50" style="width:7rem;"/></label>
-      <label>最大バックオフ(ms)：<input type="number" id="maxBackoffMs" value="8000" min="500" step="500" style="width:7rem;"/></label>
-      <button id="startBtn" disabled>監査スタート</button>
-      <a id="downloadOut" class="muted" download="spotify_audit_result.csv">結果CSVをダウンロード</a>
-    </div>
-    <div id="fileInfo" class="small muted"></div>
-    <div class="small">ヒント: UPC/ISRC重複は自動でキャッシュしてAPIコールを削減します。</div>
-  </section>
+<section class="card">
+  <h2>2) CSVをアップロード</h2>
+  <p class="muted small">対応列（自動検出）：<code>spotify_url</code> / <code>UPC</code> / <code>ISRC</code> / <code>Album title</code> / <code>Album version</code> / <code>Track title</code></p>
+  <div class="row">
+    <input type="file" id="csvFile" accept=".csv"/>
+    <label>最小間隔(ms)：<input type="number" id="minDelayMs" value="700" min="0" step="50" style="width:7rem;"/></label>
+    <label>最大バックオフ(ms)：<input type="number" id="maxBackoffMs" value="10000" min="500" step="500" style="width:7rem;"/></label>
+    <label>最大リトライ回数：<input type="number" id="maxRetries" value="7" min="0" step="1" style="width:5rem;"/></label>
+    <button id="startBtn" disabled>監査スタート</button>
+    <button id="resumeBtn" disabled>中断から再開</button>
+  </div>
+  <div id="fileInfo" class="small muted"></div>
+  <div class="small">ヒント: UPC/ISRC/URL重複はキャッシュでAPIコールを削減。定期的に自動保存（localStorage）します。</div>
+</section>
 
-  <section class="card">
-    <h2>進捗 <span id="ratePill" class="pill">idle</span></h2>
-    <progress id="prog" value="0" max="100"></progress>
-    <div id="log" class="small mono" style="white-space:pre-wrap; max-height:260px; overflow:auto;"></div>
-  </section>
+<section class="card">
+  <h2>進捗 <span id="ratePill" class="pill">idle</span></h2>
+  <progress id="prog" value="0" max="100"></progress>
+  <div id="log" class="small mono" style="white-space:pre-wrap; max-height:260px; overflow:auto;"></div>
+</section>
 
-  <section class="card">
-    <h2>最新の結果（サンプル数行）</h2>
-    <table id="previewTbl"><thead></thead><tbody></tbody></table>
-  </section>
+<section class="card">
+  <h2>エクスポート</h2>
+  <div class="row">
+    <button id="downloadCoreBtn" disabled>結果CSVをダウンロード（コア列）</button>
+    <button id="exportUriBtn" disabled>URIリストCSVをダウンロード（全トラック）</button>
+  </div>
+  <div class="small muted">
+    コア列のみ出力：<code>spotify_url,UPC,Album title,Album version,Track title,spotify_found_via,spotify_album_id,album_type,album_artists,album_artist_ids,track_artists_distinct,inferred_category,reasons,error</code>
+  </div>
+</section>
 
-  <footer class="muted">© Nipponeer Records — Rate-limit aware client for Spotify Web API.</footer>
+<section class="card">
+  <h2>最新の結果（サンプル10行／コア列のみ表示）</h2>
+  <table id="previewTbl"><thead></thead><tbody></tbody></table>
+</section>
 
 <script>
 const TARGET_ARTIST_ID = "55fvQ5I2IZUfcFT2DV02T3";
+const CHECKPOINT_KEY = "tdcs_audit_checkpoint_v3";
 
-function log(msg) { const el = document.getElementById('log'); el.textContent += msg + "\n"; el.scrollTop = el.scrollHeight; }
-function setAuthStatus(ok, text) { const el = document.getElementById('authStatus'); el.textContent = text; el.className = ok ? 'ok' : 'bad'; }
-function setRate(text) { document.getElementById('ratePill').textContent = text; }
+const PREVIEW_COLS = [
+  'spotify_url','UPC','Album title','Album version','Track title',
+  'spotify_found_via','spotify_album_id','album_type',
+  'album_artists','album_artist_ids','track_artists_distinct',
+  'inferred_category','reasons','error'
+];
+const CORE_COLS = PREVIEW_COLS.slice(); // 同一
 
-function getStoredToken() {
+function log(msg){ const el=document.getElementById('log'); el.textContent+=msg+"\n"; el.scrollTop=el.scrollHeight; }
+function setAuthStatus(ok, text){ const el=document.getElementById('authStatus'); el.textContent=text; el.className = ok ? 'ok' : 'bad'; }
+function setRate(text){ document.getElementById('ratePill').textContent=text; }
+function getStoredToken(){
   const raw = localStorage.getItem('sp_token');
-  if (!raw) return null;
-  try { const obj = JSON.parse(raw); if (Date.now() < obj.expires_at) return obj; } catch(e) {}
+  if(!raw) return null;
+  try{ const obj=JSON.parse(raw); if(Date.now()<obj.expires_at) return obj; }catch(e){}
   return null;
 }
 
-// ---- Rate-limit aware fetch wrapper ----
-async function api(path, token, params={}, opt={}) {
-  const minDelay = opt.minDelayMs ?? (parseInt(document.getElementById('minDelayMs').value,10)||500);
-  const maxBackoff = opt.maxBackoffMs ?? (parseInt(document.getElementById('maxBackoffMs').value,10)||8000);
+// ---- robust fetch with RL/5xx retry + jitter ----
+async function api(path, token, params={}, opt={}){
+  const minDelay = opt.minDelayMs ?? (parseInt(document.getElementById('minDelayMs').value,10) || 700);
+  const maxBackoff = opt.maxBackoffMs ?? (parseInt(document.getElementById('maxBackoffMs').value,10) || 10000);
+  const maxRetries = opt.maxRetries ?? (parseInt(document.getElementById('maxRetries').value,10) || 7);
   let backoff = minDelay;
+  let attempt = 0;
 
-  while (true) {
-    const url = new URL('https://api.spotify.com' + path);
-    Object.entries(params).forEach(([k,v]) => v!=null && url.searchParams.set(k, v));
-    const t0 = Date.now();
-    const res = await fetch(url.toString(), { headers: { 'Authorization': 'Bearer ' + token } });
+  while(true){
+    attempt++;
+    const url=new URL('https://api.spotify.com'+path);
+    Object.entries(params).forEach(([k,v])=> v!=null && url.searchParams.set(k,v));
 
-    if (res.status !== 429 && res.ok) {
-      const elapsed = Date.now() - t0;
-      const waitLeft = Math.max(minDelay - elapsed, 0);
-      if (waitLeft > 0) { setRate('throttle ' + waitLeft + 'ms'); await new Promise(r => setTimeout(r, waitLeft)); }
-      setRate('ok');
-      return res.json();
-    }
-
-    const body = await res.text();
-
-    // 429 handling with Retry-After header + exponential backoff
-    if (res.status === 429) {
-      const retryAfter = parseFloat(res.headers.get('Retry-After') || '0'); // seconds
-      const delay = Math.max(minDelay, retryAfter ? retryAfter * 1000 : backoff);
-      setRate('429 → wait ' + delay + 'ms');
-      log('429 → backoff ' + delay + 'ms' + (retryAfter ? ' (Retry-After='+retryAfter+'s)':'' ));
-      await new Promise(r => setTimeout(r, delay));
-      backoff = Math.min(Math.floor(backoff * 1.6), maxBackoff);
+    let res, ok=false, text="";
+    const t0=Date.now();
+    try{
+      res = await fetch(url.toString(), { headers:{'Authorization':'Bearer '+token}});
+      ok = res.ok;
+      text = await res.text();
+    }catch(e){
+      if(attempt>maxRetries) throw new Error('Network error after retries: '+(e?.message||e));
+      const jitter = Math.random()*200;
+      const delay = Math.min(backoff + jitter, maxBackoff);
+      setRate('net err → wait '+Math.floor(delay)+'ms');
+      log('Network error, retry in '+Math.floor(delay)+'ms');
+      await new Promise(r=>setTimeout(r, delay));
+      backoff = Math.min(Math.floor(backoff*1.6), maxBackoff);
       continue;
     }
 
-    // Other error → throw
-    throw new Error('HTTP ' + res.status + ': ' + body);
+    if(ok && res.status!==429){
+      const left = Math.max(minDelay - (Date.now()-t0), 0);
+      if(left>0){ setRate('throttle '+left+'ms'); await new Promise(r=>setTimeout(r,left)); }
+      setRate('ok');
+      try { return JSON.parse(text); } catch { return text; }
+    }
+
+    let body;
+    try{ body = JSON.parse(text); }catch{ body = text; }
+
+    if(res.status===429){
+      const ra = parseFloat(res.headers.get('Retry-After')||'0'); // sec
+      const delay = Math.max(minDelay, ra ? ra*1000 : backoff);
+      setRate('429 → wait '+Math.floor(delay)+'ms');
+      log('429 backoff '+Math.floor(delay)+'ms'+(ra?` (Retry-After=${ra}s)`:''));
+      await new Promise(r=>setTimeout(r, delay));
+      backoff = Math.min(Math.floor(backoff*1.6), maxBackoff);
+      continue;
+    }
+
+    if(res.status>=500 && res.status<600){
+      if(attempt>maxRetries) throw new Error('HTTP '+res.status+' after '+attempt+' attempts: '+(text||''));
+      const jitter = Math.random()*300;
+      const delay = Math.min(backoff + jitter, maxBackoff);
+      setRate(res.status+' → wait '+Math.floor(delay)+'ms');
+      log(res.status+' retry in '+Math.floor(delay)+'ms');
+      await new Promise(r=>setTimeout(r, delay));
+      backoff = Math.min(Math.floor(backoff*1.6), maxBackoff);
+      continue;
+    }
+
+    throw new Error('HTTP '+res.status+': '+(typeof body==='string'? body : JSON.stringify(body)));
   }
 }
 
 // ---- CSV helpers ----
-function detectCols(header) {
-  const lc = header.map(h => String(h||'').toLowerCase());
-  function pick(...cands) { for (const c of cands) { const i = lc.indexOf(String(c).toLowerCase()); if (i>-1) return header[i]; } return null; }
+function detectCols(header){
+  const lc=header.map(h=>String(h||'').toLowerCase());
+  function pick(...c){ for(const x of c){ const i=lc.indexOf(String(x).toLowerCase()); if(i>-1) return header[i]; } return null; }
   return {
     url: pick('spotify_url','url','link'),
     upc: pick('upc','UPC'),
@@ -134,207 +181,281 @@ function detectCols(header) {
     track: pick('track title','track')
   };
 }
-function parseSpotifyUrl(u) { 
-  try { const m = u.match(/open\.spotify\.com\/(album|track)\/([A-Za-z0-9]+)/); if (m) return { type: m[1], id: m[2] }; } catch(e){}
+function parseSpotifyUrl(u){
+  try{ const m=u.match(/open\.spotify\.com\/(album|track)\/([A-Za-z0-9]+)/); if(m) return {type:m[1], id:m[2]}; }catch(e){}
   return null;
 }
-
-// ---- Caches (reduce API calls) ----
-const upcCache = new Map();        // upc -> { albumId, url } | null
-const isrcCache = new Map();       // isrc -> { trackId, albumId, url, albumUrl } | null
-const albumAuditCache = new Map(); // albumId -> { album_type, album_artists, track_artists_count }
-
-async function findByUPC(upc, token) {
-  if (!upc) return null;
-  if (upcCache.has(upc)) return upcCache.get(upc);
-  const q = 'upc:' + upc;
-  const res = await api('/v1/search', token, { q, type: 'album', limit: 1 });
-  let out = null;
-  if (res.albums && res.albums.items && res.albums.items.length) {
-    const a = res.albums.items[0];
-    out = { albumId: a.id, url: a.external_urls.spotify };
-  }
-  upcCache.set(upc, out);
-  return out;
+function rowsToCSVSubset(rows, cols){
+  if(!rows.length) return '';
+  const header=cols;
+  const esc=v=> (v==null?'':'"'+String(v).replace(/"/g,'""')+'"');
+  return [header.map(esc).join(','), ...rows.map(r=> header.map(h=>esc(r[h])).join(','))].join('\r\n');
 }
-async function findByISRC(isrc, token) {
-  if (!isrc) return null;
-  if (isrcCache.has(isrc)) return isrcCache.get(isrc);
-  const q = 'isrc:' + isrc;
-  const res = await api('/v1/search', token, { q, type: 'track', limit: 1 });
-  let out = null;
-  if (res.tracks && res.tracks.items && res.tracks.items.length) {
-    const t = res.tracks.items[0];
-    out = { trackId: t.id, albumId: t.album.id, url: t.external_urls.spotify, albumUrl: t.album.external_urls.spotify };
-  }
-  isrcCache.set(isrc, out);
-  return out;
-}
-async function findByText(row, cols, token) {
-  const parts = [];
-  if (cols.album && row[cols.album]) parts.push('album:"' + row[cols.album].trim() + '"');
-  parts.push('artist:"The Darrow Chem Syndicate"');
-  if (cols.version && row[cols.version]) parts.push('"' + row[cols.version].trim() + '"');
-  const q = parts.join(' ');
-  const res = await api('/v1/search', token, { q, type: 'album', limit: 1 });
-  if (res.albums && res.albums.items && res.albums.items.length) {
-    const a = res.albums.items[0];
-    return { albumId: a.id, url: a.external_urls.spotify };
-  }
-  return null;
-}
-async function auditAlbum(albumId, token) {
-  if (!albumId) return null;
-  if (albumAuditCache.has(albumId)) return albumAuditCache.get(albumId);
-  const a = await api('/v1/albums/' + albumId, token);
-  const album_type = a.album_type;
-  const album_artists = (a.artists || []).map(x => ({ id: x.id, name: x.name }));
-  const t = await api('/v1/albums/' + albumId + '/tracks', token, { limit: 50 });
-  const trackArtists = new Set();
-  (t.items || []).forEach(tr => (tr.artists || []).forEach(ar => trackArtists.add(ar.id)));
-  const out = { album_type, album_artists, track_artists_count: trackArtists.size };
-  albumAuditCache.set(albumId, out);
-  return out;
-}
-function classify(aRes) {
-  const reasons = [];
-  let cat = 'UNKNOWN';
-  if (!aRes) return { category: cat, reasons: ['album fetch failed'] };
-  const isCompilation = aRes.album_type && aRes.album_type.toLowerCase() === 'compilation';
-  const albumArtistIds = (aRes.album_artists || []).map(x => x.id);
-  const includesTDCS = albumArtistIds.includes(TARGET_ARTIST_ID);
-  if (isCompilation) reasons.push('album_type=compilation');
-  if (albumArtistIds.length > 1 && (!includesTDCS || albumArtistIds.some(id => id !== TARGET_ARTIST_ID))) { reasons.push('multiple album artists: ' + albumArtistIds.length); }
-  if (aRes.track_artists_count > 5) reasons.push('many distinct track artists (~' + aRes.track_artists_count + ')');
-  if (isCompilation) cat = 'COMPILATION';
-  else if (includesTDCS && albumArtistIds.length === 1) cat = 'ALBUM';
-  else if (includesTDCS) cat = 'LIKELY_ALBUM';
-  return { category: cat, reasons };
-}
-
-// ---- CSV I/O ----
-function rowsToCSV(rows) {
-  const header = Object.keys(rows[0] || {});
-  const esc = v => (v==null ? '' : ('"'+String(v).replace(/"/g,'""')+'"'));
-  return [header.map(esc).join(','), ...rows.map(r => header.map(h => esc(r[h])).join(','))].join('\r\n');
-}
-function setPreview(rows) {
-  const tblh = document.querySelector('#previewTbl thead');
-  const tblb = document.querySelector('#previewTbl tbody');
+function setPreview(rows){
+  const tblh=document.querySelector('#previewTbl thead');
+  const tblb=document.querySelector('#previewTbl tbody');
   tblh.innerHTML=''; tblb.innerHTML='';
-  const sample = rows.slice(0, Math.min(10, rows.length));
-  if (!sample.length) return;
-  const header = Object.keys(sample[0]);
-  const trh = document.createElement('tr');
-  header.forEach(h => { const th = document.createElement('th'); th.textContent = h; trh.appendChild(th); });
+  const sample=rows.filter(Boolean).slice(0,10);
+  if(!sample.length) return;
+  const header=PREVIEW_COLS.filter(h=> h in sample[0]);
+  const trh=document.createElement('tr');
+  header.forEach(h=>{ const th=document.createElement('th'); th.textContent=h; trh.appendChild(th); });
   tblh.appendChild(trh);
-  sample.forEach(r => { const tr = document.createElement('tr'); header.forEach(h => { const td = document.createElement('td'); td.textContent = r[h]; tr.appendChild(td); }); tblb.appendChild(tr); });
+  sample.forEach(r=>{ const tr=document.createElement('tr'); header.forEach(h=>{ const td=document.createElement('td'); td.textContent=(r[h]==null?'':r[h]); tr.appendChild(td); }); tblb.appendChild(tr); });
 }
 
-// ---- Main pipeline ----
-let _rows = [], _cols = {};
-document.getElementById('csvFile').addEventListener('change', (ev) => { 
-  const file = ev.target.files[0];
-  if (!file) return;
-  document.getElementById('fileInfo').textContent = file.name + ' / ' + (file.size/1024).toFixed(1) + ' KB';
-  Papa.parse(file, { header: true, skipEmptyLines: true, complete: (res) => { 
-    _rows = res.data;
-    _cols = detectCols(res.meta.fields || []);
-    document.getElementById('startBtn').disabled = false;
-    log('CSV loaded: ' + _rows.length + ' rows');
-    log('Detected columns: ' + JSON.stringify(_cols));
-  } });
+// ---- caches ----
+const upcCache=new Map();
+const isrcCache=new Map();
+const albumAuditCache=new Map();
+
+// ---- finders ----
+async function findByUPC(upc, token){
+  if(!upc) return null;
+  if(upcCache.has(upc)) return upcCache.get(upc);
+  const q='upc:'+upc;
+  const res=await api('/v1/search', token, {q, type:'album', limit:1});
+  let out=null;
+  if(res.albums?.items?.length){ const a=res.albums.items[0]; out={albumId:a.id, url:a.external_urls.spotify}; }
+  upcCache.set(upc,out); return out;
+}
+async function findByISRC(isrc, token){
+  if(!isrc) return null;
+  if(isrcCache.has(isrc)) return isrcCache.get(isrc);
+  const q='isrc:'+isrc;
+  const res=await api('/v1/search', token, {q, type:'track', limit:1});
+  let out=null;
+  if(res.tracks?.items?.length){ const t=res.tracks.items[0]; out={trackId:t.id, albumId:t.album.id, url:t.external_urls.spotify, albumUrl:t.album.external_urls.spotify}; }
+  isrcCache.set(isrc,out); return out;
+}
+async function findByText(row, cols, token){
+  const parts=[];
+  if(cols.album && row[cols.album]) parts.push('album:"'+row[cols.album].trim()+'"');
+  parts.push('artist:"The Darrow Chem Syndicate"');
+  if(cols.version && row[cols.version]) parts.push('"'+row[cols.version].trim()+'"');
+  const q=parts.join(' ');
+  const res=await api('/v1/search', token, {q, type:'album', limit:1});
+  if(res.albums?.items?.length){ const a=res.albums.items[0]; return {albumId:a.id, url:a.external_urls.spotify}; }
+  return null;
+}
+async function auditAlbum(albumId, token){
+  if(!albumId) return null;
+  if(albumAuditCache.has(albumId)) return albumAuditCache.get(albumId);
+  const a=await api('/v1/albums/'+albumId, token);
+  // paging for tracks
+  let items=[], offset=0, limit=50, page;
+  do{
+    page = await api('/v1/albums/'+albumId+'/tracks', token, {limit, offset});
+    items = items.concat(page.items||[]);
+    offset += limit;
+  } while(page && page.next);
+  const trackArtists=new Set();
+  (items||[]).forEach(tr => (tr.artists||[]).forEach(ar=>trackArtists.add(ar.id)));
+  const out={ album_type:a.album_type, album_artists:(a.artists||[]).map(x=>({id:x.id,name:x.name})), track_artists_count:trackArtists.size, tracks:items||[] };
+  albumAuditCache.set(albumId,out); return out;
+}
+
+// ---- classification ----
+function classify(aRes){
+  const reasons=[]; let cat='UNKNOWN';
+  if(!aRes) return {category:cat, reasons:['album fetch failed']};
+
+  const isCompilation = aRes.album_type && aRes.album_type.toLowerCase()==='compilation';
+  const albumArtistIds=(aRes.album_artists||[]).map(x=>x.id);
+  const includesTDCS=albumArtistIds.includes(TARGET_ARTIST_ID);
+
+  if(isCompilation) reasons.push('album_type=compilation');
+  if(albumArtistIds.length>1 && (!includesTDCS || albumArtistIds.some(id=>id!==TARGET_ARTIST_ID))) reasons.push('multiple album artists: '+albumArtistIds.length);
+  if(aRes.track_artists_count>5) reasons.push('many distinct track artists (~'+aRes.track_artists_count+')');
+
+  // 基本カテゴリ
+  if(isCompilation) cat='COMPILATION';
+  else if(includesTDCS && albumArtistIds.length===1) cat='ALBUM';
+  else if(includesTDCS) cat='LIKELY_ALBUM';
+  else cat='UNKNOWN';
+
+  // “コンピ臭い”追加フラグ：公式がsingle/albumでも、
+  // 参加アーティスト多数 or アルバムアーティスト複数なら SUSPECT_COMPILATION に格上げ
+  if(!isCompilation && (aRes.track_artists_count>=7 || (albumArtistIds.length>1 && !includesTDCS))){
+    cat='SUSPECT_COMPILATION';
+    if(!reasons.includes('suspect')) reasons.push('suspect: many artists and/or multiple album artists');
+  }
+  return {category:cat, reasons};
+}
+
+// ---- checkpoint I/O ----
+function saveCheckpoint(state){ try{ localStorage.setItem(CHECKPOINT_KEY, JSON.stringify(state)); }catch(e){} }
+function loadCheckpoint(){ try{ const raw=localStorage.getItem(CHECKPOINT_KEY); return raw? JSON.parse(raw): null; }catch(e){ return null; } }
+function clearCheckpoint(){ localStorage.removeItem(CHECKPOINT_KEY); }
+
+// ---- globals ----
+let _rows=[], _cols={}, _results=[], _nextIndex=0;
+
+document.getElementById('csvFile').addEventListener('change', (ev)=>{
+  const file=ev.target.files[0]; if(!file) return;
+  document.getElementById('fileInfo').textContent = file.name+' / '+(file.size/1024).toFixed(1)+' KB';
+  Papa.parse(file, { header:true, skipEmptyLines:true, complete:(res)=>{
+    _rows=res.data; _cols=detectCols(res.meta.fields||[]);
+    _results=new Array(_rows.length).fill(null); _nextIndex=0;
+    document.getElementById('startBtn').disabled=false;
+    document.getElementById('resumeBtn').disabled=false;
+    log('CSV loaded: '+_rows.length+' rows');
+    log('Detected columns: '+JSON.stringify(_cols));
+  }});
 });
 
-document.getElementById('startBtn').addEventListener('click', async () => {
-  const tokenObj = getStoredToken();
-  if (!tokenObj) { alert('先に Spotify に接続してください（上のボタン）。'); return; }
-  const token = tokenObj.access_token;
+document.getElementById('startBtn').addEventListener('click', ()=> runAudit(false));
+document.getElementById('resumeBtn').addEventListener('click', ()=> runAudit(true));
 
-  const out = [];
-  const prog = document.getElementById('prog');
-  const N = _rows.length;
-  prog.value = 0; prog.max = N;
+async function runAudit(fromCheckpoint){
+  const tokenObj=getStoredToken(); if(!tokenObj){ alert('先に Spotify に接続してください。'); return; }
+  const token=tokenObj.access_token;
+  const prog=document.getElementById('prog'); prog.max=_rows.length;
 
-  // ---- Build worklist with dedup by UPC / ISRC / URL ----
-  const work = _rows.map((row, idx) => ({ row, idx }));
-  const resultByIdx = new Map();
+  if(fromCheckpoint){
+    const cp=loadCheckpoint();
+    if(cp && cp.total===_rows.length){
+      _results=cp.results; _nextIndex=cp.nextIndex;
+      setPreview(_results.filter(Boolean));
+      log('Resumed at row '+(_nextIndex+1));
+    } else {
+      log('No checkpoint or CSV changed. Starting fresh.');
+      _results=new Array(_rows.length).fill(null); _nextIndex=0;
+    }
+  } else {
+    _results=new Array(_rows.length).fill(null); _nextIndex=0;
+    clearCheckpoint();
+  }
 
-  for (let i=0;i<work.length;i++) {
-    const { row, idx } = work[i];
-    try {
-      // Resolve album via URL / UPC / ISRC / text (with caches)
+  for(let i=_nextIndex; i<_rows.length; i++){
+    const row=_rows[i];
+    try{
       let albumId=null, resolvedUrl='', foundVia='';
-      // 1) direct spotify_url
-      if (_cols.url && row[_cols.url]) {
-        const pu = parseSpotifyUrl(row[_cols.url].trim());
-        if (pu) {
-          foundVia = 'url';
-          if (pu.type === 'album') { albumId = pu.id; resolvedUrl = 'https://open.spotify.com/album/' + pu.id; }
-          if (pu.type === 'track') { // fetch album via track
-            const tr = await api('/v1/tracks/' + pu.id, token);
-            albumId = tr.album.id; resolvedUrl = tr.album.external_urls.spotify;
+      // URL
+      if(_cols.url && row[_cols.url]){
+        const pu=parseSpotifyUrl(String(row[_cols.url]).trim());
+        if(pu){
+          foundVia='url';
+          if(pu.type==='album'){ albumId=pu.id; resolvedUrl='https://open.spotify.com/album/'+pu.id; }
+          else if(pu.type==='track'){
+            const tr=await api('/v1/tracks/'+pu.id, token);
+            albumId=tr.album.id; resolvedUrl=tr.album.external_urls.spotify;
           }
         }
       }
-      // 2) UPC
-      if (!albumId && _cols.upc && row[_cols.upc]) {
-        const r = await findByUPC(row[_cols.upc].trim(), token);
-        if (r) { albumId = r.albumId; resolvedUrl = r.url; foundVia = 'upc'; }
+      // UPC
+      if(!albumId && _cols.upc && row[_cols.upc]){
+        const r=await findByUPC(String(row[_cols.upc]).trim(), token);
+        if(r){ albumId=r.albumId; resolvedUrl=r.url; foundVia='upc'; }
       }
-      // 3) ISRC
-      if (!albumId && _cols.isrc && row[_cols.isrc]) {
-        const r = await findByISRC(row[_cols.isrc].trim(), token);
-        if (r) { albumId = r.albumId; resolvedUrl = r.albumUrl || r.url; foundVia = 'isrc'; }
+      // ISRC
+      if(!albumId && _cols.isrc && row[_cols.isrc]){
+        const r=await findByISRC(String(row[_cols.isrc]).trim(), token);
+        if(r){ albumId=r.albumId; resolvedUrl=r.albumUrl || r.url; foundVia='isrc'; }
       }
-      // 4) text search
-      if (!albumId) {
-        const r = await findByText(row, _cols, token);
-        if (r) { albumId = r.albumId; resolvedUrl = r.url; foundVia = 'search'; }
+      // text search
+      if(!albumId){
+        const r=await findByText(row, _cols, token);
+        if(r){ albumId=r.albumId; resolvedUrl=r.url; foundVia='search'; }
       }
 
-      // Audit album
+      // Audit
       let aRes=null, category='UNKNOWN', reasons=[];
-      if (albumId) {
-        aRes = await auditAlbum(albumId, token);
-        const cl = classify(aRes);
-        category = cl.category; reasons = cl.reasons;
+      if(albumId){
+        aRes=await auditAlbum(albumId, token);
+        const cl=classify(aRes);
+        category=cl.category; reasons=cl.reasons;
       }
 
-      const rowOut = Object.assign({}, row, {
+      const rowOut=Object.assign({}, row, {
         spotify_found_via: foundVia || '',
         spotify_album_id: albumId || '',
         spotify_url: resolvedUrl || '',
         album_type: aRes ? aRes.album_type : '',
-        album_artists: aRes ? (aRes.album_artists.map(x => x.name).join(' ; ')) : '',
-        album_artist_ids: aRes ? (aRes.album_artists.map(x => x.id).join(' ; ')) : '',
+        album_artists: aRes ? (aRes.album_artists.map(x=>x.name).join(' ; ')) : '',
+        album_artist_ids: aRes ? (aRes.album_artists.map(x=>x.id).join(' ; ')) : '',
         track_artists_distinct: aRes ? aRes.track_artists_count : '',
         inferred_category: category,
         reasons: reasons.join(' | ')
       });
-      resultByIdx.set(idx, rowOut);
+      _results[i]=rowOut;
 
-    } catch(e) {
-      log('Row ' + (idx+1) + ': ERROR -> ' + (e.message || e));
-      resultByIdx.set(idx, Object.assign({}, row, { error: String(e.message || e) }));
+    }catch(e){
+      log('Row '+(i+1)+': ERROR -> '+(e.message||e));
+      _results[i]=Object.assign({}, row, { error: String(e.message||e) });
     }
+
+    // checkpoint & progress
     prog.value = i+1;
+    _nextIndex = i+1;
+    if(i%10===0){
+      saveCheckpoint({ total:_rows.length, nextIndex:_nextIndex, results:_results });
+    }
   }
 
-  const ordered = [...resultByIdx.keys()].sort((a,b)=>a-b).map(k => resultByIdx.get(k));
-  const csv = rowsToCSV(ordered);
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  // finalize (core CSV only)
+  const ordered=_results.map(x=>x||{});
+  const coreRows = ordered.map(r=>{
+    const o={}; CORE_COLS.forEach(k=> o[k]= (r[k]==null?'':r[k])); return o;
+  });
+  const csv = rowsToCSVSubset(coreRows, CORE_COLS);
+  const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
-  const dl = document.getElementById('downloadOut');
-  dl.href = url; dl.download = 'spotify_audit_result.csv'; dl.className='';
-  setPreview(ordered);
+  const coreBtn = document.getElementById('downloadCoreBtn');
+  coreBtn.onclick = ()=>{ const a=document.createElement('a'); a.href=url; a.download='spotify_audit_result_core.csv'; document.body.appendChild(a); a.click(); a.remove(); };
+  coreBtn.disabled=false;
+
+  setPreview(coreRows);
+  document.getElementById('exportUriBtn').disabled=false;
+  clearCheckpoint();
   log('Done.');
+}
+
+// ---- track URI export ----
+document.getElementById('exportUriBtn').addEventListener('click', async ()=>{
+  const tokenObj=getStoredToken(); if(!tokenObj){ alert('先に Spotify に接続'); return; }
+  const token=tokenObj.access_token;
+
+  const albums = Array.from(new Set((_results||[]).map(r=>r?.spotify_album_id).filter(Boolean)));
+  const rows = [];
+  for(const albumId of albums){
+    try{
+      let aRes = albumAuditCache.get(albumId);
+      if(!aRes){ aRes = await auditAlbum(albumId, token); }
+      const albumUrl = (_results.find(r=>r?.spotify_album_id===albumId)?.spotify_url) || ('https://open.spotify.com/album/'+albumId);
+      for(const t of (aRes.tracks||[])){
+        rows.push({
+          album_id: albumId,
+          album_url: albumUrl,
+          track_id: t.id,
+          track_uri: 'spotify:track:'+t.id,
+          track_url: 'https://open.spotify.com/track/'+t.id,
+          track_name: t.name || '',
+          disc_number: t.disc_number || '',
+          track_number: t.track_number || ''
+        });
+      }
+    }catch(e){
+      log('URI export album '+albumId+' → '+(e.message||e));
+    }
+  }
+  // uniq by track_id
+  const seen=new Set(); const uniq=rows.filter(r=>{ if(seen.has(r.track_id)) return false; seen.add(r.track_id); return true; });
+
+  const header=['album_id','album_url','track_id','track_uri','track_url','track_name','disc_number','track_number'];
+  const csv = rowsToCSVSubset(uniq, header);
+  const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'spotify_track_uris.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  log('Exported '+uniq.length+' track URIs.');
 });
 
-(function init() {
-  const tok = getStoredToken();
-  if (tok) setAuthStatus(true, 'トークンOK（有効）');
-  else setAuthStatus(false, '未接続');
+// ---- init ----
+(function init(){
+  const tok=getStoredToken();
+  if(tok) setAuthStatus(true,'トークンOK（有効）'); else setAuthStatus(false,'未接続');
 })();
 </script>
 </body>
