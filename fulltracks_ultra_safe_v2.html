@@ -26,7 +26,7 @@
   <h1>TDCS Full Tracks Harvester — Ultra Ultra Safe</h1>
   <div class="small muted">Client ID: <code>378ef0f44b36499abd10d118ddbddc98</code> | Redirect: <code>https://npr2025.github.io/spotify-auth/callback.html</code></div>
   <div class="row">
-    <a href="./auth.html"><button>Spotifyに接続</button></a>
+    <button id="authBtn">Spotifyに接続</button>
     <button id="clearBtn" style="background:#eee;color:#111;border-color:#bbb">保存トークン削除</button>
     <span id="authStatus" class="muted">未接続</span>
   </div>
@@ -105,7 +105,7 @@ function setRate(t){ $("#ratePill").textContent=t; }
 function rowsToCSV(rows){ if(!rows.length) return ''; const H=Object.keys(rows[0]); const esc=v=>(v==null?'':'"'+String(v).replace(/"/g,'""')+'"'); return [H.map(esc).join(','),...rows.map(r=>H.map(h=>esc(r[h])).join(','))].join('\r\n');}
 function setPreview(rows){ const thead=$("#previewTbl thead"), tbody=$("#previewTbl tbody"); thead.innerHTML=''; tbody.innerHTML=''; const samp=rows.slice(0,10); if(!samp.length) return; const H=Object.keys(samp[0]); const tr=document.createElement('tr'); H.forEach(h=>{const th=document.createElement('th'); th.textContent=h; tr.appendChild(th)}); thead.appendChild(tr); samp.forEach(r=>{const trb=document.createElement('tr'); H.forEach(h=>{const td=document.createElement('td'); td.textContent=(r[h]==null?'':r[h]); trb.appendChild(td)}); tbody.appendChild(trb)})}
 
-/*** 認証トークン（フォールバック付き） ***/
+/*** 認証トークン（PKCE / implicit フォールバック） ***/
 function token(){
   // 1) localStorage 優先
   const raw=localStorage.getItem('sp_token');
@@ -313,10 +313,11 @@ async function findByText(row,cols){
   return null;
 }
 
-/*** 入力CSV処理 ***/
+/*** 入力CSV処理・状態 ***/
 let _rows=[], _cols={}, _outTracks=[], _albumMap=new Map(), _albumOrder=[];
 let _nextAlbumIdx=0;
 
+/*** 入力 ***/
 $("#csvFile").addEventListener('change', ev=>{
   const f=ev.target.files[0]; if(!f) return;
   $("#fileInfo").textContent = `${f.name} / ${(f.size/1024).toFixed(1)} KB`;
@@ -431,6 +432,7 @@ $("#resumeBtn").addEventListener('click', ()=> run(false));
 $("#pauseBtn").addEventListener('click', ()=> { paused=true; setRate('paused'); });
 $("#clearChkBtn").addEventListener('click', ()=> { clearCheckpoint(); log('checkpoint cleared'); });
 $("#clearBtn").addEventListener('click', ()=> { localStorage.removeItem('sp_token'); refreshAuthStatus(); });
+$("#authBtn").addEventListener('click', ()=> { location.assign('./auth.html'); });
 
 $("#downloadCheckpointBtn").addEventListener('click', ()=>{
   if(!_outTracks.length){ alert('まだ出力がありません'); return; }
@@ -482,7 +484,7 @@ async function run(fresh){
     log('Unique albums to audit: '+ new Set([..._albumMap.values()].map(v=>v.albumId)).size);
 
     // batch album meta
-    const albumIds=[...new Set([..._albumMap.values()].map(v=>v.albumId))].filter(Boolean);
+    const albumIds=[...new Set([...._albumMap.values()].map(v=>v.albumId))].filter(Boolean);
     const metaMap = await batchGetAlbums(albumIds);
     albumIds.forEach(id=>{ if(metaMap.has(id)) albumMetaCache.set(id, metaMap.get(id)); });
 
@@ -534,10 +536,15 @@ async function run(fresh){
   log('Done (tracks='+_outTracks.length+').');
 }
 
-/*** 起動時 ***/
-let _outTracks=[], _albumMap=new Map(), _albumOrder=[], _cols={}, _rows=[];
+/*** 起動時（ここ重要：未接続→即座に反映） ***/
 refreshAuthStatus(); // ヘッダの接続表示
 $("#resumeBtn").disabled = !loadCheckpoint();
+
+// 別タブ/コールバックからの保存を反映
+window.addEventListener('storage', (e)=>{ if(e.key==='sp_token'){ refreshAuthStatus(); } });
+// 画面復帰時・フォーカス時にも反映
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') refreshAuthStatus(); });
+window.addEventListener('focus', refreshAuthStatus);
 </script>
 </body>
 </html>
