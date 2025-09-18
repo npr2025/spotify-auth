@@ -3,32 +3,27 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>TDCS Primary Seek – Compilation Reason Auditor (Detailed)</title>
+  <title>TDCS Primary Seek — Dedup & Cooldown Auditor</title>
   <link rel="preconnect" href="https://accounts.spotify.com"/>
   <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
   <style>
     body { font-family: system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial,'Noto Sans JP'; margin: 2rem; }
     header { margin-bottom: 1rem; }
-    h1 { font-size: 1.35rem; margin: 0 0 .25rem; }
     .card { border: 1px solid #ddd; border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
-    .row { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; }
-    button { padding: .6rem 1rem; border-radius: 8px; border: 1px solid #999; background: #111; color: #fff; cursor: pointer; }
-    button[disabled] { opacity: .5; cursor: not-allowed; }
-    input[type=file] { border: 1px dashed #bbb; padding: .75rem; border-radius: 8px; background: #fafafa; }
-    code,.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono','Courier New', monospace; }
-    .muted { color: #666; }
-    .ok { color: #0a7f29; }
-    .bad { color: #b00020; }
-    progress { width: 100%; height: 14px; }
-    table { border-collapse: collapse; width: 100%; }
-    th,td { border: 1px solid #eee; padding: .5rem; text-align: left; font-size: .9rem; }
-    .small { font-size: .88rem; }
-    .pill { display:inline-block; padding:.1rem .5rem; border:1px solid #ccc; border-radius:999px; font-size:.8rem; background:#f6f6f6; }
+    .row { display:flex; flex-wrap:wrap; gap:1rem; align-items:center; }
+    button { padding:.6rem 1rem; border-radius:8px; border:1px solid #999; background:#111; color:#fff; cursor:pointer; }
+    button[disabled]{opacity:.5; cursor:not-allowed;}
+    input[type=file]{ border:1px dashed #bbb; padding:.75rem; border-radius:8px; background:#fafafa; }
+    code,.mono{ font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace; }
+    .muted{ color:#666; } .ok{ color:#0a7f29; } .bad{ color:#b00020; }
+    progress{ width:100%; height:14px; }
+    table{ border-collapse:collapse; width:100%; } th,td{ border:1px solid #eee; padding:.5rem; font-size:.9rem; text-align:left; }
+    .pill{ display:inline-block; padding:.1rem .5rem; border:1px solid #ccc; border-radius:999px; font-size:.8rem; background:#f6f6f6; }
   </style>
 </head>
 <body>
 <header>
-  <h1>TDCS Primary Seek – Compilation Reason Auditor</h1>
+  <h1>TDCS Primary Seek — Dedup & Cooldown Auditor</h1>
   <div class="muted small">
     Client ID: <code>378ef0f44b36499abd10d118ddbddc98</code> |
     Redirect URI: <code>https://npr2025.github.io/spotify-auth/callback.html</code>
@@ -41,80 +36,57 @@
     <a href="./auth.html"><button>Spotifyに接続</button></a>
     <div id="authStatus" class="muted">未接続</div>
   </div>
-  <div class="small muted">※ PKCEで取得したトークンは localStorage に保存されます（キー: <code>sp_token</code>）。</div>
 </section>
 
 <section class="card">
-  <h2>2) CSVをアップロード</h2>
-  <p class="muted small">対応列（自動検出）：<code>spotify_url</code> / <code>UPC</code> / <code>ISRC</code> / <code>Album title</code> / <code>Album version</code> / <code>Track title</code></p>
+  <h2>2) CSVと実行パラメータ</h2>
   <div class="row">
     <input type="file" id="csvFile" accept=".csv"/>
-    <label>最小間隔(ms)：<input type="number" id="minDelayMs" value="700" min="0" step="50" style="width:7rem;"/></label>
-    <label>最大バックオフ(ms)：<input type="number" id="maxBackoffMs" value="10000" min="500" step="500" style="width:7rem;"/></label>
-    <label>最大リトライ：<input type="number" id="maxRetries" value="7" min="0" step="1" style="width:5rem;"/></label>
-    <button id="startBtn" disabled>詳細監査スタート</button>
+    <label>最小間隔(ms)：<input type="number" id="minDelayMs" value="1200" min="0" step="50" style="width:7rem;"></label>
+    <label>最大バックオフ(ms)：<input type="number" id="maxBackoffMs" value="15000" min="1000" step="500" style="width:7rem;"></label>
+    <label>最大リトライ：<input type="number" id="maxRetries" value="7" min="0" step="1" style="width:5rem;"></label>
+    <label>RPM上限：<input type="number" id="rpmCap" value="40" min="5" step="5" style="width:5rem;"></label>
+    <label>429連発後クールダウン(ms)：<input type="number" id="cooldownMs" value="60000" min="5000" step="5000" style="width:7.5rem;"></label>
+    <label>ユニーク先行: <input type="checkbox" id="dedupMode" checked></label>
   </div>
-  <div id="fileInfo" class="small muted"></div>
+  <div class="row">
+    <button id="startBtn" disabled>監査スタート（重複削減＋詳細理由）</button>
+  </div>
+  <div id="fileInfo" class="muted small"></div>
 </section>
 
 <section class="card">
   <h2>進捗 <span id="ratePill" class="pill">idle</span></h2>
   <progress id="prog" value="0" max="100"></progress>
-  <div id="log" class="small mono" style="white-space:pre-wrap; max-height:260px; overflow:auto;"></div>
+  <div id="log" class="mono" style="white-space:pre-wrap; max-height:260px; overflow:auto;"></div>
 </section>
 
 <section class="card">
   <h2>エクスポート</h2>
   <div class="row">
-    <button id="downloadDetailedBtn" disabled>詳細CSVをダウンロード</button>
+    <button id="downloadBtn" disabled>詳細CSVをダウンロード</button>
   </div>
-  <div class="small muted">
-    主要出力列：<code>
-      spotify_url, UPC, Album title, Album version, Track title, album_type, album_artist_count,
-      album_artists, album_artist_ids, tracks_total, tracks_with_tdcs, tracks_without_tdcs,
-      track_artists_distinct, track_artists_distinct_ex_tdcs,
-      album_all_track_artists, album_all_track_artists_ex_tdcs,
-      tracks_multiple_primary_count, tracks_multiple_primary_ratio,
-      per_track_primary_artists, per_track_non_tdcs_artists,
-      detailed_reasons
-    </code>
+  <div class="muted small">
+    主要列：<code>spotify_url,UPC,Album title,Album version,Track title,album_type,album_artists,album_artist_ids,tracks_total,tracks_with_tdcs,tracks_without_tdcs,track_artists_distinct,track_artists_distinct_ex_tdcs,album_all_track_artists,album_all_track_artists_ex_tdcs,tracks_multiple_primary_count,tracks_multiple_primary_ratio,per_track_primary_artists,per_track_non_tdcs_artists,detailed_reasons</code>
   </div>
 </section>
 
 <section class="card">
-  <h2>最新の結果（サンプル10行）</h2>
+  <h2>プレビュー（10行）</h2>
   <table id="previewTbl"><thead></thead><tbody></tbody></table>
 </section>
 
 <script>
-/* =================== 設定 =================== */
-const TARGET_ARTIST_ID = "55fvQ5I2IZUfcFT2DV02T3"; // The Darrow Chem Syndicate
-// しきい値（必要なら調整）
-const NON_TDCS_UNIQUE_THRESHOLD = 4;     // TDCS以外のユニーク人数がこの値以上で警告
-const MULTI_PRIMARY_TRACKS_THRESHOLD = 0.4; // 複数プライマリー曲の比率がこの値以上で警告
+/* ====== 基本設定 ====== */
+const TARGET_ARTIST_ID="55fvQ5I2IZUfcFT2DV02T3";
 
-/* ================ ユーティリティ ================ */
+/* ====== UIユーティリティ ====== */
 function log(msg){ const el=document.getElementById('log'); el.textContent+=msg+"\n"; el.scrollTop=el.scrollHeight; }
-function setAuthStatus(ok, text){ const el=document.getElementById('authStatus'); el.textContent=text; el.className = ok ? 'ok' : 'bad'; }
-function setRate(text){ document.getElementById('ratePill').textContent=text; }
-function getStoredToken(){
-  const raw = localStorage.getItem('sp_token');
-  if(!raw) return null;
-  try{ const obj=JSON.parse(raw); if(Date.now()<obj.expires_at) return obj; }catch(e){}
-  return null;
-}
-function detectCols(header){
-  const lc=header.map(h=>String(h||'').toLowerCase());
-  function pick(...c){ for(const x of c){ const i=lc.indexOf(String(x).toLowerCase()); if(i>-1) return header[i]; } return null; }
-  return { url: pick('spotify_url','url','link'),
-           upc: pick('upc','UPC'),
-           isrc: pick('isrc','ISRC'),
-           album: pick('album title','album'),
-           version: pick('album version','version'),
-           track: pick('track title','track') };
-}
-function parseSpotifyUrl(u){
-  try{ const m=u.match(/open\.spotify\.com\/(album|track)\/([A-Za-z0-9]+)/); if(m) return {type:m[1], id:m[2]}; }catch(e){}
+function setRate(t){ document.getElementById('ratePill').textContent=t; }
+function setAuthStatus(ok,text){ const el=document.getElementById('authStatus'); el.textContent=text; el.className=ok?'ok':'bad'; }
+function getToken(){
+  const raw=localStorage.getItem('sp_token'); if(!raw) return null;
+  try{ const o=JSON.parse(raw); if(Date.now()<o.expires_at) return o.access_token; }catch(e){}
   return null;
 }
 function rowsToCSV(rows){
@@ -124,221 +96,208 @@ function rowsToCSV(rows){
   return [header.map(esc).join(','), ...rows.map(r=> header.map(h=>esc(r[h])).join(','))].join('\r\n');
 }
 function setPreview(rows){
-  const tblh=document.querySelector('#previewTbl thead');
-  const tblb=document.querySelector('#previewTbl tbody');
-  tblh.innerHTML=''; tblb.innerHTML='';
-  const sample=rows.slice(0,10);
-  if(!sample.length) return;
+  const thead=document.querySelector('#previewTbl thead');
+  const tbody=document.querySelector('#previewTbl tbody');
+  thead.innerHTML=''; tbody.innerHTML='';
+  const sample=rows.slice(0,10); if(!sample.length) return;
   const header=Object.keys(sample[0]);
-  const trh=document.createElement('tr');
-  header.forEach(h=>{ const th=document.createElement('th'); th.textContent=h; trh.appendChild(th); });
-  tblh.appendChild(trh);
-  sample.forEach(r=>{ const tr=document.createElement('tr'); header.forEach(h=>{ const td=document.createElement('td'); td.textContent=(r[h]==null?'':r[h]); tr.appendChild(td); }); tblb.appendChild(tr); });
+  const tr=document.createElement('tr');
+  header.forEach(h=>{ const th=document.createElement('th'); th.textContent=h; tr.appendChild(th);});
+  thead.appendChild(tr);
+  sample.forEach(r=>{ const trb=document.createElement('tr'); header.forEach(h=>{ const td=document.createElement('td'); td.textContent=(r[h]==null?'':r[h]); trb.appendChild(td);}); tbody.appendChild(trb);});
 }
 
-/* ============== レート制御つきAPI ============== */
-async function api(path, token, params={}, opt={}){
-  const minDelay = opt.minDelayMs ?? (parseInt(document.getElementById('minDelayMs').value,10) || 700);
-  const maxBackoff = opt.maxBackoffMs ?? (parseInt(document.getElementById('maxBackoffMs').value,10) || 10000);
-  const maxRetries = opt.maxRetries ?? (parseInt(document.getElementById('maxRetries').value,10) || 7);
-  let backoff = minDelay;
-  let attempt = 0;
+/* ====== レート制御つき fetch ====== */
+let lastCallAt=0;
+let consecutive429=0;
+async function api(path, params={}){
+  const token=getToken(); if(!token) throw new Error('No token');
+  const minDelay=+document.getElementById('minDelayMs').value||1200;
+  const maxBackoff=+document.getElementById('maxBackoffMs').value||15000;
+  const maxRetries=+document.getElementById('maxRetries').value||7;
+  const rpmCap=+document.getElementById('rpmCap').value||40;
+  const cooldownMs=+document.getElementById('cooldownMs').value||60000;
+
+  // RPM simple gate: 60/rpmCap sec/req
+  const perReqMs = Math.max(1000, Math.ceil(60000 / Math.max(1,rpmCap)));
+  let backoff=minDelay, attempt=0;
 
   while(true){
     attempt++;
+    // enforce rpm spacing
+    const now=Date.now();
+    const wait=Math.max(0, lastCallAt + perReqMs - now);
+    if(wait>0){ setRate('rpm gate '+wait+'ms'); await new Promise(r=>setTimeout(r,wait)); }
+    lastCallAt=Date.now();
+
     const url=new URL('https://api.spotify.com'+path);
     Object.entries(params).forEach(([k,v])=> v!=null && url.searchParams.set(k,v));
 
-    let res, ok=false, text="";
     const t0=Date.now();
+    let res, text;
     try{
-      res = await fetch(url.toString(), { headers:{'Authorization':'Bearer '+token}});
-      ok = res.ok;
-      text = await res.text();
+      res=await fetch(url,{headers:{Authorization:'Bearer '+token}});
+      text=await res.text();
     }catch(e){
-      if(attempt>maxRetries) throw new Error('Network error after retries: '+(e?.message||e));
-      const jitter = Math.random()*200;
-      const delay = Math.min(backoff + jitter, maxBackoff);
-      setRate('net err → wait '+Math.floor(delay)+'ms');
-      log('Network error, retry in '+Math.floor(delay)+'ms');
-      await new Promise(r=>setTimeout(r, delay));
-      backoff = Math.min(Math.floor(backoff*1.6), maxBackoff);
+      if(attempt>maxRetries) throw new Error('Network error after retries: '+(e.message||e));
+      const delay=Math.min(backoff, maxBackoff);
+      log('net err → '+delay+'ms'); await new Promise(r=>setTimeout(r,delay)); backoff=Math.min(Math.floor(backoff*1.6), maxBackoff);
       continue;
     }
 
-    if(ok && res.status!==429){
-      const left = Math.max(minDelay - (Date.now()-t0), 0);
-      if(left>0){ setRate('throttle '+left+'ms'); await new Promise(r=>setTimeout(r,left)); }
+    if(res.ok && res.status!==429){
+      consecutive429=0;
+      const rem=minDelay-(Date.now()-t0);
+      if(rem>0){ setRate('throttle '+rem+'ms'); await new Promise(r=>setTimeout(r,rem)); }
       setRate('ok');
-      try { return JSON.parse(text); } catch { return text; }
+      try{ return JSON.parse(text);}catch{ return text;}
     }
 
-    let body;
-    try{ body = JSON.parse(text); }catch{ body = text; }
+    // parse body
+    let body; try{ body=JSON.parse(text);}catch{ body=text;}
 
     if(res.status===429){
-      const ra = parseFloat(res.headers.get('Retry-After')||'0'); // sec
-      const delay = Math.max(minDelay, ra ? ra*1000 : backoff);
-      setRate('429 → wait '+Math.floor(delay)+'ms');
-      log('429 backoff '+Math.floor(delay)+'ms'+(ra?` (Retry-After=${ra}s)`:''));
-      await new Promise(r=>setTimeout(r, delay));
-      backoff = Math.min(Math.floor(backoff*1.6), maxBackoff);
+      consecutive429++;
+      const ra=parseFloat(res.headers.get('Retry-After')||'0'); // sec
+      let delay = ra ? ra*1000 : backoff;
+      // hard cooldown if many 429 in a row
+      if(consecutive429>=4 && !ra){
+        delay = Math.max(delay, cooldownMs);
+        log('429 x'+consecutive429+' → HARD cooldown '+delay+'ms');
+      }else{
+        log('429 backoff '+delay+'ms');
+      }
+      setRate('429 wait '+delay+'ms');
+      await new Promise(r=>setTimeout(r,delay));
+      backoff=Math.min(Math.floor(backoff*1.6), maxBackoff);
       continue;
     }
 
     if(res.status>=500 && res.status<600){
-      if(attempt>maxRetries) throw new Error('HTTP '+res.status+' after '+attempt+' attempts: '+(text||''));
-      const jitter = Math.random()*300;
-      const delay = Math.min(backoff + jitter, maxBackoff);
-      setRate(res.status+' → wait '+Math.floor(delay)+'ms');
-      log(res.status+' retry in '+Math.floor(delay)+'ms');
-      await new Promise(r=>setTimeout(r, delay));
-      backoff = Math.min(Math.floor(backoff*1.6), maxBackoff);
+      if(attempt>maxRetries) throw new Error('HTTP '+res.status+' after '+attempt+' attempts');
+      const delay=Math.min(backoff, maxBackoff);
+      log(res.status+' → retry '+delay+'ms'); setRate(res.status+' wait '+delay+'ms');
+      await new Promise(r=>setTimeout(r,delay));
+      backoff=Math.min(Math.floor(backoff*1.6), maxBackoff);
       continue;
     }
 
-    throw new Error('HTTP '+res.status+': '+(typeof body==='string'? body : JSON.stringify(body)));
+    throw new Error('HTTP '+res.status+': '+(typeof body==='string'?body:JSON.stringify(body)));
   }
 }
 
-/* ================= キャッシュ ================= */
+/* ====== 検索・監査 ====== */
+function detectCols(header){
+  const lc=header.map(h=>String(h||'').toLowerCase());
+  const pick=(...cand)=>{ for(const c of cand){ const i=lc.indexOf(String(c).toLowerCase()); if(i>-1) return header[i]; } return null; };
+  return { url: pick('spotify_url','url','link'),
+           upc: pick('upc','UPC'),
+           isrc: pick('isrc','ISRC'),
+           album: pick('album title','album'),
+           version: pick('album version','version'),
+           track: pick('track title','track') };
+}
+function parseSpotifyUrl(u){ try{ const m=u.match(/open\.spotify\.com\/(album|track)\/([A-Za-z0-9]+)/); if(m) return {type:m[1], id:m[2]}; }catch(e){} return null; }
+
 const upcCache=new Map();
 const isrcCache=new Map();
 const albumAuditCache=new Map();
 
-/* ============== 検索＆監査ロジック ============== */
-function detectColsInCSV(header){ return detectCols(header); }
-
-async function findByUPC(upc, token){
+async function findByUPC(upc){
   if(!upc) return null;
   if(upcCache.has(upc)) return upcCache.get(upc);
   const q='upc:'+upc;
-  const res=await api('/v1/search', token, {q, type:'album', limit:1});
-  let out=null;
-  if(res.albums?.items?.length){ const a=res.albums.items[0]; out={albumId:a.id, url:a.external_urls.spotify}; }
+  const res=await api('/v1/search',{q, type:'album', limit:1});
+  let out=null; if(res.albums?.items?.length){ const a=res.albums.items[0]; out={albumId:a.id, url:a.external_urls.spotify}; }
   upcCache.set(upc,out); return out;
 }
-async function findByISRC(isrc, token){
+async function findByISRC(isrc){
   if(!isrc) return null;
   if(isrcCache.has(isrc)) return isrcCache.get(isrc);
   const q='isrc:'+isrc;
-  const res=await api('/v1/search', token, {q, type:'track', limit:1});
-  let out=null;
-  if(res.tracks?.items?.length){ const t=res.tracks.items[0]; out={trackId:t.id, albumId:t.album.id, url:t.external_urls.spotify, albumUrl:t.album.external_urls.spotify}; }
+  const res=await api('/v1/search',{q, type:'track', limit:1});
+  let out=null; if(res.tracks?.items?.length){ const t=res.tracks.items[0]; out={trackId:t.id, albumId:t.album.id, url:t.external_urls.spotify, albumUrl:t.album.external_urls.spotify}; }
   isrcCache.set(isrc,out); return out;
 }
-async function findByText(row, cols, token){
+async function findByText(row, cols){
   const parts=[];
   if(cols.album && row[cols.album]) parts.push('album:"'+String(row[cols.album]).trim()+'"');
   parts.push('artist:"The Darrow Chem Syndicate"');
   if(cols.version && row[cols.version]) parts.push('"'+String(row[cols.version]).trim()+'"');
   const q=parts.join(' ');
-  const res=await api('/v1/search', token, {q, type:'album', limit:1});
+  const res=await api('/v1/search',{q, type:'album', limit:1});
   if(res.albums?.items?.length){ const a=res.albums.items[0]; return {albumId:a.id, url:a.external_urls.spotify}; }
   return null;
 }
 
-async function auditAlbum(albumId, token){
+async function auditAlbum(albumId){
   if(!albumId) return null;
   if(albumAuditCache.has(albumId)) return albumAuditCache.get(albumId);
-
-  const a=await api('/v1/albums/'+albumId, token);
-
-  // tracks with paging
+  const a=await api('/v1/albums/'+albumId);
+  // tracks paging
   let items=[], offset=0, limit=50, page;
   do{
-    page = await api('/v1/albums/'+albumId+'/tracks', token, {limit, offset});
-    items = items.concat(page.items||[]);
-    offset += limit;
-  } while(page && page.next);
+    page=await api('/v1/albums/'+albumId+'/tracks',{limit, offset});
+    items=items.concat(page.items||[]); offset+=limit;
+  }while(page && page.next);
 
-  // collect artists
-  const trackArtistIdsPerTrack = [];
-  const trackArtistNamesPerTrack = [];
-  const trackNames = [];
-
-  const setAllIds = new Set();
-  const setAllNonTdcsIds = new Set();
-  const setAllNames = new Set();
-  const setAllNonTdcsNames = new Set();
-
-  let tracksWithTDCS = 0, tracksWithoutTDCS = 0, multiPrimaryCount = 0;
+  const setAllIds=new Set(), setNonTdcsIds=new Set();
+  const setAllNames=new Set(), setNonTdcsNames=new Set();
+  let tracksWithTDCS=0, tracksWithoutTDCS=0, multiPrimary=0;
+  const trackNames=[], trackArtistNamesPerTrack=[];
 
   (items||[]).forEach(tr=>{
-    const ids = (tr.artists||[]).map(ar=>ar.id);
-    const names = (tr.artists||[]).map(ar=>ar.name);
-    const hasTDCS = ids.includes(TARGET_ARTIST_ID);
-    if(hasTDCS) tracksWithTDCS++; else tracksWithoutTDCS++;
-    if(ids.length>1) multiPrimaryCount++;
-
+    const ids=(tr.artists||[]).map(ar=>ar.id);
+    const names=(tr.artists||[]).map(ar=>ar.name);
     trackNames.push(tr.name||'');
-    trackArtistIdsPerTrack.push(ids);
     trackArtistNamesPerTrack.push(names);
-
+    if(ids.includes(TARGET_ARTIST_ID)) tracksWithTDCS++; else tracksWithoutTDCS++;
+    if(ids.length>1) multiPrimary++;
     ids.forEach(id=> setAllIds.add(id));
-    names.forEach((nm,idx)=>{
-      const id = ids[idx];
-      if(nm) setAllNames.add(nm);
-      if(id !== TARGET_ARTIST_ID && nm) setAllNonTdcsNames.add(nm);
-      if(id !== TARGET_ARTIST_ID) setAllNonTdcsIds.add(id);
-    });
+    names.forEach((nm,ix)=>{ const id=ids[ix]; if(nm) setAllNames.add(nm); if(id!==TARGET_ARTIST_ID){ setNonTdcsIds.add(id); if(nm) setNonTdcsNames.add(nm); }});
   });
 
-  const out = {
-    album_type: a.album_type,
-    album_artists: (a.artists||[]).map(x=>({id:x.id,name:x.name})),
-    tracks_total: (items||[]).length,
-    tracks_with_tdcs: tracksWithTDCS,
-    tracks_without_tdcs: tracksWithoutTDCS,
-    track_artists_count: setAllIds.size,
-    track_artists_count_ex_tdcs: setAllNonTdcsIds.size,
-    all_track_artist_names: Array.from(setAllNames),
-    all_track_artist_names_ex_tdcs: Array.from(setAllNonTdcsNames),
-    tracks_multiple_primary_count: multiPrimaryCount,
-    tracks_multiple_primary_ratio: (items?.length? (multiPrimaryCount/items.length):0),
+  const out={
+    album_type:a.album_type,
+    album_artists:(a.artists||[]).map(x=>({id:x.id,name:x.name})),
+    tracks_total:(items||[]).length,
+    tracks_with_tdcs:tracksWithTDCS,
+    tracks_without_tdcs:tracksWithoutTDCS,
+    track_artists_count:setAllIds.size,
+    track_artists_count_ex_tdcs:setNonTdcsIds.size,
+    all_track_artist_names:Array.from(setAllNames),
+    all_track_artist_names_ex_tdcs:Array.from(setNonTdcsNames),
+    tracks_multiple_primary_count:multiPrimary,
+    tracks_multiple_primary_ratio: ((items?.length||0)>0? multiPrimary/(items.length):0),
     trackNames, trackArtistNamesPerTrack
   };
-
-  albumAuditCache.set(albumId, out);
-  return out;
+  albumAuditCache.set(albumId,out); return out;
 }
 
-function buildReasonsDetailed(aRes){
-  const reasons = [];
-  if(!aRes) return ['album fetch failed'];
-
-  const isCompilation = aRes.album_type && aRes.album_type.toLowerCase()==='compilation';
-  if(isCompilation) reasons.push('album_type=compilation');
-
-  if(aRes.album_artists && aRes.album_artists.length>1){
-    reasons.push('multiple album artists: '+aRes.album_artists.length);
+function buildReasons(a){
+  const NON_TDCS_UNIQUE_THRESHOLD=4, MULTI_PRIMARY_TRACKS_THRESHOLD=0.4;
+  const reasons=[];
+  if(!a) return ['album fetch failed'];
+  const isComp=a.album_type && a.album_type.toLowerCase()==='compilation';
+  if(isComp) reasons.push('album_type=compilation');
+  if((a.album_artists||[]).length>1) reasons.push('multiple album artists: '+(a.album_artists||[]).length);
+  if((a.tracks_without_tdcs||0)>0) reasons.push(`tracks without TDCS primary: ${a.tracks_without_tdcs}/${a.tracks_total||0}`);
+  if((a.track_artists_count_ex_tdcs||0)>=NON_TDCS_UNIQUE_THRESHOLD) reasons.push(`many distinct non-TDCS track artists: ~${a.track_artists_count_ex_tdcs}`);
+  if((a.tracks_multiple_primary_ratio||0)>=MULTI_PRIMARY_TRACKS_THRESHOLD){
+    const pct=Math.round(a.tracks_multiple_primary_ratio*100);
+    reasons.push(`many tracks with multiple primary artists: ${a.tracks_multiple_primary_count}/${a.tracks_total} (~${pct}%)`);
   }
-
-  if((aRes.tracks_without_tdcs||0) > 0){
-    reasons.push(`tracks without TDCS primary: ${aRes.tracks_without_tdcs}/${aRes.tracks_total||0}`);
-  }
-
-  if((aRes.track_artists_count_ex_tdcs||0) >= NON_TDCS_UNIQUE_THRESHOLD){
-    reasons.push(`many distinct non-TDCS track artists: ~${aRes.track_artists_count_ex_tdcs}`);
-  }
-
-  if((aRes.tracks_multiple_primary_ratio||0) >= MULTI_PRIMARY_TRACKS_THRESHOLD){
-    const pct = Math.round((aRes.tracks_multiple_primary_ratio)*100);
-    reasons.push(`many tracks with multiple primary artists: ${aRes.tracks_multiple_primary_count}/${aRes.tracks_total} (~${pct}%)`);
-  }
-
   if(!reasons.length) reasons.push('no strong compilation indicators');
   return reasons;
 }
 
-/* ================== 実行フロー ================== */
+/* ====== 実行フロー（ユニーク先行） ====== */
 let _rows=[], _cols={}, _out=[];
-
-document.getElementById('csvFile').addEventListener('change', (ev)=>{
-  const file=ev.target.files[0]; if(!file) return;
-  document.getElementById('fileInfo').textContent = file.name+' / '+(file.size/1024).toFixed(1)+' KB';
-  Papa.parse(file, { header:true, skipEmptyLines:true, complete:(res)=>{
-    _rows = res.data; _cols = detectColsInCSV(res.meta.fields||[]);
+document.getElementById('csvFile').addEventListener('change', ev=>{
+  const f=ev.target.files[0]; if(!f) return;
+  document.getElementById('fileInfo').textContent= f.name+' / '+(f.size/1024).toFixed(1)+' KB';
+  Papa.parse(f,{header:true, skipEmptyLines:true, complete:(res)=>{
+    _rows=res.data||[]; _cols=detectCols(res.meta.fields||[]);
     document.getElementById('startBtn').disabled=false;
     log('CSV loaded: '+_rows.length+' rows');
     log('Detected columns: '+JSON.stringify(_cols));
@@ -348,109 +307,148 @@ document.getElementById('csvFile').addEventListener('change', (ev)=>{
 document.getElementById('startBtn').addEventListener('click', runAudit);
 
 async function runAudit(){
-  const tokenObj=getStoredToken(); if(!tokenObj){ alert('先に Spotify に接続してください。'); return; }
-  const token=tokenObj.access_token;
+  const token=getToken(); if(!token){ alert('先にSpotify認証'); return; }
   const prog=document.getElementById('prog'); prog.max=_rows.length;
-  _out = [];
 
-  for(let i=0;i<_rows.length;i++){
-    const row=_rows[i];
-    try{
-      let albumId=null, resolvedUrl='', foundVia='';
+  // 1) 事前解決：ユニークキー→albumId
+  const useDedup=document.getElementById('dedupMode').checked;
+  const keyToAlbum=new Map(); // key(string) -> {albumId, url}
+  const albumIdsSet=new Set();
 
-      // 1) URL
-      if(_cols.url && row[_cols.url]){
-        const pu=parseSpotifyUrl(String(row[_cols.url]).trim());
-        if(pu){
-          foundVia='url';
-          if(pu.type==='album'){ albumId=pu.id; resolvedUrl='https://open.spotify.com/album/'+pu.id; }
-          else if(pu.type==='track'){
-            const tr=await api('/v1/tracks/'+pu.id, token);
-            albumId=tr.album.id; resolvedUrl=tr.album.external_urls.spotify;
-          }
-        }
-      }
-      // 2) UPC
-      if(!albumId && _cols.upc && row[_cols.upc]){
-        const r=await findByUPC(String(row[_cols.upc]).trim(), token);
-        if(r){ albumId=r.albumId; resolvedUrl=r.url; foundVia='upc'; }
-      }
-      // 3) ISRC
-      if(!albumId && _cols.isrc && row[_cols.isrc]){
-        const r=await findByISRC(String(row[_cols.isrc]).trim(), token);
-        if(r){ albumId=r.albumId; resolvedUrl=r.albumUrl || r.url; foundVia='isrc'; }
-      }
-      // 4) text
-      if(!albumId){
-        const r=await findByText(row, _cols, token);
-        if(r){ albumId=r.albumId; resolvedUrl=r.url; foundVia='search'; }
-      }
-
-      let aRes=null; let rowOut=null;
-      if(albumId){
-        aRes=await auditAlbum(albumId, token);
-        const reasons = buildReasonsDetailed(aRes);
-
-        // per-track columns: "Track — A ; B" / "Track — (non-TDCS only)"
-        const perTrackPrimary = [];
-        const perTrackNonTDCS = [];
-        const names = aRes.trackArtistNamesPerTrack || [];
-        const tnames = aRes.trackNames || [];
-        for(let k=0;k<names.length;k++){
-          const list = names[k] || [];
-          const non = list.filter(nm => nm && !aRes.all_track_artist_names_ex_tdcs ? false : (nm && aRes.all_track_artist_names_ex_tdcs.includes(nm)));
-          perTrackPrimary.push(`${tnames[k]||''} — ${list.join(' ; ')}`);
-          const nonList = list.filter(nm => (aRes.all_track_artist_names_ex_tdcs||[]).includes(nm));
-          perTrackNonTDCS.push(`${tnames[k]||''} — ${nonList.join(' ; ')}`);
-        }
-
-        rowOut = Object.assign({}, row, {
-          spotify_found_via: foundVia,
-          spotify_album_id: albumId,
-          spotify_url: resolvedUrl,
-          album_type: aRes.album_type || '',
-          album_artist_count: (aRes.album_artists||[]).length,
-          album_artists: (aRes.album_artists||[]).map(x=>x.name).join(' ; '),
-          album_artist_ids: (aRes.album_artists||[]).map(x=>x.id).join(' ; '),
-          tracks_total: aRes.tracks_total || 0,
-          tracks_with_tdcs: aRes.tracks_with_tdcs || 0,
-          tracks_without_tdcs: aRes.tracks_without_tdcs || 0,
-          track_artists_distinct: aRes.track_artists_count || 0,
-          track_artists_distinct_ex_tdcs: aRes.track_artists_count_ex_tdcs || 0,
-          album_all_track_artists: (aRes.all_track_artist_names||[]).join(' ; '),
-          album_all_track_artists_ex_tdcs: (aRes.all_track_artist_names_ex_tdcs||[]).join(' ; '),
-          tracks_multiple_primary_count: aRes.tracks_multiple_primary_count || 0,
-          tracks_multiple_primary_ratio: aRes.tracks_multiple_primary_ratio || 0,
-          per_track_primary_artists: perTrackPrimary.join(' | '),
-          per_track_non_tdcs_artists: perTrackNonTDCS.join(' | '),
-          detailed_reasons: reasons.join(' | ')
-        });
-      } else {
-        rowOut = Object.assign({}, row, { error: 'not found in Spotify (URL/UPC/ISRC/search failed)' });
-      }
-      _out.push(rowOut);
-    }catch(e){
-      log(`Row ${i+1}: ERROR -> ${e.message||e}`);
-      _out.push(Object.assign({}, row, { error: String(e.message||e) }));
-    }
-    prog.value = i+1;
+  function keyForRow(row){
+    if(_cols.url && row[_cols.url]){ const u=String(row[_cols.url]).trim(); const p=parseSpotifyUrl(u); if(p) return (p.type==='album'?'album:':'track:')+p.id; }
+    if(_cols.upc && row[_cols.upc]) return 'upc:'+String(row[_cols.upc]).trim();
+    if(_cols.isrc && row[_cols.isrc]) return 'isrc:'+String(row[_cols.isrc]).trim();
+    const a=(_cols.album&&row[_cols.album])? String(row[_cols.album]).trim() : '';
+    const v=(_cols.version&&row[_cols.version])? String(row[_cols.version]).trim() : '';
+    return 'text:'+a+'|'+v;
   }
 
-  // export
-  const csv = rowsToCSV(_out);
-  const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const btn = document.getElementById('downloadDetailedBtn');
-  btn.onclick = ()=>{ const a=document.createElement('a'); a.href=url; a.download='spotify_compilation_reasons_detailed.csv'; document.body.appendChild(a); a.click(); a.remove(); };
+  const uniqueKeys=[];
+  const seenKeys=new Set();
+  for(const row of _rows){
+    const k=keyForRow(row);
+    if(!seenKeys.has(k)){ seenKeys.add(k); uniqueKeys.push(k); }
+  }
+
+  log('Unique keys: '+uniqueKeys.length);
+
+  let idx=0;
+  for(const k of uniqueKeys){
+    try{
+      let albumId=null, url='';
+      if(k.startsWith('album:')){
+        albumId=k.split(':')[1]; url='https://open.spotify.com/album/'+albumId;
+      }else if(k.startsWith('track:')){
+        const trackId=k.split(':')[1];
+        const tr=await api('/v1/tracks/'+trackId);
+        albumId=tr.album.id; url=tr.album.external_urls.spotify;
+      }else if(k.startsWith('upc:')){
+        const r=await findByUPC(k.slice(4)); if(r){ albumId=r.albumId; url=r.url; }
+      }else if(k.startsWith('isrc:')){
+        const r=await findByISRC(k.slice(5)); if(r){ albumId=r.albumId; url=r.albumUrl||r.url; }
+      }else if(k.startsWith('text:')){
+        const [a,v]=k.slice(5).split('|');
+        const row={}; row[_cols.album]=a; row[_cols.version]=v;
+        const r=await findByText(row,_cols);
+        if(r){ albumId=r.albumId; url=r.url; }
+      }
+      if(albumId){ keyToAlbum.set(k,{albumId, url}); albumIdsSet.add(albumId); }
+    }catch(e){
+      log('Resolve key error: '+k+' → '+(e.message||e));
+    }
+    idx++; if(idx%50===0){ setRate('resolved '+idx+'/'+uniqueKeys.length); }
+  }
+
+  log('Unique albums to audit: '+albumIdsSet.size);
+
+  // 2) ユニークalbumを監査
+  const albumIdToDetail=new Map();
+  let c=0;
+  for(const aid of albumIdsSet){
+    try{
+      const a=await auditAlbum(aid);
+      albumIdToDetail.set(aid,a);
+    }catch(e){
+      log('Audit album err '+aid+' → '+(e.message||e));
+    }
+    c++; if(c%10===0){ setRate('audited '+c+'/'+albumIdsSet.size); }
+  }
+
+  // 3) 行ごとに結果組立
+  _out=[];
+  for(let i=0;i<_rows.length;i++){
+    const row=_rows[i];
+    let albumId=null, resolvedUrl='', k=null;
+
+    // 既に解決済みのキーを使う
+    k = (function(){
+      if(_cols.url && row[_cols.url]){ const u=String(row[_cols.url]).trim(); const p=parseSpotifyUrl(u); if(p) return (p.type==='album'?'album:':'track:')+p.id; }
+      if(_cols.upc && row[_cols.upc]) return 'upc:'+String(row[_cols.upc]).trim();
+      if(_cols.isrc && row[_cols.isrc]) return 'isrc:'+String(row[_cols.isrc]).trim();
+      const a=(_cols.album&&row[_cols.album])? String(row[_cols.album]).trim() : '';
+      const v=(_cols.version&&row[_cols.version])? String(row[_cols.version]).trim() : '';
+      return 'text:'+a+'|'+v;
+    })();
+
+    const res = keyToAlbum.get(k);
+    if(res){ albumId=res.albumId; resolvedUrl=res.url; }
+
+    let aRes=null;
+    if(albumId && albumIdToDetail.has(albumId)) aRes=albumIdToDetail.get(albumId);
+
+    const reasons = aRes ? buildReasons(aRes) : ['not resolved'];
+
+    // per-track明細
+    let perTrackPrimary='', perTrackNonTdcs='';
+    if(aRes){
+      const namesPer=aRes.trackArtistNamesPerTrack||[], tnames=aRes.trackNames||[];
+      for(let j=0;j<namesPer.length;j++){
+        const list=namesPer[j]||[];
+        perTrackPrimary += `${tnames[j]||''} — ${list.join(' ; ')} | `;
+        const non=list.filter(nm => (aRes.all_track_artist_names_ex_tdcs||[]).includes(nm));
+        perTrackNonTdcs += `${tnames[j]||''} — ${non.join(' ; ')} | `;
+      }
+      perTrackPrimary=perTrackPrimary.replace(/\s\|\s$/,'');
+      perTrackNonTdcs=perTrackNonTdcs.replace(/\s\|\s$/,'');
+    }
+
+    _out.push(Object.assign({}, row, {
+      spotify_url: resolvedUrl || (row.spotify_url||''),
+      spotify_album_id: albumId || '',
+      album_type: aRes? aRes.album_type : '',
+      album_artists: aRes? (aRes.album_artists||[]).map(x=>x.name).join(' ; ') : '',
+      album_artist_ids: aRes? (aRes.album_artists||[]).map(x=>x.id).join(' ; ') : '',
+      tracks_total: aRes? aRes.tracks_total : '',
+      tracks_with_tdcs: aRes? aRes.tracks_with_tdcs : '',
+      tracks_without_tdcs: aRes? aRes.tracks_without_tdcs : '',
+      track_artists_distinct: aRes? aRes.track_artists_count : '',
+      track_artists_distinct_ex_tdcs: aRes? aRes.track_artists_count_ex_tdcs : '',
+      album_all_track_artists: aRes? (aRes.all_track_artist_names||[]).join(' ; ') : '',
+      album_all_track_artists_ex_tdcs: aRes? (aRes.all_track_artist_names_ex_tdcs||[]).join(' ; ') : '',
+      tracks_multiple_primary_count: aRes? aRes.tracks_multiple_primary_count : '',
+      tracks_multiple_primary_ratio: aRes? aRes.tracks_multiple_primary_ratio : '',
+      per_track_primary_artists: perTrackPrimary,
+      per_track_non_tdcs_artists: perTrackNonTdcs,
+      detailed_reasons: reasons.join(' | ')
+    }));
+
+    prog.value=i+1;
+  }
+
+  const csv=rowsToCSV(_out);
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const btn=document.getElementById('downloadBtn');
+  btn.onclick=()=>{ const a=document.createElement('a'); a.href=url; a.download='spotify_compilation_reasons_detailed.csv'; document.body.appendChild(a); a.click(); a.remove(); };
   btn.disabled=false;
   setPreview(_out);
   log('Done.');
 }
 
-/* =============== 起動時 =============== */
-(function init(){
-  const tok=getStoredToken();
-  if(tok) setAuthStatus(true,'トークンOK（有効）'); else setAuthStatus(false,'未接続');
+/* ====== init ====== */
+(function(){
+  const tok=getToken(); setAuthStatus(!!tok, tok?'トークンOK（有効）':'未接続');
 })();
 </script>
 </body>
