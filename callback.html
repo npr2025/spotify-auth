@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Spotify Auth Callback</title>
+  <title>Spotify Auth Callback (PKCE)</title>
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial, 'Noto Sans JP'; margin: 2rem; }
     .card { border: 1px solid #ddd; border-radius: 10px; padding: 1rem; max-width: 760px; }
@@ -18,38 +18,67 @@
     <h1>Spotify 認可リダイレクト</h1>
     <div id="msg"></div>
     <a class="button" href="./index.html">監査ツールへ戻る</a>
-    <p class="muted"><small>この画面は閉じてもOKです。</small></p>
   </div>
 <script>
-function parseHash(hash) {
-  const params = {};
-  hash.replace(/^#/, '').split('&').forEach(kv => {
-    const [k, v] = kv.split('=');
-    if (k) params[decodeURIComponent(k)] = decodeURIComponent(v || '');
+function getParams() {
+  const u = new URL(window.location.href);
+  return {
+    code: u.searchParams.get('code'),
+    state: u.searchParams.get('state'),
+    error: u.searchParams.get('error'),
+    desc: u.searchParams.get('error_description')
+  };
+}
+async function exchangeToken(code) {
+  const verifier = localStorage.getItem('sp_pkce_verifier') || '';
+  const body = new URLSearchParams({
+    client_id: "378ef0f44b36499abd10d118ddbddc98",
+    grant_type: "authorization_code",
+    code: code,
+    redirect_uri: "https://npr2025.github.io/spotify-auth/callback.html",
+    code_verifier: verifier
   });
-  return params;
-}
-
-const params = parseHash(window.location.hash);
-const savedState = localStorage.getItem('sp_state') || '';
-
-if (params.error) {
-  document.getElementById('msg').innerHTML =
-    '<p class="bad">エラー: <code>'+params.error+'</code></p>' +
-    (params.error_description ? '<p><code>'+params.error_description+'</code></p>' : '');
-} else if (params.access_token) {
-  if (params.state && savedState && params.state !== savedState) {
-    document.getElementById('msg').innerHTML = '<p class="bad">state 不一致。もう一度やり直してください。</p>';
-  } else {
-    const expires_in = params.expires_in || '3600';
-    const expires_at = Date.now() + (parseInt(expires_in, 10) * 1000) - 10000;
-    localStorage.setItem('sp_token', JSON.stringify({ access_token: params.access_token, expires_at }));
-    localStorage.removeItem('sp_state');
-    document.getElementById('msg').innerHTML = '<p class="ok">アクセストークンを保存しました。</p><p><code>localStorage.sp_token</code> に保存されています。</p>';
+  const res = await fetch("https://accounts.spotify.com/api/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString()
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error("Token exchange failed: " + res.status + " " + t);
   }
-} else {
-  document.getElementById('msg').textContent = 'アクセストークンが見つかりませんでした。';
+  return await res.json();
 }
+(async () => {
+  const p = getParams();
+  const savedState = localStorage.getItem('sp_state') || '';
+  if (p.error) {
+    document.getElementById('msg').innerHTML =
+      '<p class="bad">エラー: <code>' + p.error + '</code></p>' +
+      (p.desc ? '<p><code>'+p.desc+'</code></p>' : '');
+    return;
+  }
+  if (!p.code) {
+    document.getElementById('msg').innerHTML = '<p class="bad">code が見つかりません。</p>';
+    return;
+  }
+  if (p.state && savedState && p.state !== savedState) {
+    document.getElementById('msg').innerHTML = '<p class="bad">state 不一致。やり直してください。</p>';
+    return;
+  }
+  try {
+    const token = await exchangeToken(p.code);
+    const expires_in = token.expires_in || 3600;
+    const expires_at = Date.now() + (parseInt(expires_in, 10) * 1000) - 10000;
+    localStorage.setItem('sp_token', JSON.stringify({ access_token: token.access_token, expires_at }));
+    localStorage.removeItem('sp_state');
+    localStorage.removeItem('sp_pkce_verifier');
+    document.getElementById('msg').innerHTML =
+      '<p class="ok">アクセストークンを保存しました。</p><p><code>localStorage.sp_token</code> に保存されています。</p>';
+  } catch (e) {
+    document.getElementById('msg').innerHTML = '<p class="bad">'+ String(e.message || e) +'</p>';
+  }
+})();
 </script>
 </body>
 </html>
