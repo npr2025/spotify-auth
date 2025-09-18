@@ -6,8 +6,9 @@
   <title>Spotify Auth Callback</title>
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial, 'Noto Sans JP'; margin: 2rem; }
-    .card { border: 1px solid #ddd; border-radius: 10px; padding: 1rem; max-width: 720px; }
+    .card { border: 1px solid #ddd; border-radius: 10px; padding: 1rem; max-width: 760px; }
     .ok { color: #0a7f29; }
+    .bad { color: #b00020; }
     code { background: #f6f6f6; padding: .15rem .35rem; border-radius: 4px; }
     a.button { display:inline-block; margin-top: 1rem; padding: .6rem 1rem; border: 1px solid #999; border-radius: 8px; background:#111; color:#fff; text-decoration:none; }
   </style>
@@ -28,12 +29,24 @@ function parseHash(hash) {
   });
   return params;
 }
+
 const params = parseHash(window.location.hash);
-if (params.access_token) {
-  const expires_in = params.expires_in || '3600';
-  const expires_at = Date.now() + (parseInt(expires_in, 10) * 1000) - 10000;
-  localStorage.setItem('sp_token', JSON.stringify({ access_token: params.access_token, expires_at }));
-  document.getElementById('msg').innerHTML = '<p class="ok">アクセストークンを保存しました。</p><p><code>localStorage.sp_token</code> に保存されています。</p>';
+const savedState = localStorage.getItem('sp_state') || '';
+
+if (params.error) {
+  document.getElementById('msg').innerHTML =
+    '<p class="bad">エラー: <code>'+params.error+'</code></p>' +
+    (params.error_description ? '<p><code>'+params.error_description+'</code></p>' : '');
+} else if (params.access_token) {
+  if (params.state && savedState && params.state !== savedState) {
+    document.getElementById('msg').innerHTML = '<p class="bad">state 不一致。もう一度やり直してください。</p>';
+  } else {
+    const expires_in = params.expires_in || '3600';
+    const expires_at = Date.now() + (parseInt(expires_in, 10) * 1000) - 10000;
+    localStorage.setItem('sp_token', JSON.stringify({ access_token: params.access_token, expires_at }));
+    localStorage.removeItem('sp_state');
+    document.getElementById('msg').innerHTML = '<p class="ok">アクセストークンを保存しました。</p><p><code>localStorage.sp_token</code> に保存されています。</p>';
+  }
 } else {
   document.getElementById('msg').textContent = 'アクセストークンが見つかりませんでした。';
 }
