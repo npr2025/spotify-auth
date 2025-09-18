@@ -2,115 +2,41 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8"/>
-  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Expires" content="0">
-  <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self';
-                 connect-src https://accounts.spotify.com https://api.spotify.com https://cdn.jsdelivr.net;
-                 img-src 'self' data:;
-                 style-src 'self' 'unsafe-inline';
-                 script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline';
-                 base-uri 'none'; frame-ancestors 'none'; form-action 'none';
-                 upgrade-insecure-requests">
-  <meta name="referrer" content="no-referrer">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>TDCS Auth Callback</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Spotify Auth Callback</title>
   <style>
-    :root { color-scheme: dark; }
-    body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
-           background:#0b1220;color:#cfe3ff;max-width:760px;margin:40px auto;padding:0 16px; }
-    h1{font-size:20px;margin:0 0 12px}
-    pre{white-space:pre-wrap;background:#091426;border:1px solid #20304a;padding:12px;border-radius:10px}
-    a{color:#9ec1ff}
-    .btn{display:inline-block;margin-top:8px;padding:8px 12px;border:1px solid #3a4d75;background:#14213a;color:#e9f1ff;border-radius:8px;text-decoration:none}
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial, 'Noto Sans JP'; margin: 2rem; }
+    .card { border: 1px solid #ddd; border-radius: 10px; padding: 1rem; max-width: 720px; }
+    .ok { color: #0a7f29; }
+    code { background: #f6f6f6; padding: .15rem .35rem; border-radius: 4px; }
+    a.button { display:inline-block; margin-top: 1rem; padding: .6rem 1rem; border: 1px solid #999; border-radius: 8px; background:#111; color:#fff; text-decoration:none; }
   </style>
 </head>
 <body>
-<h1>Finishing sign-in…</h1>
-<pre id="log">Waiting for code…</pre>
+  <div class="card">
+    <h1>Spotify 認可リダイレクト</h1>
+    <div id="msg"></div>
+    <a class="button" href="./index.html">監査ツールへ戻る</a>
+    <p class="muted"><small>この画面は閉じてもOKです。</small></p>
+  </div>
 <script>
-const APP_VER  = 'cb-v11.4';
-const CLIENT_ID = '5b4dc486f92a46878665468fa5de9361';
-const TOKEN_URL = 'https://accounts.spotify.com/api/token';
-const REDIRECT  = 'https://npr2025.github.io/spotify-auth/callback.html';
-const log=(...a)=>{ const el=document.getElementById('log'); el.textContent += '\n' + a.join(' '); };
-async function sha256(str){ return crypto.subtle.digest('SHA-256', new TextEncoder().encode(str)); }
-function b64url(buf){ const bin=String.fromCharCode(...new Uint8Array(buf)); return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
-async function challengeFromVerifier(v){ return b64url(await sha256(v)); }
-function btn(label, href){ const a=document.createElement('a'); a.href=href; a.textContent=label; a.className='btn'; return a; }
-
-(async () => {
-  const url   = new URL(location.href);
-  const code  = url.searchParams.get('code');
-  const state = url.searchParams.get('state');
-  const error = url.searchParams.get('error');
-
-  log('APP', APP_VER);
-
-  if(error){ log('ERROR:', error); document.body.appendChild(btn('Return to app','builder.html')); return; }
-  if(!code){ log('ERROR: missing code'); document.body.appendChild(btn('Return to app','builder.html')); return; }
-
-  const st = sessionStorage.getItem('pkce_state');
-  const method = (sessionStorage.getItem('pkce_method')||'S256').toUpperCase();
-  const verifier = sessionStorage.getItem('code_verifier');
-  const savedChallenge = sessionStorage.getItem('code_challenge');
-  const appVerAuth = sessionStorage.getItem('app_ver') || '(unknown)';
-  const savedRT = sessionStorage.getItem('return_to') || 'builder.html';
-
-  if(!st || st!==state){ log('ERROR: state mismatch'); document.body.appendChild(btn('Return to app','builder.html')); return; }
-  if(!verifier){ 
-    log('ERROR: code_verifier missing（別タブ/キャッシュ混入の可能性）'); 
-    document.body.appendChild(btn('Re-run auth','auth.html?ts='+Date.now()+'&rt='+encodeURIComponent(savedRT))); 
-    return; 
-  }
-
-  const valid = /^[A-Za-z0-9\-._~]{43,128}$/.test(verifier);
-  log('Method:', method, '| Verifier length:', verifier.length, '| Format OK:', valid, '| Auth page:', appVerAuth);
-
-  try{
-    if(method==='S256'){
-      const recalc = await challengeFromVerifier(verifier);
-      const match = savedChallenge && (savedChallenge === recalc);
-      log('Challenge match:', String(match));
-      if(!match){
-        log('ERROR: challenge ≠ SHA256(verifier) → 再試行推奨');
-        document.body.appendChild(btn('Re-run (force no-cache)','auth.html?ts='+Date.now()+'&rt='+encodeURIComponent(savedRT)));
-        document.body.appendChild(btn('Try PLAIN','auth.html?m=plain&ts='+Date.now()+'&rt='+encodeURIComponent(savedRT)));
-        return;
-      }
-    }
-  }catch(e){ log('WARN: challenge recompute failed:', e.message); }
-
-  try{
-    log('Exchanging code for token…');
-    const body = new URLSearchParams({
-      grant_type:'authorization_code',
-      code, redirect_uri: REDIRECT, client_id: CLIENT_ID, code_verifier: verifier
-    });
-    const res = await fetch(TOKEN_URL, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json'}, body });
-    const txt = await res.text();
-    if(!res.ok){
-      log('ERROR: HTTP', res.status, txt);
-      if(/code_verifier was incorrect/i.test(txt) && method==='S256'){
-        log('Hint: S256→PLAINで自動再試行');
-        location.replace('auth.html?m=plain&ts='+Date.now()+'&rt='+encodeURIComponent(savedRT));
-        return;
-      }
-      document.body.appendChild(btn('Return to app','builder.html'));
-      return;
-    }
-    const tok = JSON.parse(txt);
-    sessionStorage.setItem('access_token', tok.access_token);
-    if(tok.refresh_token) sessionStorage.setItem('refresh_token', tok.refresh_token);
-    if(tok.expires_in) sessionStorage.setItem('access_token_expires_at', String(Date.now()+tok.expires_in*1000));
-
-    ['code_verifier','pkce_state','code_challenge','pkce_method','app_ver','last_pkce_error'].forEach(k=>sessionStorage.removeItem(k));
-
-    const ret = sessionStorage.getItem('return_to') || 'https://npr2025.github.io/spotify-auth/builder.html';
-    location.replace(ret);
-  }catch(e){ log('ERROR:', e.message); document.body.appendChild(btn('Return to app','builder.html')); }
-})();
+function parseHash(hash) {
+  const params = {};
+  hash.replace(/^#/, '').split('&').forEach(kv => {
+    const [k, v] = kv.split('=');
+    if (k) params[decodeURIComponent(k)] = decodeURIComponent(v || '');
+  });
+  return params;
+}
+const params = parseHash(window.location.hash);
+if (params.access_token) {
+  const expires_in = params.expires_in || '3600';
+  const expires_at = Date.now() + (parseInt(expires_in, 10) * 1000) - 10000;
+  localStorage.setItem('sp_token', JSON.stringify({ access_token: params.access_token, expires_at }));
+  document.getElementById('msg').innerHTML = '<p class="ok">アクセストークンを保存しました。</p><p><code>localStorage.sp_token</code> に保存されています。</p>';
+} else {
+  document.getElementById('msg').textContent = 'アクセストークンが見つかりませんでした。';
+}
 </script>
 </body>
 </html>
