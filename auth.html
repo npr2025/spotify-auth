@@ -29,7 +29,7 @@
 <script>
 const CLIENT_ID = "378ef0f44b36499abd10d118ddbddc98";
 const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
-const SCOPE = ""; // 必要なら追加
+const SCOPE = ""; // 公開データ読み取りのみなら空でOK
 
 function base64urlencode(a){
   return btoa(String.fromCharCode.apply(null, new Uint8Array(a)))
@@ -62,7 +62,8 @@ async function beginAuth(){
     scope: SCOPE,
     state
   });
-  location.href = 'https://accounts.spotify.com/authorize?' + params.toString();
+  // 同一タブ遷移（state/sessionStorage を確実に引き継ぐ）
+  location.assign('https://accounts.spotify.com/authorize?' + params.toString());
 }
 
 document.getElementById('connectBtn').onclick = beginAuth;
