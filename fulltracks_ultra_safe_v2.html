@@ -27,6 +27,7 @@
   <div class="small muted">Client ID: <code>378ef0f44b36499abd10d118ddbddc98</code> | Redirect: <code>https://npr2025.github.io/spotify-auth/callback.html</code></div>
   <div class="row">
     <a href="./auth.html"><button>Spotifyに接続</button></a>
+    <button id="clearBtn" style="background:#eee;color:#111;border-color:#bbb">保存トークン削除</button>
     <span id="authStatus" class="muted">未接続</span>
   </div>
 </header>
@@ -58,6 +59,7 @@
     <button id="pauseBtn" disabled>一時停止</button>
     <button id="resumeBtn" disabled>再開</button>
     <button id="clearChkBtn">チェックポイント削除</button>
+    <button id="diagBtn" style="background:#0a7f29;border-color:#0a7f29">接続診断</button>
   </div>
   <div id="fileInfo" class="small muted"></div>
   <div class="small muted">対応列：<code>spotify_url / UPC / ISRC / Album title / Album version / Track title</code></div>
@@ -90,20 +92,65 @@
 </section>
 
 <script>
-/*** 基本 ***/
+/*** 固定ID ***/
 const TARGET_ARTIST_ID="55fvQ5I2IZUfcFT2DV02T3";
 const CHECKPOINT_KEY="tdcs_fulltracks_checkpoint_v2";
+
+/*** DOM util ***/
 const $=s=>document.querySelector(s);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const jitter=v=> ($("#slowJitter").checked? v+Math.floor(Math.random()*Math.floor(v*0.2)) : v);
 function log(m){ const el=$("#log"); el.textContent+=m+"\n"; el.scrollTop=el.scrollHeight; }
 function setRate(t){ $("#ratePill").textContent=t; }
-function token(){ const raw=localStorage.getItem('sp_token'); if(!raw) return null; try{const o=JSON.parse(raw); if(Date.now()<o.expires_at) return o.access_token;}catch{} return null;}
-function setAuthStatus(ok,txt){ const el=$("#authStatus"); el.textContent=txt; el.className=ok?'ok':'bad'; }
 function rowsToCSV(rows){ if(!rows.length) return ''; const H=Object.keys(rows[0]); const esc=v=>(v==null?'':'"'+String(v).replace(/"/g,'""')+'"'); return [H.map(esc).join(','),...rows.map(r=>H.map(h=>esc(r[h])).join(','))].join('\r\n');}
 function setPreview(rows){ const thead=$("#previewTbl thead"), tbody=$("#previewTbl tbody"); thead.innerHTML=''; tbody.innerHTML=''; const samp=rows.slice(0,10); if(!samp.length) return; const H=Object.keys(samp[0]); const tr=document.createElement('tr'); H.forEach(h=>{const th=document.createElement('th'); th.textContent=h; tr.appendChild(th)}); thead.appendChild(tr); samp.forEach(r=>{const trb=document.createElement('tr'); H.forEach(h=>{const td=document.createElement('td'); td.textContent=(r[h]==null?'':r[h]); trb.appendChild(td)}); tbody.appendChild(trb)})}
 
-/*** CSV 列検出 ***/
+/*** 認証トークン（フォールバック付き） ***/
+function token(){
+  // 1) localStorage 優先
+  const raw=localStorage.getItem('sp_token');
+  if(raw){
+    try{
+      const obj=JSON.parse(raw);
+      if(obj && obj.access_token && obj.expires_at && Date.now()<obj.expires_at){
+        return obj.access_token;
+      }
+    }catch{}
+  }
+  // 2) URLハッシュから拾って保存（implicit/誤遷移対策）
+  const h=location.hash.startsWith('#')?location.hash.slice(1):'';
+  if(h){
+    const p=new URLSearchParams(h);
+    const at=p.get('access_token');
+    if(at){
+      const ei=parseInt(p.get('expires_in')||'3600',10);
+      const exp=Date.now()+ei*1000-10000;
+      const store={access_token:at,token_type:p.get('token_type')||'Bearer',scope:p.get('scope')||'',expires_at:exp};
+      try{ localStorage.setItem('sp_token',JSON.stringify(store)); }catch{}
+      history.replaceState(null,'',location.pathname+location.search);
+      return at;
+    }
+  }
+  return null;
+}
+function refreshAuthStatus(){
+  const el=$("#authStatus");
+  const raw=localStorage.getItem('sp_token'); let msg='未接続', ok=false;
+  if(raw){
+    try{
+      const o=JSON.parse(raw);
+      if(o && o.access_token && o.expires_at){
+        ok = Date.now()<o.expires_at;
+        msg = ok ? 'トークンOK（有効）' : '未接続（保存トークンは期限切れ）';
+      }else{
+        msg='未接続（sp_token 構造不正）';
+      }
+    }catch{ msg='未接続（sp_token JSON不正）'; }
+  }
+  el.textContent=msg; el.className=ok?'ok':'bad';
+}
+
+/*** CSV列検出 ***/
 function detectCols(header){
   const lc=header.map(h=>String(h||'').toLowerCase());
   const pick=(...c)=>{ for(const x of c){ const i=lc.indexOf(String(x).toLowerCase()); if(i>-1) return header[i]; } return null; };
@@ -118,7 +165,7 @@ function parseSpotifyUrl(u){ try{ const m=u.match(/open\.spotify\.com\/(album|tr
 
 /*** 時間窓レート制御 + 適応ダイヤルダウン ***/
 let lastCall=0, consec429=0, globalCooldownUntil=0, paused=false;
-const reqTimestamps=[]; // 過去1時間のリクエスト時刻(ms)
+const reqTimestamps=[]; // 過去1時間の発火時刻
 let reqCountSinceBreak=0;
 
 async function api(path, params={}){
@@ -129,17 +176,17 @@ async function api(path, params={}){
   const maxRetries=+$("#maxRetries").value||9;
   let rpmCap=+$("#rpmCap").value||5;
   const cooldownBase=+$("#cooldownMs").value||600000; // 10分
-  const hourBudget=+$("#hourBudget").value||300; // 1時間の最大リクエスト
+  const hourBudget=+$("#hourBudget").value||300;
   const longEvery=+$("#longBreakEvery").value||120;
   const longMs=+$("#longBreakMs").value||300000;
   const emergencyOn=$("#emergencyMode").checked;
   const emgPerReq=+$("#emgPerReqMs").value||30000;
 
-  // 1h 窓の古いタイムスタンプ掃除
+  // 1h窓掃除
   const now=Date.now();
   while(reqTimestamps.length && (now - reqTimestamps[0]) > 3600_000) reqTimestamps.shift();
 
-  // 時間窓予算が埋まっていたら窓が空くまで待つ
+  // 1h予算超過なら空くまで待つ
   while(reqTimestamps.length >= hourBudget){
     const until = reqTimestamps[0] + 3600_000;
     const wait = Math.max(1000, until - Date.now());
@@ -151,7 +198,6 @@ async function api(path, params={}){
 
   // RPMゲート
   const perReqMs=Math.max(1000, Math.ceil(60000/Math.max(1,rpmCap)));
-  // エマージェンシー（連続429で自動）
   const enforcedGap = (consec429>=4 && emergencyOn) ? Math.max(perReqMs, emgPerReq) : perReqMs;
 
   // グローバルCD
@@ -159,7 +205,7 @@ async function api(path, params={}){
     const w=globalCooldownUntil-Date.now(); setRate('GLOBAL cooldown '+w+'ms'); await sleep(w);
   }
 
-  // 長めの小休止（定期）
+  // ロングブレイク
   if(longEvery>0 && reqCountSinceBreak>0 && (reqCountSinceBreak % longEvery===0)){
     setRate('long break '+longMs+'ms'); log('long break '+longMs+'ms');
     await sleep(jitter(longMs));
@@ -170,7 +216,7 @@ async function api(path, params={}){
   if(wait>0){ setRate('rpm gate '+wait+'ms'); await sleep(wait); }
   lastCall=Date.now();
 
-  // URL作成
+  // URL
   const url=new URL('https://api.spotify.com'+path);
   Object.entries(params).forEach(([k,v])=> v!=null && url.searchParams.set(k,v));
 
@@ -201,7 +247,7 @@ async function api(path, params={}){
       try{return JSON.parse(text);}catch{return text;}
     }
 
-    // 429/5xx ハンドリング
+    // 429/5xx
     let body; try{body=JSON.parse(text);}catch{body=text;}
 
     if(res.status===429){
@@ -209,30 +255,19 @@ async function api(path, params={}){
       const ra=parseFloat(res.headers.get('Retry-After')||'0'); // sec
       let delay = ra? ra*1000 : backoff;
 
-      // ダイヤルダウン
+      // ダイヤルダウン（RAなし時）
       if(!ra){
-        // 連続段数に応じて厳しく
-        // 1) レートを下げる
-        rpmCap = Math.max(2, Math.floor(rpmCap*0.7));
-        $("#rpmCap").value = rpmCap;
-        // 2) 待機を増やす
-        minDelay = Math.min(maxBackoff, Math.floor(minDelay*1.3));
-        $("#minDelayMs").value = minDelay;
-        // 3) ページ/バッチを重く→軽く
-        const curPage=+$("#pagePauseMs").value||400;
-        $("#pagePauseMs").value = Math.floor(curPage*1.3);
-        const curBatch=+$("#trkBatch").value||20;
-        $("#trkBatch").value = Math.max(10, Math.floor(curBatch*0.8));
-
+        rpmCap = Math.max(2, Math.floor(rpmCap*0.7)); $("#rpmCap").value=rpmCap;
+        minDelay = Math.min(maxBackoff, Math.floor(minDelay*1.3)); $("#minDelayMs").value=minDelay;
+        const curPage=+$("#pagePauseMs").value||400; $("#pagePauseMs").value=Math.floor(curPage*1.3);
+        const curBatch=+$("#trkBatch").value||20; $("#trkBatch").value=Math.max(10, Math.floor(curBatch*0.8));
         log(`429 x${consec429} → rpmCap=${rpmCap}, minDelay=${minDelay}ms, pagePause=${$("#pagePauseMs").value}ms, trkBatch=${$("#trkBatch").value}`);
       }
 
-      // ロングCD（窓リセット）
       if(consec429>=3){
-        const hard = Math.max(delay, +$("#cooldownMs").value||600000);
+        const hard = Math.max(delay, cooldownBase);
         globalCooldownUntil = Date.now() + hard;
-        log(`HARD cooldown ${hard}ms`);
-        setRate('HARD cooldown '+hard+'ms');
+        log(`HARD cooldown ${hard}ms`); setRate('HARD cooldown '+hard+'ms');
         await sleep(hard);
       }else{
         delay = Math.min(delay, maxBackoff);
@@ -391,13 +426,11 @@ function loadCheckpoint(){ try{ const raw=localStorage.getItem(CHECKPOINT_KEY); 
 function clearCheckpoint(){ localStorage.removeItem(CHECKPOINT_KEY); }
 
 /*** フロー ***/
-let _outTracks=[], _albumMap=new Map(), _albumOrder=[], _cols={}, _rows=[];
-let _nextAlbumIdx=0;
-
 $("#startBtn").addEventListener('click', ()=> run(true));
 $("#resumeBtn").addEventListener('click', ()=> run(false));
 $("#pauseBtn").addEventListener('click', ()=> { paused=true; setRate('paused'); });
 $("#clearChkBtn").addEventListener('click', ()=> { clearCheckpoint(); log('checkpoint cleared'); });
+$("#clearBtn").addEventListener('click', ()=> { localStorage.removeItem('sp_token'); refreshAuthStatus(); });
 
 $("#downloadCheckpointBtn").addEventListener('click', ()=>{
   if(!_outTracks.length){ alert('まだ出力がありません'); return; }
@@ -406,6 +439,16 @@ $("#downloadCheckpointBtn").addEventListener('click', ()=>{
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a'); a.href=url; a.download='tdcs_full_tracks_checkpoint.csv';
   document.body.appendChild(a); a.click(); a.remove();
+});
+
+$("#diagBtn").addEventListener('click', async ()=>{
+  const at=token(); if(!at){ alert('トークンなし → auth.html で認証してください'); return; }
+  try{
+    const res=await fetch('https://api.spotify.com/v1/albums?ids=6LuIzmQ5vLbGw4rJHdg8bg',{headers:{Authorization:'Bearer '+at}});
+    const txt=await res.text();
+    if(res.ok){ alert('OK: API到達\n'+txt.slice(0,200)+'...'); }
+    else { alert('NG: HTTP '+res.status+'\n'+txt.slice(0,300)); }
+  }catch(e){ alert('NG: ネットワーク/ブラウザ制限\n'+(e?.message||e)); }
 });
 
 async function run(fresh){
@@ -422,7 +465,7 @@ async function run(fresh){
     log('Unique keys: '+_albumOrder.length);
 
     // resolve
-    for(let i=0;i<_albumOrder.length;i++){
+    for(let i=0;i<_albumOrder.length; i++){
       if(paused){ await sleep(300); i--; continue; }
       const k=_albumOrder[i];
       try{
@@ -473,7 +516,7 @@ async function run(fresh){
       setRate(`album ${i+1}/${_albumOrder.length} (tracks ${_outTracks.length})`);
       const p = Math.round(((i+1)/_albumOrder.length)*100); $("#prog").value=p;
 
-      // album間の小休止
+      // album間休止
       await sleep(jitter(600));
     }catch(e){
       log(`Album ${albumId} error → ${e.message||e}`);
@@ -491,23 +534,10 @@ async function run(fresh){
   log('Done (tracks='+_outTracks.length+').');
 }
 
-/*** CSV load → start ***/
+/*** 起動時 ***/
+let _outTracks=[], _albumMap=new Map(), _albumOrder=[], _cols={}, _rows=[];
+refreshAuthStatus(); // ヘッダの接続表示
 $("#resumeBtn").disabled = !loadCheckpoint();
-$("#csvFile").addEventListener('change', ev=>{
-  const f=ev.target.files[0]; if(!f) return;
-  $("#fileInfo").textContent = `${f.name} / ${(f.size/1024).toFixed(1)} KB`;
-  Papa.parse(f,{header:true,skipEmptyLines:true,complete:(res)=>{
-    _rows=res.data||[]; _cols=detectCols(res.meta.fields||[]);
-    $("#startBtn").disabled=false;
-    log('CSV loaded: '+_rows.length+' rows');
-    log('Detected columns: '+JSON.stringify(_cols));
-  }});
-});
-
-/*** init ***/
-(function(){
-  const t=token(); setAuthStatus(!!t, t?'トークンOK（有効）':'未接続');
-})();
 </script>
 </body>
 </html>
