@@ -85,7 +85,7 @@
 </section>
 
 <script>
-/*** 固定ID ***/
+/*** 固定ID（必要なら使う） ***/
 const TARGET_ARTIST_ID="55fvQ5I2IZUfcFT2DV02T3";
 const CHECKPOINT_KEY="tdcs_fulltracks_checkpoint_v2";
 
@@ -95,49 +95,442 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const jitter=v=> ($("#slowJitter").checked? v+Math.floor(Math.random()*Math.floor(v*0.2)) : v);
 function log(m){ const el=$("#log"); el.textContent+=m+"\n"; el.scrollTop=el.scrollHeight; }
 function setRate(t){ $("#ratePill").textContent=t; }
+function fmtSec(s){const m=Math.floor(s/60),ss=s%60;return `${m}:${String(ss).padStart(2,'0')}`}
 
-/*** scope check ***/
+/*** Token handling ***/
+function getTokObj(){
+  try{ return JSON.parse(localStorage.getItem("sp_token")||"null"); }catch{ return null; }
+}
+function putTokObj(o){ localStorage.setItem("sp_token",JSON.stringify(o)); }
 function hasScope(name){
-  try{
-    const raw=localStorage.getItem('sp_token'); if(!raw) return false;
-    const o=JSON.parse(raw); if(!o||!o.scope) return false;
-    return String(o.scope).split(/\s+/).includes(name);
-  }catch{return false;}
+  const o=getTokObj(); if(!o||!o.scope) return false;
+  return String(o.scope).split(/\s+/).includes(name);
+}
+function tokenStatusText(){
+  const o=getTokObj(); if(!o) return "未接続";
+  const left=Math.max(0,Math.floor((o.expires_at-Date.now())/1000));
+  return `トークンOK（有効・残り ${fmtSec(left)}） scope: ${o.scope||"(none)"}`
+}
+async function refreshIfNeeded(){
+  const o=getTokObj(); if(!o) throw new Error("no token");
+  const skew=15000; // 15s
+  if(Date.now()< (o.expires_at-skew)) return o.access_token;
+  if(!o.refresh_token) throw new Error("no refresh_token");
+  const body=new URLSearchParams({
+    client_id:"378ef0f44b36499abd10d118ddbddc98",
+    grant_type:"refresh_token",
+    refresh_token:o.refresh_token
+  });
+  const res=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
+  if(!res.ok){ throw new Error(`refresh failed: ${await res.text()}`); }
+  const tok=await res.json();
+  const next={
+    access_token: tok.access_token,
+    token_type: tok.token_type||o.token_type||"Bearer",
+    scope: tok.scope||o.scope||"",
+    refresh_token: tok.refresh_token||o.refresh_token,
+    expires_at: Date.now()+ (tok.expires_in||3600)*1000 - 10000
+  };
+  putTokObj(next);
+  return next.access_token;
 }
 
-/*** safe search fallback ***/
-async function searchWithFallback(endpoint, params){
-  let res=await api(endpoint, params);
-  if((res.albums?.items?.length)||(res.tracks?.items?.length)) return res;
-  if(hasScope('user-read-private')){
-    try{ return await api(endpoint,{...params,market:'from_token'}); }
-    catch(e){ console.warn('from_token skipped',e?.message||e); return {albums:{items:[]},tracks:{items:[]}}; }
+/*** Safe API wrapper with throttle/backoff ***/
+let reqCountMin=0, windowStart=Date.now();
+let hourCount=0, hourStart=Date.now();
+let callN=0;
+async function api(endpoint, params={}, opt={}){
+  const base="https://api.spotify.com";
+  const method=opt.method||"GET";
+  const maxRetries=Number($("#maxRetries").value||9);
+  const maxBackoff=Number($("#maxBackoffMs").value||30000);
+  const minDelay=Number($("#minDelayMs").value||4000);
+  const rpmCap=Number($("#rpmCap").value||5);
+  const hourBudget=Number($("#hourBudget").value||300);
+  const cooldownMs=Number($("#cooldownMs").value||600000);
+  callN++;
+
+  // Rate limiting (simple window)
+  const now=Date.now();
+  if(now-windowStart>=60000){ windowStart=now; reqCountMin=0; }
+  if(now-hourStart>=3600000){ hourStart=now; hourCount=0; }
+  if(reqCountMin>=rpmCap){ const wait=60000-(now-windowStart)+50; setRate(`rpm-cap wait ${wait}ms`); await sleep(wait); }
+  if(hourCount>=hourBudget){ setRate(`hour budget cooldown ${cooldownMs}ms`); await sleep(cooldownMs); hourStart=Date.now(); hourCount=0; }
+
+  // min delay & jitter
+  await sleep(jitter(minDelay));
+
+  // Build URL
+  let url=base+endpoint;
+  if(method==="GET" && params && Object.keys(params).length){
+    const qs=new URLSearchParams(Object.entries(params).filter(([k,v])=>v!==undefined && v!==null));
+    url+=`?${qs}`;
   }
-  return {albums:{items:[]},tracks:{items:[]}};
+  const token=await refreshIfNeeded();
+  const headers={"Authorization":`Bearer ${token}`,"Accept":"application/json"};
+  if(method!=="GET"){ headers["Content-Type"]="application/json"; }
+
+  let attempt=0, backoff=800;
+  while(true){
+    try{
+      const res=await fetch(url,{method,headers,body:method==="GET"?undefined:JSON.stringify(params)});
+      reqCountMin++; hourCount++;
+
+      // Handle 401 -> refresh once then retry
+      if(res.status===401 && attempt===0){
+        await refreshIfNeeded();
+        attempt++; continue;
+      }
+      if(res.status===429){
+        const ra=(Number(res.headers.get("Retry-After"))||Math.ceil(cooldownMs/1000))*1000;
+        log(`[429] Retry-After: ${Math.round(ra/1000)}s → long wait`);
+        setRate(`429 wait ${ra}ms`);
+        await sleep(ra);
+        attempt++; continue;
+      }
+      if(res.status>=500){
+        if(attempt>=maxRetries) throw new Error(`HTTP ${res.status} ${await res.text()}`);
+        setRate(`5xx backoff ${backoff}ms`); await sleep(backoff); backoff=Math.min(maxBackoff,backoff*2); attempt++; continue;
+      }
+      if(!res.ok){
+        const bodyText=await res.text();
+        throw new Error(`HTTP ${res.status} ${bodyText}`);
+      }
+      setRate("ok");
+      return await res.json();
+    }catch(e){
+      if(/HTTP 403/.test(String(e))){
+        // bubble up; caller logs contextual "Insufficient client scope" etc.
+        throw e;
+      }
+      if(attempt>=maxRetries){ throw e; }
+      setRate(`err backoff ${backoff}ms`); await sleep(backoff); backoff=Math.min(maxBackoff,backoff*2); attempt++;
+    }
+  }
 }
 
-/*** findByText 改良版 ***/
-async function findByText(row,cols){
+/*** search helper with safe from_token fallback ***/
+async function searchWithFallback(endpoint, params){
+  // First try without market for maximum hit
+  try{
+    return await api(endpoint,{...params});
+  }catch(e){
+    throw e;
+  }
+}
+
+/*** CSV handling ***/
+let g = {
+  rows: [],
+  cols: {},
+  uniqueKeys: [],
+  results: [], // accumulated output rows
+  doneKeys: new Set(),
+  paused: false,
+  running: false,
+  fileName: ''
+};
+
+function detectCols(headers){
+  const hmap={}; headers.forEach((h,i)=> hmap[h.trim().toLowerCase()]=h);
+  const get=(...cands)=> cands.map(s=>s.toLowerCase()).find(k=>hmap[k]) ? hmap[cands.map(s=>s.toLowerCase()).find(k=>hmap[k])] : null;
+  return {
+    url: get("spotify_url","url","spotify"),
+    upc: get("upc","pos","ean"),
+    isrc: get("isrc"),
+    album: get("album title","album","release"),
+    version: get("album version","version","mix"),
+    track: get("track title","title","track")
+  };
+}
+
+function previewTable(rows){
+  const tbl=$("#previewTbl");
+  const headers = rows.length ? Object.keys(rows[0]) : [];
+  tbl.querySelector("thead").innerHTML = `<tr>${headers.map(h=>`<th>${h}</th>`).join("")}</tr>`;
+  const bodyRows = rows.slice(0,10).map(r=>`<tr>${headers.map(h=>`<td>${(r[h]??"")}</td>`).join("")}</tr>`).join("");
+  tbl.querySelector("tbody").innerHTML = bodyRows || "<tr><td>（なし）</td></tr>";
+}
+
+function makeKey(row, cols){
+  if(cols.upc && row[cols.upc]) return `upc:${String(row[cols.upc]).trim()}`;
+  if(cols.isrc && row[cols.isrc]) return `isrc:${String(row[cols.isrc]).trim()}`;
+  if(cols.url && row[cols.url]) return `url:${String(row[cols.url]).trim()}`;
+  const a=row[cols.album]||"", v=row[cols.version]||"", t=row[cols.track]||"";
+  return `txt:${a} | ${v} | ${t}`;
+}
+
+/*** ID parsing from Spotify URL/URI ***/
+function parseSpotifyId(u){
+  if(!u) return null;
+  try{
+    if(u.startsWith("spotify:")){
+      const parts=u.split(":");
+      return {type:parts[1], id:parts[2]};
+    }
+    const url=new URL(u);
+    const seg=url.pathname.split("/").filter(Boolean);
+    const type=seg[0], id=seg[1]?.split("?")[0];
+    if(type && id) return {type,id};
+  }catch{}
+  return null;
+}
+
+/*** Resolvers ***/
+async function resolveAlbum(row, cols){
+  // 1) URL直接
+  if(cols.url && row[cols.url]){
+    const u=String(row[cols.url]).trim();
+    const p=parseSpotifyId(u);
+    if(p){
+      if(p.type==="album") return {albumId:p.id, url:`https://open.spotify.com/album/${p.id}`};
+      if(p.type==="track"){
+        try{
+          const tr=await api(`/v1/tracks/${p.id}`, hasScope("user-read-private")? {market:"from_token"} : {});
+          return {albumId: tr.album.id, url: tr.album.external_urls.spotify};
+        }catch(e){ log(`Resolve err: url:${u} → ${e.message||e}`); }
+      }
+    }
+  }
+  // 2) UPC→album
+  if(cols.upc && row[cols.upc]){
+    const upc=String(row[cols.upc]).trim();
+    try{
+      const s=await searchWithFallback("/v1/search",{q:`upc:${upc}`,type:"album",limit:1});
+      const a=s.albums?.items?.[0];
+      if(a) return {albumId:a.id,url:a.external_urls.spotify};
+    }catch(e){
+      log(`Resolve err: upc:${upc} → ${e.message||e}`);
+      if(/403/.test(String(e))) log(`ヒント: auth.html から再接続して scope "user-read-private offline_access" を付与してください。`);
+    }
+  }
+  // 3) ISRC→track→album
+  if(cols.isrc && row[cols.isrc]){
+    const isrc=String(row[cols.isrc]).trim();
+    try{
+      const s=await searchWithFallback("/v1/search",{q:`isrc:${isrc}`,type:"track",limit:1});
+      const t=s.tracks?.items?.[0];
+      if(t&&t.album) return {albumId:t.album.id,url:t.album.external_urls.spotify};
+    }catch(e){
+      log(`Resolve err: isrc:${isrc} → ${e.message||e}`);
+    }
+  }
+  // 4) テキスト照合
   const albumTitle=cols.album&&row[cols.album]?String(row[cols.album]).trim():'';
   const version=cols.version&&row[cols.version]?String(row[cols.version]).trim():'';
+  const trackTitle=cols.track&&row[cols.track]?String(row[cols.track]).trim():'';
   const queries=[];
   if(albumTitle) queries.push({q:`album:"${albumTitle}" artist:"The Darrow Chem Syndicate"${version?` "${version}"`:''}`,type:'album'});
   if(albumTitle) queries.push({q:`album:"${albumTitle}"${version?` "${version}"`:''}`,type:'album'});
-  if(albumTitle) queries.push({q:`track:"${albumTitle}" artist:"The Darrow Chem Syndicate"${version?` "${version}"`:''}`,type:'track'});
+  if(trackTitle) queries.push({q:`track:"${trackTitle}" artist:"The Darrow Chem Syndicate"${version?` "${version}"`:''}`,type:'track'});
   for(const q of queries){
-    const res=await searchWithFallback('/v1/search',{...q,limit:3});
-    if(q.type==='album' && res.albums?.items?.length){
-      const a=res.albums.items[0]; if(a) return {albumId:a.id,url:a.external_urls.spotify};
-    }
-    if(q.type==='track' && res.tracks?.items?.length){
-      const t=res.tracks.items[0]; if(t&&t.album) return {albumId:t.album.id,url:t.album.external_urls.spotify};
-    }
+    try{
+      const res=await searchWithFallback('/v1/search',{...q,limit:3});
+      if(q.type==='album' && res.albums?.items?.length){
+        const a=res.albums.items[0]; if(a) return {albumId:a.id,url:a.external_urls.spotify};
+      }
+      if(q.type==='track' && res.tracks?.items?.length){
+        const t=res.tracks.items[0]; if(t&&t.album) return {albumId:t.album.id,url:t.album.external_urls.spotify};
+      }
+    }catch(e){}
     await sleep(jitter(200));
   }
   return null;
 }
 
-// ……（残りの harvestAlbumTracksFull, run, CSV処理などは元のまま。）
+/*** Album→Full tracks ***/
+async function harvestAlbumTracksFull(albumId, sourceKey, albumUrl){
+  // album meta (upc/label/release_date)
+  const alb = await api(`/v1/albums/${albumId}`, hasScope("user-read-private")? {market:"from_token"} : {});
+  // collect simplified tracks
+  const tracks=[];
+  let offset=0, pageCount=0;
+  while(true){
+    const page=await api(`/v1/albums/${albumId}/tracks`, {limit:50, offset, ...(hasScope("user-read-private")? {market:"from_token"} : {})});
+    (page.items||[]).forEach(x=>{
+      tracks.push({id:x.id,name:x.name,disc_number:x.disc_number,track_number:x.track_number,artists:(x.artists||[]).map(a=>a.name).join(" & ")});
+    });
+    offset += page.items?.length||0;
+    pageCount++;
+    await sleep(jitter(Number($("#pagePauseMs").value||400)));
+    if(!page.next) break;
+  }
+  // batch /v1/tracks for full info
+  const batchSize=Math.min(50, Number($("#trkBatch").value||20));
+  const out=[];
+  for(let i=0;i<tracks.length;i+=batchSize){
+    const slice=tracks.slice(i,i+batchSize);
+    const ids=slice.map(t=>t.id).filter(Boolean).join(",");
+    if(!ids) continue;
+    const resp=await api(`/v1/tracks`, {ids, ...(hasScope("user-read-private")? {market:"from_token"} : {})});
+    const full=(resp.tracks||[]);
+    for(let j=0;j<slice.length;j++){
+      const simp=slice[j];
+      const f=full.find(x=>x && x.id===simp.id);
+      if(!f) continue;
+      out.push({
+        source_key: sourceKey,
+        album_id: albumId,
+        album_url: albumUrl||alb.external_urls?.spotify||`https://open.spotify.com/album/${albumId}`,
+        album_name: alb.name||"",
+        album_label: alb.label||"",
+        album_release_date: alb.release_date||"",
+        album_upc: (alb.external_ids&&alb.external_ids.upc)||"",
+        track_id: f.id,
+        track_name: f.name||simp.name,
+        disc_number: f.disc_number||simp.disc_number||"",
+        track_number: f.track_number||simp.track_number||"",
+        duration_ms: f.duration_ms||"",
+        explicit: f.explicit?"true":"false",
+        isrc: (f.external_ids&&f.external_ids.isrc)||"",
+        artists: (f.artists||[]).map(a=>a.name).join(" & "),
+        preview_url: f.preview_url||""
+      });
+    }
+    if(((i/batchSize)+1) % Math.max(1, Number($("#longBreakEvery").value||120)) === 0){
+      await sleep(jitter(Number($("#longBreakMs").value||300000)));
+    }else{
+      await sleep(jitter(Number($("#batchPauseMs").value||1500)));
+    }
+  }
+  return out;
+}
+
+/*** Checkpoint ***/
+function loadCheckpoint(){
+  try{
+    const cp=JSON.parse(localStorage.getItem(CHECKPOINT_KEY)||"null");
+    if(!cp) return null;
+    g.doneKeys=new Set(cp.done||[]);
+    g.results=cp.results||[];
+    return cp;
+  }catch{return null;}
+}
+function saveCheckpoint(){
+  const cp={ done:[...g.doneKeys], results:g.results };
+  localStorage.setItem(CHECKPOINT_KEY, JSON.stringify(cp));
+  $("#downloadCheckpointBtn").disabled = false;
+}
+function clearCheckpoint(){
+  localStorage.removeItem(CHECKPOINT_KEY);
+  g.doneKeys=new Set(); g.results=[];
+  $("#downloadCheckpointBtn").disabled = true;
+}
+
+/*** Run loop ***/
+let stopSignal=false;
+async function run(){
+  g.running=true; stopSignal=false; $("#pauseBtn").disabled=false; $("#startBtn").disabled=true; $("#resumeBtn").disabled=true;
+  const total=g.uniqueKeys.length;
+  let done=0;
+  for(const key of g.uniqueKeys){
+    if(stopSignal){ g.running=false; $("#resumeBtn").disabled=false; $("#pauseBtn").disabled=true; log("一時停止"); return; }
+    if(g.doneKeys.has(key)){ done++; $("#prog").value=Math.round(done/total*100); continue; }
+
+    log(`Resolve: ${key}`);
+    try{
+      const sampleRow = g.rowsByKey.get(key)[0];
+      const r=await resolveAlbum(sampleRow, g.cols);
+      if(!r){ log(`Resolve err: ${key} → not found`); g.doneKeys.add(key); done++; $("#prog").value=Math.round(done/total*100); saveCheckpoint(); continue; }
+      const outs=await harvestAlbumTracksFull(r.albumId, key, r.url);
+      g.results.push(...outs);
+      log(`album:${r.albumId} tracks:${outs.length}`);
+    }catch(e){
+      log(`Resolve err: ${key} → ${e.message||e}`);
+      if($("#emergencyMode").checked){
+        const emg=Number($("#emgPerReqMs").value||30000);
+        setRate(`emergency wait ${emg}ms`); await sleep(emg);
+      }
+    }
+    g.doneKeys.add(key);
+    done++;
+    $("#prog").value=Math.round(done/total*100);
+    // periodic save
+    if(done%3===0) saveCheckpoint();
+  }
+  saveCheckpoint();
+  $("#downloadTracksBtn").disabled = g.results.length===0;
+  $("#pauseBtn").disabled=true;
+  g.running=false;
+  log("完了");
+}
+
+/*** File + UI wiring ***/
+function refreshAuthStatus(){ $("#authStatus").textContent = tokenStatusText(); }
+function maybeEnableStart(){
+  const hasCSV = g.rows && g.rows.length>0;
+  const hasTok = !!getTokObj();
+  $("#startBtn").disabled = !(hasCSV && hasTok);
+}
+
+function downloadCSV(filename, rows){
+  if(!rows.length){ alert("出力なし"); return; }
+  const headers=Object.keys(rows[0]);
+  const csv = [headers.join(","), ...rows.map(r=>headers.map(h=>{
+    const v = r[h]==null?"":String(r[h]).replace(/"/g,'""');
+    return /[",\n]/.test(v) ? `"${v}"` : v;
+  }).join(","))].join("\n");
+  const blob=new Blob([csv],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download=filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function buildRowsByKey(rows, cols){
+  const map=new Map();
+  for(const r of rows){
+    const k=makeKey(r,cols);
+    if(!map.has(k)) map.set(k,[]);
+    map.get(k).push(r);
+  }
+  return map;
+}
+
+window.addEventListener("load", ()=>{
+  refreshAuthStatus();
+  $("#clearBtn").onclick=()=>{ localStorage.removeItem("sp_token"); refreshAuthStatus(); maybeEnableStart(); };
+  $("#diagBtn").onclick=async()=>{
+    try{
+      const me=await api("/v1/me", {});
+      log(`[diag] country:${me.country||"-"} product:${me.product||"-"} id:${me.id}`);
+      refreshAuthStatus();
+    }catch(e){ log(`[diag] failed: ${e.message||e}`); }
+  };
+
+  $("#csvFile").addEventListener("change", (ev)=>{
+    const f=ev.target.files?.[0]; if(!f) return;
+    g.fileName=f.name;
+    Papa.parse(f,{header:true,skipEmptyLines:true,complete:(res)=>{
+      g.rows=res.data||[];
+      g.cols=detectCols(res.meta.fields||[]);
+      $("#fileInfo").textContent = `[CSV] loaded: ${g.rows.length} rows from ${f.name}\n[CSV] detected columns: ${JSON.stringify({url:g.cols.url,upc:g.cols.upc,isrc:g.cols.isrc,album:g.cols.album,version:g.cols.version,track:g.cols.track})}`;
+      previewTable(g.rows);
+      // unique keys
+      g.rowsByKey = buildRowsByKey(g.rows, g.cols);
+      g.uniqueKeys = [...g.rowsByKey.keys()];
+      log(`Unique keys: ${g.uniqueKeys.length}`);
+      // checkpoint
+      const cp=loadCheckpoint();
+      if(cp){ log(`resume: ${g.doneKeys.size} processed`);} else { log(`no checkpoint to resume`); }
+      maybeEnableStart();
+    }});
+  });
+
+  $("#startBtn").onclick=()=>{ run(); };
+  $("#pauseBtn").onclick=()=>{ stopSignal=true; };
+  $("#resumeBtn").onclick=()=>{ if(!g.running){ stopSignal=false; run(); } };
+  $("#clearChkBtn").onclick=()=>{ clearCheckpoint(); log("checkpoint cleared"); };
+  $("#downloadTracksBtn").onclick=()=>{ downloadCSV(`fulltracks_${g.fileName||'out'}.csv`, g.results); };
+  $("#downloadCheckpointBtn").onclick=()=>{ 
+    const rows=[...g.doneKeys].map(k=>({key:k}));
+    downloadCSV(`checkpoint_${Date.now()}.csv`, rows);
+  };
+
+  // live enable
+  setInterval(()=>{ refreshAuthStatus(); maybeEnableStart(); }, 1000);
+});
 </script>
 </body>
 </html>
