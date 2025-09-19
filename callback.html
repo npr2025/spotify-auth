@@ -12,76 +12,37 @@
 <body>
 <h1>Spotify 認可リダイレクト</h1>
 <div id="msg">処理中…</div>
-<p><a href="./fulltracks_ultra_safe_v2.html">ツールへ戻る</a></p>
+<p><a href="./fulltracks_ultra_safe_v2.html">戻る</a></p>
 
 <script>
 const CLIENT_ID="378ef0f44b36499abd10d118ddbddc98";
 const REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
 
-async function exchange(code, verifier){
+async function exchange(code,verifier){
   const body=new URLSearchParams({
-    client_id:CLIENT_ID,
-    grant_type:'authorization_code',
-    code,
-    redirect_uri:REDIRECT_URI,
-    code_verifier:verifier
+    client_id:CLIENT_ID,grant_type:"authorization_code",code,redirect_uri:REDIRECT_URI,code_verifier:verifier
   });
-  const res=await fetch("https://accounts.spotify.com/api/token",{
-    method:"POST",
-    headers:{"Content-Type":"application/x-www-form-urlencoded"},
-    body
-  });
-  const txt=await res.text();
-  if(!res.ok) throw new Error(res.status+" "+txt);
-  return JSON.parse(txt);
+  const res=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
+  if(!res.ok)throw new Error(await res.text());
+  return res.json();
 }
 
-(function(){
-  const msg=document.getElementById("msg");
+(async()=>{
   const sp=new URLSearchParams(location.search);
-  const code  = sp.get("code");
-  const state = sp.get("state");
-  const cookieState = (document.cookie.match(/(?:^|;\\s*)sp_state=([^;]+)/)||[])[1] || "";
-
-  const storedState = sessionStorage.getItem("sp_state")
-                   || localStorage.getItem("sp_state")
-                   || cookieState;
-
-  if(!code){ msg.innerHTML=`<span class=bad>エラー: code なし</span>`; return; }
-  if(storedState !== state){
-    msg.innerHTML=`<span class=bad>state 不一致</span>`; return;
-  }
-
-  let verifier = sessionStorage.getItem("sp_pkce_verifier")
-               || localStorage.getItem("sp_pkce_verifier")
-               || "";
-  if(!verifier){ msg.innerHTML=`<span class=bad>verifier 不明</span>`; return; }
-
-  (async ()=>{
-    try{
-      const tok=await exchange(code,verifier);
-      const expires_at=Date.now()+tok.expires_in*1000-10000;
-      const store={access_token:tok.access_token,token_type:tok.token_type||"Bearer",scope:tok.scope||"",expires_at};
-      localStorage.setItem("sp_token",JSON.stringify(store));
-
-      // URL掃除・一時データ掃除
-      try{ history.replaceState(null,"",REDIRECT_URI); }catch{}
-      try{
-        sessionStorage.removeItem("sp_pkce_verifier");
-        sessionStorage.removeItem("sp_state");
-        localStorage.removeItem("sp_pkce_verifier");
-        localStorage.removeItem("sp_state");
-        document.cookie = "sp_state=; Max-Age=0; Path=/; SameSite=Lax";
-      }catch{}
-
-      console.log("sp_token 保存:", store);
-      msg.innerHTML=`<span class=ok>認証成功: 有効期限 ${new Date(expires_at).toLocaleString()}</span>`;
-      setTimeout(()=>location.assign("./fulltracks_ultra_safe_v2.html"),1200);
-    }catch(e){
-      console.error("交換失敗",e);
-      msg.innerHTML=`<span class=bad>交換失敗: ${e.message}</span>`;
-    }
-  })();
+  const code=sp.get("code");const state=sp.get("state");
+  if(!code){msg.textContent="エラー: codeなし";return;}
+  const st=sessionStorage.getItem("sp_state")||localStorage.getItem("sp_state");
+  if(state!==st){msg.textContent="エラー: state不一致";return;}
+  const verifier=sessionStorage.getItem("sp_pkce_verifier")||localStorage.getItem("sp_pkce_verifier");
+  if(!verifier){msg.textContent="エラー: verifierなし";return;}
+  try{
+    const tok=await exchange(code,verifier);
+    const expires_at=Date.now()+tok.expires_in*1000-10000;
+    localStorage.setItem("sp_token",JSON.stringify({access_token:tok.access_token,expires_at}));
+    sessionStorage.clear();localStorage.removeItem("sp_pkce_verifier");localStorage.removeItem("sp_state");
+    msg.innerHTML="<span class=ok>認証成功</span>";
+    setTimeout(()=>location.href="./fulltracks_ultra_safe_v2.html",1000);
+  }catch(e){msg.innerHTML="<span class=bad>交換失敗:"+e+"</span>";}
 })();
 </script>
 </body>
