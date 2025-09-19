@@ -3,32 +3,49 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Spotify Auth (PKCE)</title>
+<title>Spotify Auth (PKCE, no-scope)</title>
 <style>
   body{font-family:system-ui;margin:2rem}
   button{padding:.6rem 1rem;border-radius:8px;border:1px solid #999;background:#111;color:#fff;cursor:pointer}
+  .row{display:flex;gap:1rem;align-items:center;margin:.5rem 0}
+  .muted{color:#666}
+  code{font-family:ui-monospace,Menlo,Consolas,monospace}
 </style>
 </head>
 <body>
-<h1>Spotify 認証</h1>
-<button id="connectBtn">Spotifyに接続</button>
-<a href="./fulltracks_ultra_safe_v2.html?v=20250919" style="margin-left:1rem">戻る</a>
+<h1>Spotify 認証（スコープなし）</h1>
+<div class="row">
+  <button id="connectBtn">Spotifyに接続</button>
+  <a href="./fulltracks_ultra_safe_v2.html?v=20250919-1"><button>戻る</button></a>
+  <button id="clearBtn" style="background:#eee;color:#111;border-color:#bbb">保存トークン削除</button>
+</div>
+<p class="muted">Client ID: <code>378ef0f44b36499abd10d118ddbddc98</code> / Redirect: <code>https://npr2025.github.io/spotify-auth/callback.html</code></p>
+<pre id="log" class="muted"></pre>
 <script>
 const CLIENT_ID="378ef0f44b36499abd10d118ddbddc98";
 const REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
-
-/* ★スコープは完全に要求しない（param自体を送らない） */
-const SCOPE=""; // 空
 
 function base64url(a){return btoa(String.fromCharCode.apply(null,new Uint8Array(a))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");}
 async function sha256(s){return crypto.subtle.digest("SHA-256",new TextEncoder().encode(s));}
 function rnd(len=64){const c="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";return Array.from(crypto.getRandomValues(new Uint8Array(len)),x=>c[x%c.length]).join("");}
 
+const logEl=document.getElementById("log");
+function log(m){logEl.textContent+=m+"\n";}
+
+document.getElementById("clearBtn").onclick=()=>{
+  localStorage.removeItem("sp_token");
+  sessionStorage.removeItem("sp_pkce_verifier");
+  sessionStorage.removeItem("sp_state");
+  localStorage.removeItem("sp_pkce_verifier");
+  localStorage.removeItem("sp_state");
+  log("cleared saved tokens & pkce caches");
+};
+
 document.getElementById("connectBtn").onclick=async()=>{
   const verifier=rnd(); const challenge=base64url(await sha256(verifier)); const state=Math.random().toString(36).slice(2);
-  sessionStorage.setItem("sp_pkce_verifier",verifier); sessionStorage.setItem("sp_state",state);
-  localStorage.setItem("sp_pkce_verifier",verifier); localStorage.setItem("sp_state",state);
-
+  sessionStorage.setItem("sp_pkce_verifier",verifier);
+  sessionStorage.setItem("sp_state",state);
+  // localStorageは使わない（古残りで衝突させない）
   const params={
     client_id:CLIENT_ID,
     response_type:"code",
@@ -37,12 +54,9 @@ document.getElementById("connectBtn").onclick=async()=>{
     code_challenge:challenge,
     state
   };
-  // scopeは空なら付けない（Illegal scope予防）
-  const usp=new URLSearchParams(params);
-  if(SCOPE && SCOPE.trim()){ usp.set("scope", SCOPE.trim()); }
-
+  const usp=new URLSearchParams(params); // ★scopeは一切追加しない
   const url="https://accounts.spotify.com/authorize?"+usp.toString();
-  console.log("[auth] authorize URL:", url);
+  log("authorize → "+url);
   location.href=url;
 };
 </script>
