@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Primary vs Remixer Auditor — CSV Inspector</title>
+<link rel="preconnect" href="https://unpkg.com">
+<script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+<style>
+  :root{--bg:#0b0b0c;--card:#17181b;--ink:#e9eaee;--muted:#a7abb4;--acc:#5ec1ff;--warn:#ffcd57;--bad:#ff6b6b;--ok:#2ecc71;--line:#2a2c31}
+  *{box-sizing:border-box}
+  body{margin:0;padding:2rem;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial,'Noto Sans JP',sans-serif}
+  h1{font-size:1.35rem;margin:0 0 1rem 0}
+  .wrap{max-width:1100px;margin:0 auto}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:1rem;margin-bottom:1rem}
+  .row{display:flex;flex-wrap:wrap;gap:1rem;align-items:center}
+  .grow{flex:1 1 auto}
+  label{font-size:.9rem;color:var(--muted)}
+  input[type="text"]{width:100%;padding:.65rem .8rem;border:1px solid var(--line);border-radius:10px;background:#111319;color:var(--ink)}
+  input[type="file"]{padding:.9rem;border:1px dashed var(--line);border-radius:12px;background:#111319;color:var(--muted)}
+  select{padding:.5rem .6rem;border:1px solid var(--line);border-radius:10px;background:#111319;color:var(--ink)}
+  .btn{padding:.6rem 1rem;border-radius:10px;border:1px solid var(--line);background:#111319;color:var(--ink);cursor:pointer}
+  .btn.primary{background:var(--acc);border-color:transparent;color:#061422;font-weight:700}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .tag{display:inline-flex;gap:.35rem;align-items:center;border:1px solid var(--line);border-radius:999px;padding:.25rem .55rem;font-size:.8rem;color:var(--muted);margin-right:.35rem}
+  .tag.bad{border-color:color-mix(in oklab, var(--bad) 60%, var(--line));color:var(--bad);font-weight:600}
+  .tag.warn{border-color:color-mix(in oklab, var(--warn) 60%, var(--line));color:var(--warn);font-weight:600}
+  .tag.ok{border-color:color-mix(in oklab, var(--ok) 60%, var(--line));color:var(--ok);font-weight:600}
+  table{width:100%;border-collapse:separate;border-spacing:0}
+  th,td{padding:.55rem .65rem;vertical-align:top;border-bottom:1px solid var(--line);font-size:.92rem}
+  th{position:sticky;top:0;background:var(--card);z-index:1;text-align:left;color:#cfd3da}
+  tr.flag-bad{background:linear-gradient(90deg, color-mix(in oklab, var(--bad) 12%, transparent), transparent 20%)}
+  .muted{color:var(--muted)}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
+  .small{font-size:.85rem}
+  details summary{cursor:pointer;color:#b8c0ff}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:.75rem}
+  .hr{height:1px;background:var(--line);margin:.75rem 0}
+  .pill{display:inline-flex;align-items:center;gap:.4rem;border:1px solid var(--line);border-radius:999px;padding:.25rem .6rem;margin-right:.4rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Primary vs Remixer Auditor</h1>
+  <div class="card">
+    <div class="row">
+      <div class="grow">
+        <label>CSVファイル（FUGA/配信用メタデータなど）</label>
+        <input id="file" type="file" accept=".csv,text/csv"/>
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <button id="btnParse" class="btn primary" disabled>読み込む</button>
+      </div>
+    </div>
+    <div class="hr"></div>
+    <div class="grid">
+      <div>
+        <label>モード</label><br/>
+        <select id="mode">
+          <option value="album">各行ごとの「Album display artist」列を期待プライマリとみなす</option>
+          <option value="manual">下の入力に書いた “期待プライマリ” と一致すべき</option>
+        </select>
+      </div>
+      <div>
+        <label>期待プライマリ（手動モード時、カンマ区切り）</label>
+        <input id="expected" type="text" placeholder="例: The Darrow Chem Syndicate"/>
+      </div>
+      <div>
+        <label>大文字/小文字を無視</label><br/>
+        <select id="casefold">
+          <option value="1">はい</option>
+          <option value="0">いいえ</option>
+        </select>
+      </div>
+      <div>
+        <label>区切り文字（複数選択）</label><br/>
+        <span class="pill"><input type="checkbox" class="sep" value="," checked>,（カンマ）</span>
+        <span class="pill"><input type="checkbox" class="sep" value="/" checked>/（スラッシュ）</span>
+        <span class="pill"><input type="checkbox" class="sep" value="／" checked>／（全角スラッシュ）</span>
+        <span class="pill"><input type="checkbox" class="sep" value="，">，（全角カンマ）</span>
+        <span class="pill"><input type="checkbox" class="sep" value="・">・</span>
+        <span class="pill"><input type="checkbox" class="sep" value=" & "> & </span>
+      </div>
+    </div>
+    <div class="hr"></div>
+    <details>
+      <summary>列の自動検出（必要なら上書き）</summary>
+      <div class="grid" style="margin-top:.75rem">
+        <div>
+          <label>Album title 列</label>
+          <select id="colAlbumTitle"></select>
+        </div>
+        <div>
+          <label>Album version 列</label>
+          <select id="colAlbumVersion"></select>
+        </div>
+        <div>
+          <label>Album display artist 列（モード=album時の期待）</label>
+          <select id="colAlbumDisplay"></select>
+        </div>
+        <div>
+          <label>Catalog number 列</label>
+          <select id="colCatno"></select>
+        </div>
+        <div>
+          <label>UPC 列</label>
+          <select id="colUpc"></select>
+        </div>
+        <div>
+          <label>Track sequence 列</label>
+          <select id="colSeq"></select>
+        </div>
+        <div>
+          <label>Track title 列</label>
+          <select id="colTrack"></select>
+        </div>
+        <div>
+          <label>Track version 列</label>
+          <select id="colTrackVer"></select>
+        </div>
+        <div>
+          <label>Primary artists 列</label>
+          <select id="colPrimary"></select>
+        </div>
+        <div>
+          <label>Featuring artists 列（任意）</label>
+          <select id="colFeat"></select>
+        </div>
+        <div>
+          <label>Remixer 列</label>
+          <select id="colRemixer"></select>
+        </div>
+        <div>
+          <label>ISRC 列</label>
+          <select id="colIsrc"></select>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div class="row" style="gap:.6rem">
+        <span class="tag">総トラック <span id="total">0</span></span>
+        <span class="tag bad">要注意（RemixerがPrimary） <span id="bad">0</span></span>
+        <span class="tag warn">期待と異なるPrimary <span id="warn">0</span></span>
+        <span class="tag ok">問題なし <span id="ok">0</span></span>
+      </div>
+      <div class="row" style="gap:.5rem">
+        <label class="small"><input type="checkbox" id="filterBad" checked/> 要注意のみ</label>
+        <label class="small"><input type="checkbox" id="filterWarn"/> 期待不一致も含める</label>
+        <button id="btnExport" class="btn" disabled>フラグ行をCSV書き出し</button>
+      </div>
+    </div>
+    <div class="hr"></div>
+    <div style="max-height:65vh;overflow:auto;border:1px solid var(--line);border-radius:12px">
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Album</th>
+            <th>Track</th>
+            <th>Primary</th>
+            <th>Remixer</th>
+            <th>Flags</th>
+            <th class="muted">Cat#</th>
+            <th class="muted">UPC</th>
+            <th class="muted">ISRC</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card small muted">
+    使い方ヒント：
+    <ul>
+      <li>「モード=album」で、各行の <b>Album display artist</b> を期待プライマリとして扱います。</li>
+      <li>「モード=manual」で、上の入力欄に書いたアーティスト名集合と一致するかチェックします。</li>
+      <li>区切り記号はカンマ/スラッシュなど複数に対応。お好みでON/OFFしてください。</li>
+      <li>“RemixerがPrimary” は <span class="tag bad">赤</span>、”期待と異なるPrimary” は <span class="tag warn">黄</span> で表示します。</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+let headers = [];
+let rows = [];
+
+const byId = id => document.getElementById(id);
+const selVals = cls => Array.from(document.querySelectorAll('.' + cls)).filter(x=>x.checked).map(x=>x.value);
+
+function fillSelectOptions(sel, names){
+  sel.innerHTML = "";
+  const empty = document.createElement('option');
+  empty.value = ""; empty.textContent = "(なし)";
+  sel.appendChild(empty);
+  names.forEach(n => { const o = document.createElement('option'); o.value = n; o.textContent = n; sel.appendChild(o); });
+}
+
+function guess(headers, patterns){
+  const target = headers.map(h=>({h, lc:h.toLowerCase()}));
+  for(const pat of patterns){
+    const lcPat = pat.toLowerCase();
+    const hit = target.find(t => t.lc === lcPat);
+    if(hit) return hit.h;
+  }
+  // fuzzy contains
+  for(const pat of patterns){
+    const lcPat = pat.toLowerCase();
+    const hit = target.find(t => t.lc.includes(lcPat));
+    if(hit) return hit.h;
+  }
+  return "";
+}
+
+function setupColumnGuesses(){
+  const h = headers;
+  fillSelectOptions(byId('colAlbumTitle'), h);
+  fillSelectOptions(byId('colAlbumVersion'), h);
+  fillSelectOptions(byId('colAlbumDisplay'), h);
+  fillSelectOptions(byId('colCatno'), h);
+  fillSelectOptions(byId('colUpc'), h);
+  fillSelectOptions(byId('colSeq'), h);
+  fillSelectOptions(byId('colTrack'), h);
+  fillSelectOptions(byId('colTrackVer'), h);
+  fillSelectOptions(byId('colPrimary'), h);
+  fillSelectOptions(byId('colFeat'), h);
+  fillSelectOptions(byId('colRemixer'), h);
+  fillSelectOptions(byId('colIsrc'), h);
+
+  byId('colAlbumTitle').value   = guess(h, ['Album title','Album','Release Title']);
+  byId('colAlbumVersion').value = guess(h, ['Album version','Version']);
+  byId('colAlbumDisplay').value = guess(h, ['Album display artist','Album artist','Display Artist']);
+  byId('colCatno').value        = guess(h, ['Catalog number','Catalogue number','Cat No','CatNo']);
+  byId('colUpc').value          = guess(h, ['UPC','EAN','UPC/EAN']);
+  byId('colSeq').value          = guess(h, ['Track sequence','Track no','Track #','Track number','Position']);
+  byId('colTrack').value        = guess(h, ['Track title','Title','Track Name']);
+  byId('colTrackVer').value     = guess(h, ['Track version','Mix Name','Version']);
+  byId('colPrimary').value      = guess(h, ['Primary artists','Primary artist','Track primary artists','Primary']);
+  byId('colFeat').value         = guess(h, ['Featuring artists','Featuring','Feat']);
+  byId('colRemixer').value      = guess(h, ['Remixer','Remixers']);
+  byId('colIsrc').value         = guess(h, ['ISRC']);
+}
+
+function getSelectedCols(){
+  return {
+    albumTitle: byId('colAlbumTitle').value,
+    albumVersion: byId('colAlbumVersion').value,
+    albumDisplay: byId('colAlbumDisplay').value,
+    catno: byId('colCatno').value,
+    upc: byId('colUpc').value,
+    seq: byId('colSeq').value,
+    track: byId('colTrack').value,
+    trackVer: byId('colTrackVer').value,
+    primary: byId('colPrimary').value,
+    feat: byId('colFeat').value,
+    remixer: byId('colRemixer').value,
+    isrc: byId('colIsrc').value,
+  };
+}
+
+function splitNames(s, seps){
+  if(!s) return [];
+  let out = [String(s)];
+  // normalize some commas
+  const rep = { "，": ",", "／": "/", "　": " " };
+  for(const [from,to] of Object.entries(rep)){
+    out = out.map(x=>x.split(from).join(to));
+  }
+  // apply separators
+  for(const sep of seps){
+    out = out.flatMap(x => x.split(sep));
+  }
+  return out.map(x=>x.trim()).filter(Boolean);
+}
+
+function normName(s, casefold){
+  if(!s) return "";
+  let t = s.trim();
+  if(casefold) t = t.toLowerCase();
+  // collapse inner spaces
+  t = t.replace(/\s+/g, " ");
+  return t;
+}
+
+function arrayEqSet(a,b){ // compare as sets
+  const sa = new Set(a), sb = new Set(b);
+  if(sa.size!==sb.size) return false;
+  for(const v of sa) if(!sb.has(v)) return false;
+  return true;
+}
+
+function render(){
+  const tbody = byId('tbl').querySelector('tbody');
+  tbody.innerHTML = "";
+  const casefold = byId('casefold').value === "1";
+  const seps = selVals('sep');
+  const mode = byId('mode').value;
+  const expectedInput = splitNames(byId('expected').value, seps).map(x=>normName(x, casefold));
+
+  const c = getSelectedCols();
+  const has = k => c[k] && c[k].length>0;
+
+  let total=0,bad=0,warn=0,ok=0;
+  const flagged = [];
+
+  for(const row of rows){
+    const albumTitle = has('albumTitle') ? (row[c.albumTitle] ?? "") : "";
+    const albumVersion = has('albumVersion') ? (row[c.albumVersion] ?? "") : "";
+    const albumDisplay = has('albumDisplay') ? (row[c.albumDisplay] ?? "") : "";
+    const track = has('track') ? (row[c.track] ?? "") : "";
+    const trackVer = has('trackVer') ? (row[c.trackVer] ?? "") : "";
+    const primaryRaw = has('primary') ? (row[c.primary] ?? "") : "";
+    const remixerRaw = has('remixer') ? (row[c.remixer] ?? "") : "";
+    const feat = has('feat') ? (row[c.feat] ?? "") : "";
+    const seq = has('seq') ? (row[c.seq] ?? "") : "";
+    const catno = has('catno') ? (row[c.catno] ?? "") : "";
+    const upc = has('upc') ? (row[c.upc] ?? "") : "";
+    const isrc = has('isrc') ? (row[c.isrc] ?? "") : "";
+
+    // parse lists
+    const primaryList = splitNames(primaryRaw, seps).map(x=>normName(x, casefold));
+    const remixerList = splitNames(remixerRaw, seps).map(x=>normName(x, casefold));
+    const expectedList = (mode === "album")
+      ? splitNames(albumDisplay, seps).map(x=>normName(x, casefold))
+      : expectedInput;
+
+    // flags
+    const inter = primaryList.filter(x => remixerList.includes(x));
+    const remixerInPrimary = inter.length>0;
+    const expectedMismatch = expectedList.length>0 ? !arrayEqSet(primaryList, expectedList) : false;
+
+    total++;
+    let tr = document.createElement('tr');
+    let flags = [];
+    let className = "";
+    if(remixerInPrimary){ flags.push("Remixer=Primary"); className="flag-bad"; bad++; }
+    if(expectedMismatch){ flags.push("Primary≠Expected"); if(!className) className="flag-warn"; warn++; }
+    if(!remixerInPrimary && !expectedMismatch){ ok++; }
+
+    const filterBad = byId('filterBad').checked;
+    const filterWarn = byId('filterWarn').checked;
+    const hide = (filterBad && !remixerInPrimary) && !(filterWarn && expectedMismatch);
+    if(hide) continue;
+
+    if(remixerInPrimary || expectedMismatch){
+      flagged.push({
+        album: albumTitle,
+        album_version: albumVersion,
+        track: track,
+        track_version: trackVer,
+        primary: primaryRaw,
+        remixer: remixerRaw,
+        feat: feat,
+        flags: flags.join("; "),
+        catno: catno, upc: upc, isrc: isrc, seq: seq
+      });
+    }
+
+    tr.className = className;
+    tr.innerHTML = `
+      <td class="mono">${total}</td>
+      <td><div class="mono small">${albumTitle || ""}</div><div class="muted small">${albumVersion || ""}</div></td>
+      <td><div>${track || ""}</div><div class="muted small">${trackVer || ""}</div></td>
+      <td class="small"><div class="mono">${primaryRaw || ""}</div></td>
+      <td class="small"><div class="mono">${remixerRaw || ""}</div></td>
+      <td>${flags.map(f=>`<span class="tag ${f.includes('Remixer')?'bad':'warn'}">${f}</span>`).join(" ")}</td>
+      <td class="muted mono small">${catno||""}</td>
+      <td class="muted mono small">${upc||""}</td>
+      <td class="muted mono small">${isrc||""}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  byId('total').textContent = String(total);
+  byId('bad').textContent = String(bad);
+  byId('warn').textContent = String(warn);
+  byId('ok').textContent = String(ok);
+
+  const btnExport = byId('btnExport');
+  btnExport.disabled = flagged.length===0;
+  btnExport.onclick = () => {
+    const csv = Papa.unparse(flagged);
+    const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = "flagged_primary_remixer.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+}
+
+byId('file').addEventListener('change', e => {
+  byId('btnParse').disabled = !e.target.files?.length;
+});
+
+byId('btnParse').addEventListener('click', () => {
+  const f = byId('file').files?.[0];
+  if(!f) return;
+  Papa.parse(f, {
+    header:true,
+    skipEmptyLines:true,
+    transformHeader: h => h.trim(),
+    complete: res => {
+      headers = res.meta.fields || [];
+      rows = res.data || [];
+      setupColumnGuesses();
+      render();
+    },
+    error: err => alert("CSVの読み込みでエラー: " + err)
+  });
+});
+
+['mode','expected','casefold','filterBad','filterWarn'].forEach(id => {
+  byId(id).addEventListener('change', render);
+});
+document.querySelectorAll('.sep').forEach(cb => cb.addEventListener('change', render));
+
+['colAlbumTitle','colAlbumVersion','colAlbumDisplay','colCatno','colUpc','colSeq','colTrack','colTrackVer','colPrimary','colFeat','colRemixer','colIsrc']
+  .forEach(id => byId(id).addEventListener('change', render));
+</script>
+</body>
+</html>
