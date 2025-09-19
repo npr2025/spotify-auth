@@ -1,82 +1,29 @@
 <!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Spotify Auth (PKCE) — TDCS</title>
-  <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial,'Noto Sans JP';margin:2rem}
-    .card{border:1px solid #ddd;border-radius:10px;padding:1rem;max-width:720px}
-    button{padding:.7rem 1.1rem;border-radius:8px;border:1px solid #999;background:#111;color:#fff;cursor:pointer}
-    code{background:#f6f6f6;padding:.15rem .35rem;border-radius:4px}
-    .muted{color:#666}
-  </style>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Spotify Auth (PKCE)</title>
 </head>
 <body>
-  <div class="card">
-    <h1>Spotify 認証（PKCE）</h1>
-    <p class="muted">
-      Client ID: <code>378ef0f44b36499abd10d118ddbddc98</code><br>
-      Redirect URI: <code>https://npr2025.github.io/spotify-auth/callback.html</code>
-    </p>
-    <p>
-      <button id="connectBtn">Spotifyに接続</button>
-      <a href="./fulltracks_ultra_safe_v2.html" style="margin-left:1rem">戻る</a>
-    </p>
-    <p><button id="clearBtn" style="background:#eee;color:#111">保存トークン削除</button> <span id="status" class="muted"></span></p>
-  </div>
-
+<h1>Spotify 認証</h1>
+<button id="connectBtn">Spotifyに接続</button>
+<a href="./fulltracks_ultra_safe_v2.html">戻る</a>
 <script>
-const CLIENT_ID = "378ef0f44b36499abd10d118ddbddc98";
-const REDIRECT_URI = "https://npr2025.github.io/spotify-auth/callback.html";
-const SCOPE = ""; // 公開データ読み取りのみなら空でOK
+const CLIENT_ID="378ef0f44b36499abd10d118ddbddc98";
+const REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
 
-function base64urlencode(a){
-  return btoa(String.fromCharCode.apply(null, new Uint8Array(a)))
-    .replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');
-}
-async function sha256(str){
-  const buf = new TextEncoder().encode(str);
-  return await crypto.subtle.digest('SHA-256', buf);
-}
-function randomString(len=64){
-  const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
-  const arr=new Uint8Array(len); crypto.getRandomValues(arr);
-  return Array.from(arr, b=>chars[b%chars.length]).join('');
-}
+function base64url(a){return btoa(String.fromCharCode.apply(null,new Uint8Array(a))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");}
+async function sha256(s){return crypto.subtle.digest("SHA-256",new TextEncoder().encode(s));}
+function rnd(len=64){const c="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";return Array.from(crypto.getRandomValues(new Uint8Array(len)),x=>c[x%c.length]).join("");}
 
-async function beginAuth(){
-  const verifier = randomString(64);
-  const challenge = base64urlencode(await sha256(verifier));
-  const state = Math.random().toString(36).slice(2);
-
-  // 三重保存（Safari/iOS対策）
-  sessionStorage.setItem('sp_pkce_verifier', verifier);
-  sessionStorage.setItem('sp_state', state);
-  try{
-    localStorage.setItem('sp_pkce_verifier', verifier);
-    localStorage.setItem('sp_state', state);
-    document.cookie = `sp_state=${state}; Path=/; SameSite=Lax`;
-  }catch{}
-
-  const params = new URLSearchParams({
-    client_id: CLIENT_ID,
-    response_type: 'code',
-    redirect_uri: REDIRECT_URI,
-    code_challenge_method: 'S256',
-    code_challenge: challenge,
-    scope: SCOPE,
-    state
+document.getElementById("connectBtn").onclick=async()=>{
+  const verifier=rnd();const challenge=base64url(await sha256(verifier));const state=Math.random().toString(36).slice(2);
+  sessionStorage.setItem("sp_pkce_verifier",verifier);sessionStorage.setItem("sp_state",state);
+  localStorage.setItem("sp_pkce_verifier",verifier);localStorage.setItem("sp_state",state);
+  location.href="https://accounts.spotify.com/authorize?"+new URLSearchParams({
+    client_id:CLIENT_ID,response_type:"code",redirect_uri:REDIRECT_URI,code_challenge_method:"S256",code_challenge:challenge,state
   });
-
-  // 同一タブ遷移（state/sessionStorage を確実に引き継ぐ）
-  location.assign('https://accounts.spotify.com/authorize?' + params.toString());
-}
-
-document.getElementById('connectBtn').onclick = beginAuth;
-document.getElementById('clearBtn').onclick = ()=>{
-  try{ localStorage.removeItem('sp_token'); }catch{}
-  document.getElementById('status').textContent='sp_token 削除しました';
 };
 </script>
 </body>
