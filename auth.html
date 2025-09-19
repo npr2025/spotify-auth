@@ -16,7 +16,7 @@
 <h1>Spotify 認証（スコープなし）</h1>
 <div class="row">
   <button id="connectBtn">Spotifyに接続</button>
-  <a href="./fulltracks_ultra_safe_v2.html?v=20250919-2"><button>戻る</button></a>
+  <a href="./fulltracks_ultra_safe_v2.html?v=20250919-3"><button>戻る</button></a>
   <button id="clearBtn" style="background:#eee;color:#111;border-color:#bbb">保存トークン削除</button>
 </div>
 <p class="muted">Client ID: <code>378ef0f44b36499abd10d118ddbddc98</code> / Redirect: <code>https://npr2025.github.io/spotify-auth/callback.html</code></p>
@@ -50,8 +50,8 @@ document.getElementById("connectBtn").onclick=async()=>{
     code_challenge_method:"S256",
     code_challenge:challenge,
     state,
-    // scope は指定しない（no-scope）
     show_dialog:"true" // refresh_token 付与を安定化
+    // scope は指定しない（no-scope）
   };
   const usp=new URLSearchParams(params);
   const url="https://accounts.spotify.com/authorize?"+usp.toString();
