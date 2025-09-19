@@ -12,7 +12,7 @@
 <body>
 <h1>Spotify 認可リダイレクト</h1>
 <div id="msg">処理中…</div>
-<p><a href="./fulltracks_ultra_safe_v2.html?v=20250919-2">戻る</a></p>
+<p><a href="./fulltracks_ultra_safe_v2.html?v=20250919-3">戻る</a></p>
 
 <script>
 const CLIENT_ID="378ef0f44b36499abd10d118ddbddc98";
@@ -50,7 +50,7 @@ async function exchange(code,verifier){
     localStorage.setItem("sp_token",JSON.stringify(saved));
     sessionStorage.clear();
     msg.innerHTML="<span class=ok>認証成功</span>";
-    setTimeout(()=>location.href="./fulltracks_ultra_safe_v2.html?v=20250919-2",600);
+    setTimeout(()=>location.href="./fulltracks_ultra_safe_v2.html?v=20250919-3",600);
   }).catch(e=>{
     msg.innerHTML="<span class=bad>交換失敗: "+(e.message||e)+"</span>";
   });
