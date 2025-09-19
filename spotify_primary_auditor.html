@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Spotify Primary Artist Auditor — TDCS / Nipponeer</title>
+<link rel="preconnect" href="https://accounts.spotify.com"/>
+<link rel="preconnect" href="https://api.spotify.com"/>
+<script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+<style>
+  :root{--bg:#0b0b0b;--card:#151515;--muted:#7a7a7a;--fg:#e9e9e9;--accent:#00d672;--warn:#ffd24d;--err:#ff6b6b}
+  html,body{height:100%}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial,'Noto Sans JP',sans-serif;background:var(--bg);color:var(--fg)}
+  h1{font-size:1.4rem;margin:.5rem 0 1rem;letter-spacing:.02em}
+  .wrap{max-width:1100px;margin:0 auto;padding:1.25rem}
+  .row{display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-start}
+  .card{background:var(--card);border:1px solid #242424;border-radius:14px;padding:1rem;box-shadow:0 0 0 1px rgba(255,255,255,.03) inset}
+  .card h2{font-size:1.05rem;margin:.25rem 0 .75rem;color:#fafafa}
+  .grid{display:grid;gap:1rem}
+  .grid.cols-2{grid-template-columns:1fr 1fr}
+  .grid.cols-3{grid-template-columns:1fr 1fr 1fr}
+  label{font-size:.85rem;color:#bdbdbd}
+  input[type=text],input[type=url],textarea,select{width:100%;padding:.6rem .7rem;background:#0f0f0f;border:1px solid #2a2a2a;border-radius:10px;color:#fff;font-size:.95rem}
+  textarea{min-height:110px;white-space:pre}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+  .muted{color:var(--muted)}
+  .pill{display:inline-flex;align-items:center;gap:.35rem;padding:.15rem .5rem;border-radius:999px;font-size:.8rem;border:1px solid #2d2d2d;background:#111}
+  .warn{color:#111;background:var(--warn);border-color:var(--warn)}
+  .err{color:#fff;background:var(--err);border-color:var(--err)}
+  button{padding:.65rem .9rem;border-radius:10px;border:1px solid #2a2a2a;background:#0f0f0f;color:#fff;cursor:pointer}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#001a0d;font-weight:600}
+  button[disabled]{opacity:.5;cursor:not-allowed}
+  table{width:100%;border-collapse:collapse;font-size:.9rem}
+  th,td{padding:.55rem .6rem;border-bottom:1px solid #2a2a2a;vertical-align:top}
+  th{position:sticky;top:0;background:#131313;text-align:left}
+  tr:hover td{background:#101010}
+  details{border:1px dashed #313131;border-radius:10px;padding:.5rem .8rem}
+  summary{cursor:pointer}
+  .flex{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
+  .right{margin-left:auto}
+  .ok{color:#8ef58e}
+  .bad{color:#ff8c8c}
+  .tiny{font-size:.75rem}
+  .footer{margin-top:1rem;font-size:.85rem;color:#b2b2b2}
+  .kits{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.4rem}
+  .kits code{background:#0f0f0f;border:1px solid #2a2a2a;border-radius:8px;padding:.25rem .5rem;display:inline-block}
+  .tag{display:inline-block;padding:.05rem .35rem;border-radius:6px;border:1px solid #2c2c2c;background:#101010;font-size:.75rem;color:#cfcfcf}
+  .green{color:#00d672}
+  .yellow{color:#ffd24d}
+  .red{color:#ff6b6b}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Spotify Primary Artist Auditor <span class="pill">PKCE / no scope</span></h1>
+  <div class="row">
+    <div class="card" style="flex:1 1 370px;min-width:330px">
+      <h2>1) 認証（PKCE）</h2>
+      <div class="grid cols-2">
+        <div>
+          <label>Client ID</label>
+          <input id="clientId" type="text" placeholder="例: 378ef0f44b36499abd10d118ddbddc98">
+        </div>
+        <div>
+          <label>Redirect URI</label>
+          <input id="redirectUri" type="url" placeholder="例: https://npr2025.github.io/spotify-auth/callback.html">
+        </div>
+      </div>
+      <div class="grid cols-2" style="margin-top:.6rem">
+        <div>
+          <label>Scopes（空推奨・不要）</label>
+          <input id="scopes" type="text" placeholder="空でOK（public APIのみ）">
+        </div>
+        <div>
+          <label>Market（国）</label>
+          <input id="market" type="text" value="JP" class="mono">
+        </div>
+      </div>
+      <div class="flex" style="margin-top:.7rem">
+        <button id="btnConnect" class="primary">Spotifyに接続</button>
+        <button id="btnClear">保存トークン削除</button>
+        <span id="tokStat" class="muted tiny"></span>
+      </div>
+      <div class="kits">
+        <code class="tiny">状態: <span id="status">未接続</span></code>
+        <code class="tiny">有効期限: <span id="expires">-</span></code>
+      </div>
+      <p class="tiny muted">※ 公開データの取得のみのためスコープは<strong>空</strong>で問題ありません。「illegal_scope」対策。</p>
+    </div>
+
+    <div class="card" style="flex:2 1 520px;min-width:380px">
+      <h2>2) 対象の指定</h2>
+      <div class="grid cols-2">
+        <div>
+          <label>アーティストID（例: TDCS = <span class="mono">55fvQ5I2IZUfcFT2DV02T3</span>）</label>
+          <input id="artistId" type="text" value="55fvQ5I2IZUfcFT2DV02T3" class="mono">
+        </div>
+        <div>
+          <label>含めるグループ</label>
+          <div class="flex">
+            <label><input type="checkbox" id="g_album" checked> album</label>
+            <label><input type="checkbox" id="g_single" checked> single</label>
+            <label><input type="checkbox" id="g_comp" checked> compilation</label>
+            <label><input type="checkbox" id="g_appears" > appears_on</label>
+          </div>
+        </div>
+      </div>
+      <label style="margin-top:.6rem">アルバムURL/ID（改行区切り）</label>
+      <textarea id="albumList" placeholder="https://open.spotify.com/album/06Yvg4vlPaVfnAWVwmJX27
+https://open.spotify.com/album/4aeD4BUM5mAA1v1hCp9irx
+https://open.spotify.com/album/4jTT5tjAMFfS58xawRjTsV"></textarea>
+      <div class="grid cols-2" style="margin-top:.6rem">
+        <div>
+          <label>期待プライマリー・アーティストID（カンマ区切り）</label>
+          <input id="expectedIds" type="text" value="55fvQ5I2IZUfcFT2DV02T3" class="mono">
+        </div>
+        <div>
+          <label>フラグ閾値（編纂疑い%）</label>
+          <select id="flagThresh">
+            <option value="0.3">30%</option>
+            <option value="0.5" selected>50%</option>
+            <option value="0.7">70%</option>
+          </select>
+        </div>
+      </div>
+      <div class="flex" style="margin-top:.7rem">
+        <button id="btnAuditArtist" class="primary">アーティスト全アルバムを監査</button>
+        <button id="btnAuditAlbums">上記アルバムのみ監査</button>
+        <span class="muted tiny right">marketで可視トラックが変わる点に注意</span>
+      </div>
+    </div>
+
+    <div class="card" style="flex:1 1 370px;min-width:330px">
+      <h2>3) CSV 参照（任意）</h2>
+      <label>FUGA / 自前CSV（spotify_url/album/track等を含む）</label>
+      <input id="csvFile" type="file" accept=".csv">
+      <div class="flex" style="margin-top:.6rem">
+        <button id="btnUseCsv">CSV内のアルバム/トラックを検出して監査</button>
+        <button id="btnExport">結果CSVをダウンロード</button>
+      </div>
+      <p class="tiny muted">列名の自動推測: <span class="mono">spotify_url,url,album,Album title,track,Track title,UPC,ISRC</span></p>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:1rem">
+    <h2>結果</h2>
+    <div id="summary" class="tiny muted"></div>
+    <div style="overflow:auto;max-height:52vh;border:1px solid #2a2a2a;border-radius:10px;margin-top:.5rem">
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>アルバム</th>
+            <th>タイプ</th>
+            <th>アルバムアーティスト</th>
+            <th>総曲数</th>
+            <th>要注意トラック</th>
+            <th>比率</th>
+            <th>推定理由 / 提案</th>
+            <th>詳細</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="footer tiny">判定ロジック（参考）: 曲の <code>artists[]</code> にアルバムの <code>artists[]</code> に含まれないプライマリーが多数混在すると編纂（<span class="mono">album_type=compilation</span>）判定リスクが上がります。DJミックスでも<strong>アルバム側のプライマリーを統一</strong>すれば「アルバム」扱いは可能です（Spotifyの裁量あり）。</p>
+  </div>
+</div>
+
+<script>
+/* ---------- PKCE auth helpers ---------- */
+const qs = new URLSearchParams(location.search);
+const LS = {
+  cfg: 'spa_cfg',
+  tok: 'spa_tok',
+  ver: 'spa_ver',
+};
+
+function $(id){return document.getElementById(id)}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
+
+function saveCfg(){
+  const cfg = {
+    clientId: $('clientId').value.trim(),
+    redirectUri: $('redirectUri').value.trim(),
+    scopes: $('scopes').value.trim(),
+    market: $('market').value.trim() || 'JP',
+    expectedIds: $('expectedIds').value.trim(),
+    flagThresh: parseFloat($('flagThresh').value||'0.5')
+  };
+  localStorage.setItem(LS.cfg, JSON.stringify(cfg));
+  return cfg;
+}
+function loadCfg(){
+  const raw = localStorage.getItem(LS.cfg);
+  if(!raw) return null;
+  try{
+    const cfg = JSON.parse(raw);
+    $('clientId').value = cfg.clientId||'';
+    $('redirectUri').value = cfg.redirectUri||'';
+    $('scopes').value = cfg.scopes||'';
+    $('market').value = cfg.market||'JP';
+    $('expectedIds').value = cfg.expectedIds||'';
+    $('flagThresh').value = (cfg.flagThresh||0.5).toString();
+    return cfg;
+  }catch(_){}
+  return null;
+}
+
+function base64urlencode(a){
+  return btoa(String.fromCharCode.apply(null,new Uint8Array(a)))
+    .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+async function sha256(plain){
+  const data = new TextEncoder().encode(plain);
+  return await crypto.subtle.digest('SHA-256', data);
+}
+function randomStr(len=64){
+  const arr = new Uint8Array(len);
+  crypto.getRandomValues(arr);
+  return Array.from(arr).map(x=>('0'+x.toString(16)).slice(-2)).join('');
+}
+
+async function doAuth(){
+  const cfg = saveCfg();
+  if(!cfg.clientId || !cfg.redirectUri) { alert('Client ID / Redirect URI を入力'); return; }
+  const ver = randomStr(64);
+  const chall = base64urlencode(await sha256(ver));
+  localStorage.setItem(LS.ver, JSON.stringify({ver, ts: Date.now()}));
+  const url = new URL('https://accounts.spotify.com/authorize');
+  url.searchParams.set('response_type','code');
+  url.searchParams.set('client_id', cfg.clientId);
+  url.searchParams.set('redirect_uri', cfg.redirectUri);
+  url.searchParams.set('code_challenge_method','S256');
+  url.searchParams.set('code_challenge', chall);
+  if(cfg.scopes) url.searchParams.set('scope', cfg.scopes);
+  // redirect
+  location.href = url.toString();
+}
+
+async function exchangeToken(code){
+  const cfg = loadCfg() || saveCfg();
+  const verObj = JSON.parse(localStorage.getItem(LS.ver) || '{}');
+  const params = new URLSearchParams();
+  params.set('client_id', cfg.clientId);
+  params.set('grant_type', 'authorization_code');
+  params.set('code', code);
+  params.set('redirect_uri', cfg.redirectUri);
+  params.set('code_verifier', verObj.ver);
+  const resp = await fetch('https://accounts.spotify.com/api/token', {
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body: params.toString()
+  });
+  if(!resp.ok){
+    const t = await resp.text();
+    throw new Error('Token exchange failed: '+t);
+  }
+  const tok = await resp.json();
+  tok.obtained_at = Date.now();
+  localStorage.setItem(LS.tok, JSON.stringify(tok));
+  history.replaceState({}, document.title, location.pathname);
+}
+
+function getTok(){
+  const raw = localStorage.getItem(LS.tok);
+  if(!raw) return null;
+  try{return JSON.parse(raw)}catch(_){return null}
+}
+async function ensureToken(){
+  let tok = getTok();
+  if(!tok) throw new Error('未認証です');
+  const now = Date.now();
+  const expAt = tok.obtained_at + (tok.expires_in-60)*1000;
+  if(now < expAt) return tok;
+  // try refresh (PKCE allows refresh_token if provided)
+  if(!tok.refresh_token) throw new Error('アクセストークン期限切れ（再接続してください）');
+  const cfg = loadCfg() || saveCfg();
+  const params = new URLSearchParams();
+  params.set('grant_type', 'refresh_token');
+  params.set('refresh_token', tok.refresh_token);
+  params.set('client_id', cfg.clientId);
+  const resp = await fetch('https://accounts.spotify.com/api/token', {
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body: params.toString()
+  });
+  if(!resp.ok){
+    throw new Error('Refresh failed');
+  }
+  const nt = await resp.json();
+  nt.obtained_at = Date.now();
+  nt.refresh_token = nt.refresh_token || tok.refresh_token;
+  localStorage.setItem(LS.tok, JSON.stringify(nt));
+  return nt;
+}
+
+function setStatus(){
+  const tok = getTok();
+  if(!tok){ $('status').textContent='未接続'; $('expires').textContent='-'; $('tokStat').textContent=''; return; }
+  const left = (tok.obtained_at + tok.expires_in*1000 - Date.now())/1000;
+  $('status').textContent = left>0 ? '接続済み' : '期限切れ';
+  $('expires').textContent = left>0 ? (Math.floor(left/60)+':'+('0'+Math.floor(left%60)).slice(-2)) : '-';
+  $('tokStat').textContent = left>0 ? `トークンOK（残り ${Math.floor(left/60)}:${('0'+Math.floor(left%60)).slice(-2)})` : '再接続してください';
+}
+setInterval(setStatus, 1000);
+
+/* ---------- Spotify Web API helpers ---------- */
+async function api(path, params={}, method='GET'){
+  const tok = await ensureToken();
+  const cfg = loadCfg() || {};
+  const url = new URL('https://api.spotify.com/v1'+path);
+  Object.entries(params).forEach(([k,v])=>{ if(v!==undefined && v!==null) url.searchParams.set(k,v) });
+  const resp = await fetch(url.toString(), {
+    method,
+    headers: { Authorization: `Bearer ${tok.access_token}` }
+  });
+  if(resp.status===429){
+    const retry = parseInt(resp.headers.get('Retry-After')||'1',10)*1000;
+    await sleep(retry+50);
+    return api(path, params, method);
+  }
+  if(!resp.ok){
+    const t = await resp.text();
+    throw new Error(`API ${path} failed: ${t}`);
+  }
+  return await resp.json();
+}
+
+function parseIdFromUrl(s){
+  if(!s) return null;
+  s = s.trim();
+  if(/^[a-zA-Z0-9]{22}$/.test(s)) return s;
+  const m = s.match(/(album|track|artist)\/([a-zA-Z0-9]{22})/);
+  return m ? m[2] : null;
+}
+
+/* ---------- Audit logic ---------- */
+async function fetchAllAlbumTracks(albumId){
+  const market = ($('market').value || 'JP').trim();
+  let items = [], next=null, offset=0;
+  do{
+    const res = await api(`/albums/${albumId}/tracks`, {market, limit:50, offset});
+    items = items.concat(res.items||[]);
+    if(res.next){
+      const u = new URL(res.next); offset = parseInt(u.searchParams.get('offset')||'0',10) + 50; next = res.next;
+    }else next = null;
+  }while(next);
+  return items;
+}
+
+function uniq(arr){ return Array.from(new Set(arr)) }
+
+function reasonHeuristics(album, trackRows, expectedSet, thresh){
+  const albArtistIds = new Set((album.artists||[]).map(a=>a.id));
+  const total = trackRows.length;
+  const offRows = trackRows.filter(r=>r.extraPrimaryIds.length>0);
+  const offRatio = total ? offRows.length/total : 0;
+  const distinctPrimary = uniq(trackRows.flatMap(r=>r.trackPrimaryIds)).length;
+  const hasVarious = (album.artists||[]).some(a=>/various artists/i.test(a.name||''));
+  const djMixHint = /DJ\s*Mix/i.test(album.name||'') || /continuous/i.test(album.name||'');
+  let tags = [];
+  if(album.album_type==='compilation') tags.push('album_type=compilation');
+  if(hasVarious) tags.push('Various Artists');
+  if(djMixHint) tags.push('DJ Mix');
+  if(offRatio>=thresh) tags.push(`extra-primary≥${Math.round(offRatio*100)}%`);
+  if(distinctPrimary > (albArtistIds.size+2)) tags.push(`many primary artists (${distinctPrimary})`);
+  const rec = [];
+  if(album.album_type==='compilation' || offRatio>=thresh || hasVarious){
+    rec.push('アルバム側のプライマリーを統一し、各トラックのプライマリーから余分なアーティストを外す（Remixerはremix creditのみ）');
+    rec.push('パートナーサポートに分類変更（Compilation→Album）を申請。根拠: アーティスト一貫性・DJミックス作品');
+  }else{
+    rec.push('現在の分類のままで問題ない可能性');
+  }
+  return {offRows, offRatio, distinctPrimary, hasVarious, djMixHint, tags, rec};
+}
+
+function renderRow(i, album, trackRows, heur){
+  const tbody = $('tbl').querySelector('tbody');
+  const tr = document.createElement('tr');
+  const url = `https://open.spotify.com/album/${album.id}`;
+  const albArtists = (album.artists||[]).map(a=>a.name).join(', ');
+  const badPct = Math.round(heur.offRatio*100);
+  const tagStr = heur.tags.map(t=>`<span class="tag">${t}</span>`).join(' ');
+  const detailsHtml = `
+    <details>
+      <summary>${heur.offRows.length}件の要注意トラック（クリックで展開）</summary>
+      <ol class="tiny">
+        ${heur.offRows.map(r=>`<li><span class="mono">${r.trackNo!=null?('#'+r.trackNo+' '):''}</span>${escapeHtml(r.name)} — 余分: ${r.extraPrimaryNames.join(', ')}</li>`).join('')}
+      </ol>
+    </details>
+  `;
+  tr.innerHTML = `
+    <td class="mono tiny">${i}</td>
+    <td><a href="${url}" target="_blank" rel="noopener" class="mono">${escapeHtml(album.name)}</a></td>
+    <td class="mono">${album.album_type||'-'}</td>
+    <td>${escapeHtml(albArtists)}</td>
+    <td class="mono">${album.total_tracks||trackRows.length}</td>
+    <td class="${badPct>0?'bad':''} mono">${heur.offRows.length}</td>
+    <td class="mono">${badPct}%</td>
+    <td class="tiny">${tagStr}<br>${heur.rec.map(r=>`• ${escapeHtml(r)}`).join('<br>')}</td>
+    <td>${detailsHtml}</td>
+  `;
+  tbody.appendChild(tr);
+}
+
+function escapeHtml(s){return (s||'').replace(/[&<>"']/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' }[m]))}
+
+async function analyzeAlbum(albumId, expectedSet, thresh){
+  const market = ($('market').value || 'JP').trim();
+  const album = await api(`/albums/${albumId}`, {market});
+  const tracks = await fetchAllAlbumTracks(albumId);
+  const albArtistIds = new Set((album.artists||[]).map(a=>a.id));
+  const trackRows = tracks.map((t,idx)=>{
+    const ids = (t.artists||[]).map(a=>a.id);
+    const names = (t.artists||[]).map(a=>a.name);
+    const extra = ids.filter(id=>!albArtistIds.has(id) && (!expectedSet || !expectedSet.has(id)));
+    const extraNames = extra.map(id=>names[ids.indexOf(id)]).filter(Boolean);
+    return {
+      trackId: t.id,
+      name: t.name,
+      trackPrimaryIds: ids,
+      extraPrimaryIds: extra,
+      extraPrimaryNames: extraNames,
+      trackNo: t.track_number ?? (idx+1)
+    };
+  });
+  const heur = reasonHeuristics(album, trackRows, expectedSet, thresh);
+  return {album, trackRows, heur};
+}
+
+function collectAlbumIdsFromTextarea(){
+  const raw = $('albumList').value.trim();
+  if(!raw) return [];
+  return raw.split(/\r?\n/).map(s=>parseIdFromUrl(s)).filter(Boolean);
+}
+
+async function onAuditAlbums(){
+  try{
+    $('summary').textContent = '監査中…';
+    const expectedSet = new Set(($('expectedIds').value||'').split(',').map(s=>s.trim()).filter(Boolean));
+    const thresh = parseFloat($('flagThresh').value||'0.5');
+    const ids = collectAlbumIdsFromTextarea();
+    const tbody = $('tbl').querySelector('tbody'); tbody.innerHTML='';
+    let i=0;
+    for(const id of ids){
+      const {album, trackRows, heur} = await analyzeAlbum(id, expectedSet, thresh);
+      renderRow(++i, album, trackRows, heur);
+      await sleep(60); // yield
+    }
+    $('summary').textContent = `${i}件のアルバムを監査しました。`;
+  }catch(e){
+    $('summary').textContent = 'エラー: '+e.message;
+    console.error(e);
+  }
+}
+
+async function onAuditArtist(){
+  try{
+    $('summary').textContent = 'アルバム一覧取得中…';
+    const artistId = $('artistId').value.trim();
+    const market = ($('market').value || 'JP').trim();
+    const grp = ['album','single','compilation','appears_on'].filter((g,i)=>[ $('g_album').checked, $('g_single').checked, $('g_comp').checked, $('g_appears').checked ][i]).join(',');
+    const expectedSet = new Set(($('expectedIds').value||'').split(',').map(s=>s.trim()).filter(Boolean));
+    const thresh = parseFloat($('flagThresh').value||'0.5');
+    let items=[], next=null, offset=0;
+    do{
+      const res = await api(`/artists/${artistId}/albums`, {include_groups: grp, market, limit:50, offset});
+      items = items.concat(res.items||[]);
+      if(res.next){
+        const u = new URL(res.next); offset = parseInt(u.searchParams.get('offset')||'0',10) + 50; next = res.next;
+      }else next = null;
+    }while(next);
+    // de-duplicate by id
+    const wanted = uniq(items.map(a=>a.id));
+    $('summary').textContent = `${wanted.length}件のアルバム候補。監査を開始…`;
+    const tbody = $('tbl').querySelector('tbody'); tbody.innerHTML='';
+    let i=0;
+    for(const id of wanted){
+      const {album, trackRows, heur} = await analyzeAlbum(id, expectedSet, thresh);
+      renderRow(++i, album, trackRows, heur);
+      await sleep(60);
+    }
+    $('summary').textContent = `${i}件のアルバムを監査しました。`;
+  }catch(e){
+    $('summary').textContent = 'エラー: '+e.message;
+    console.error(e);
+  }
+}
+
+/* ---------- CSV ingest ---------- */
+let lastResults = [];
+function flattenResult(idx, res){
+  const alb = res.album;
+  const url = `https://open.spotify.com/album/${alb.id}`;
+  return {
+    index: idx,
+    album_id: alb.id,
+    album_url: url,
+    album_name: alb.name,
+    album_type: alb.album_type,
+    album_artists: (alb.artists||[]).map(a=>a.name).join('; '),
+    total_tracks: alb.total_tracks,
+    label: alb.label||'',
+    release_date: alb.release_date||'',
+    market: $('market').value||'JP',
+    warning_tracks: res.heur.offRows.length,
+    warning_ratio: Math.round(res.heur.offRatio*100),
+    distinct_track_primary_artists: res.heur.distinctPrimary,
+    tags: res.heur.tags.join('; '),
+    recommendation: res.heur.rec.join(' / ')
+  };
+}
+
+function toCsv(rows){
+  if(!rows.length) return '';
+  const cols = Object.keys(rows[0]);
+  const esc = v => {
+    if(v==null) return '';
+    const s = String(v);
+    if(/[",\n]/.test(s)) return '"'+s.replace(/"/g,'""')+'"';
+    return s;
+  };
+  return [cols.join(','), ...rows.map(r=>cols.map(c=>esc(r[c])).join(','))].join('\n');
+}
+
+async function onCsvAudit(){
+  const f = $('csvFile').files[0];
+  if(!f){ alert('CSVを選択してください'); return; }
+  $('summary').textContent = 'CSV解析中…';
+  const text = await f.text();
+  let rows = [];
+  try{
+    rows = Papa.parse(text, {header:true, skipEmptyLines:true}).data;
+  }catch(e){
+    // fallback: naive parse
+    rows = text.split(/\r?\n/).map(line=>({raw:line}));
+  }
+  // guess columns
+  const candidates = ['spotify_url','url','URL','link','Link'];
+  const albumCols = ['album','Album title','album_title'];
+  const trackCols = ['track','Track title','track_title'];
+  const urlCol = candidates.find(c=>rows[0] && c in rows[0]);
+  $('summary').textContent = 'CSVからアルバム/トラックURL抽出…';
+  const urls = [];
+  for(const r of rows){
+    const v = (urlCol && r[urlCol]) ? String(r[urlCol]) : '';
+    if(v) urls.push(v);
+  }
+  // Extract album ids (also accept track ids to later map to album)
+  const ids = [];
+  const trackIds = [];
+  for(const line of urls){
+    const m = line.match(/open\.spotify\.com\/(album|track)\/([a-zA-Z0-9]{22})/);
+    if(m){
+      if(m[1]==='album') ids.push(m[2]);
+      else if(m[1]==='track') trackIds.push(m[2]);
+    }
+  }
+  // map track->album
+  for(const tid of trackIds){
+    try{
+      const t = await api(`/tracks/${tid}`, {market:$('market').value||'JP'});
+      if(t && t.album && t.album.id) ids.push(t.album.id);
+    }catch(e){ console.warn('track map failed', tid, e) }
+  }
+  const uniqueIds = Array.from(new Set(ids));
+  $('albumList').value = uniqueIds.map(id=>'https://open.spotify.com/album/'+id).join('\n');
+  await onAuditAlbums();
+}
+
+function exportCsv(){
+  if(!lastResults.length){
+    // rebuild from table rows if needed
+    const rows = Array.from(document.querySelectorAll('#tbl tbody tr')).map((tr,i)=>{
+      const tds = tr.querySelectorAll('td');
+      return {
+        index: i+1,
+        album_name: tds[1]?.innerText||'',
+        album_type: tds[2]?.innerText||'',
+        album_artists: tds[3]?.innerText||'',
+        total_tracks: tds[4]?.innerText||'',
+        warning_tracks: tds[5]?.innerText||'',
+        warning_ratio: tds[6]?.innerText||'',
+        notes: tds[7]?.innerText||''
+      };
+    });
+    const csv = toCsv(rows);
+    const blob = new Blob([csv], {type:'text/csv'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'spotify_primary_audit.csv';
+    a.click();
+    return;
+  }
+  const csv = toCsv(lastResults.map((r,i)=>flattenResult(i+1,r)));
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'spotify_primary_audit.csv';
+  a.click();
+}
+
+/* ---------- Wire UI ---------- */
+$('btnConnect').addEventListener('click', doAuth);
+$('btnClear').addEventListener('click', ()=>{ localStorage.removeItem(LS.tok); setStatus(); alert('保存トークンを削除しました'); });
+$('btnAuditAlbums').addEventListener('click', onAuditAlbums);
+$('btnAuditArtist').addEventListener('click', onAuditArtist);
+$('btnUseCsv').addEventListener('click', onCsvAudit);
+$('btnExport').addEventListener('click', exportCsv);
+
+(function init(){
+  loadCfg();
+  // Pre-fill sample albums if empty
+  if(!$('albumList').value.trim()){
+    $('albumList').value = `https://open.spotify.com/album/06Yvg4vlPaVfnAWVwmJX27
+https://open.spotify.com/album/4aeD4BUM5mAA1v1hCp9irx
+https://open.spotify.com/album/4jTT5tjAMFfS58xawRjTsV`;
+  }
+  // If redirected with code, exchange it
+  const code = qs.get('code');
+  if(code){
+    $('summary').textContent = 'Token交換中…';
+    exchangeToken(code).then(()=>{
+      $('summary').textContent = '接続完了。監査を開始できます。'; setStatus();
+    }).catch(e=>{
+      $('summary').textContent = 'トークン交換エラー: '+e.message;
+      console.error(e);
+    });
+  }else{
+    setStatus();
+  }
+})();
+
+</script>
+</body>
+</html>
