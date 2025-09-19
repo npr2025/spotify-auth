@@ -14,7 +14,7 @@
   .muted{color:#666}
   .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
   .log{white-space:pre-wrap;background:#fafafa;border:1px dashed #ccc;padding:.75rem;border-radius:8px;max-height:260px;overflow:auto}
-  .pill{display:inline-block;border:1px solid #ccc;border-radius:999px;padding:.2rem .6rem;margin-right:.4rem}
+  .pill{display:inline-block;border:1px solid #ccc;border-radius:999px;padding:.2rem .6rem;margin:.15rem .4rem .15rem 0}
   small{display:block;margin-top:.25rem}
 </style>
 
@@ -26,12 +26,12 @@
     <div>
       <label>Client ID</label>
       <input id="clientId" placeholder="CLIENT_ID_HERE">
-      <small class="muted">Spotify DeveloperのClient ID。</small>
+      <small class="muted">Spotify Developer の Client ID</small>
     </div>
     <div>
       <label>Redirect URI</label>
       <input id="redirectUri" placeholder="REDIRECT_URI_HERE">
-      <small class="muted">Developer Dashboardに登録したURIと厳密一致。</small>
+      <small class="muted">Developer Dashboard に登録したURIと厳密一致させてください</small>
     </div>
   </div>
 
@@ -39,39 +39,40 @@
     <div>
       <label>アーティストID（例：TDCS = <span class="mono">55fvQ5I2IZUfcFT2DV02T3</span>）</label>
       <input id="artistId" placeholder="55fvQ5I2IZUfcFT2DV02T3">
-      <small class="muted">指定すると全アルバム/シングル/コンピを走査。下のアルバム入力より優先。</small>
+      <small class="muted">指定すると全アルバム/シングル/コンピ/appears_onを走査（下のアルバム入力より優先）</small>
     </div>
     <div>
       <label>アルバムURL/ID（改行区切り）</label>
       <textarea id="albumList" placeholder="https://open.spotify.com/album/06Yvg4vlPaVfnAWVwmJX27&#10;4aeD4BUM5mAA1v1hCp9irx"></textarea>
-      <small class="muted">アーティストID未入力のときだけ使われます。</small>
+      <small class="muted">アーティストID未入力のときだけ使われます</small>
     </div>
   </div>
 
-  <label>走査オプション</label>
-  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.5rem;margin-bottom:.5rem">
+  <label>走査オプション（artists/{id}/albums の include_groups）</label>
+  <div>
     <label class="pill"><input type="checkbox" id="incAlbum" checked> album</label>
     <label class="pill"><input type="checkbox" id="incSingle" checked> single</label>
     <label class="pill"><input type="checkbox" id="incCompilation" checked> compilation</label>
+    <label class="pill"><input type="checkbox" id="incAppearsOn" checked> appears_on</label>
   </div>
 
   <div class="row">
     <div>
       <label>期待アーティストID（カンマ区切り）</label>
       <input id="expectedIds" placeholder="例）55fvQ5I2IZUfcFT2DV02T3">
-      <small class="muted">“このIDだけがプライマリーであるべき”という期待セット。合わなければフラグ。</small>
+      <small class="muted">“このIDだけがプライマリーであるべき”という集合。合わなければフラグ</small>
     </div>
     <div>
-      <label>市場</label>
-      <input id="market" value="JP">
-      <small class="muted">market=JP など。</small>
+      <label>市場（空欄なら market パラメータ未指定）</label>
+      <input id="market" value="JP" placeholder="JP / US / GB / from_token（または空）">
+      <small class="muted">未配信地域の取りこぼしがある場合はUS/GBや空欄で試す</small>
     </div>
   </div>
 
   <div class="row">
     <div>
       <button id="loginBtn">Spotifyに接続（PKCE）</button>
-      <small id="tokenInfo" class="muted"></small>
+      <small id="tokenInfo" class="muted">access_token: なし</small>
     </div>
     <div><button id="runBtn" disabled>実行 → CSVを作る</button></div>
   </div>
@@ -83,40 +84,18 @@
 </div>
 
 <script>
+/* ---------- 小ユーティリティ ---------- */
 const $ = s => document.querySelector(s);
-const log = (m) => { const el=$("#log"); el.textContent += m + "\\n"; el.scrollTop=el.scrollHeight; };
+const log = (m) => { const el=$("#log"); el.textContent += m + "\n"; el.scrollTop=el.scrollHeight; };
 const enc = (obj) => new URLSearchParams(obj).toString();
-const LS = {
-  get k(){ return "spotify_pkce_audit_v1"; },
-  load(){ try{return JSON.parse(localStorage.getItem(this.k) || "{}");}catch{return {}}; },
-  save(v){ localStorage.setItem(this.k, JSON.stringify(v)); }
-};
+const sleep = (ms) => new Promise(r=>setTimeout(r, ms));
 
-function b64url(bytes){
-  return btoa(String.fromCharCode(...new Uint8Array(bytes)))
-    .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-}
-async function sha256(buf){ return crypto.subtle.digest("SHA-256", buf); }
-function str2buf(s){
-  return new TextEncoder().encode(s);
-}
-
-async function makePkce(){
-  const code_verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
-  const hash = await sha256(str2buf(code_verifier));
-  const code_challenge = b64url(hash);
-  return { code_verifier, code_challenge };
-}
-
-function idFromUrlOrId(s){
-  if(!s) return "";
-  s = s.trim();
-  try { const u = new URL(s); const p=u.pathname.split("/"); return p[2]||s; }
-  catch{ return s; }
-}
+const LSKEY = "spotify_pkce_audit_v1";
+const loadState = () => { try { return JSON.parse(localStorage.getItem(LSKEY) || "{}"); } catch { return {}; } };
+const saveState = (st) => localStorage.setItem(LSKEY, JSON.stringify(st));
 
 function setTokenInfo(){
-  const st = LS.load();
+  const st = loadState();
   if(st.access_token && st.expires_at){
     const sec = Math.max(0, Math.floor((st.expires_at - Date.now())/1000));
     $("#tokenInfo").textContent = `access_token: 有効（残り ${sec}s）`;
@@ -127,19 +106,35 @@ function setTokenInfo(){
   }
 }
 
+/* ---------- PKCE ---------- */
+function b64url(bytes){
+  return btoa(String.fromCharCode(...new Uint8Array(bytes)))
+    .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+async function sha256(buf){ return crypto.subtle.digest("SHA-256", buf); }
+function str2buf(s){ return new TextEncoder().encode(s); }
+
+async function makePkce(){
+  const code_verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
+  const hash = await sha256(str2buf(code_verifier));
+  const code_challenge = b64url(hash);
+  return { code_verifier, code_challenge };
+}
+
 async function authorize(){
   const client_id = $("#clientId").value.trim();
   const redirect_uri = $("#redirectUri").value.trim();
-  if(!client_id || !redirect_uri) { alert("Client ID と Redirect URI を入れてください。"); return; }
+  if(!client_id || !redirect_uri){ alert("Client ID と Redirect URI を入れてください。"); return; }
 
   const {code_verifier, code_challenge} = await makePkce();
   const state = b64url(crypto.getRandomValues(new Uint8Array(12)));
-  const payload = LS.load();
-  payload.client_id = client_id;
-  payload.redirect_uri = redirect_uri;
-  payload.code_verifier = code_verifier;
-  payload.state = state;
-  LS.save(payload);
+
+  const st = loadState();
+  st.client_id = client_id;
+  st.redirect_uri = redirect_uri;
+  st.code_verifier = code_verifier;
+  st.state = state;
+  saveState(st);
 
   const authUrl = "https://accounts.spotify.com/authorize?" + enc({
     response_type: "code",
@@ -147,26 +142,25 @@ async function authorize(){
     code_challenge_method: "S256",
     code_challenge,
     redirect_uri,
-    state,
-    // scopes は不要（公開GETのみ）
-    // scope: ""
+    state
+    // scope: なし（公開GETのみ）
   });
   location.assign(authUrl);
 }
 
-async function exchangeToken(){
+async function exchangeTokenIfReturning(){
   const params = new URLSearchParams(location.search);
   const code = params.get("code");
   const state = params.get("state");
   if(!code) return; // not returning from auth
 
-  const st = LS.load();
+  const st = loadState();
   if(!st.code_verifier || !st.client_id || !st.redirect_uri || !st.state){
-    log("PKCE情報が見つかりません。最初からやり直してください。");
+    log("PKCE情報が不足。最初からやり直してください。");
     return;
   }
   if(state !== st.state){
-    log("stateが一致しません。セキュリティ上、処理を中止します。");
+    log("state不一致のため中止。");
     return;
   }
 
@@ -178,7 +172,6 @@ async function exchangeToken(){
     client_id: st.client_id,
     code_verifier: st.code_verifier
   });
-
   const res = await fetch("https://accounts.spotify.com/api/token", {
     method: "POST",
     headers: {"Content-Type":"application/x-www-form-urlencoded"},
@@ -189,26 +182,28 @@ async function exchangeToken(){
     log("トークン取得失敗: " + JSON.stringify(j));
     return;
   }
-
   st.access_token = j.access_token;
-  st.refresh_token = j.refresh_token; // 返らない場合もある
-  st.expires_at  = Date.now() + (j.expires_in*1000);
-  LS.save(st);
-  history.replaceState({}, "", st.redirect_uri); // URLをクリーンに
+  st.refresh_token = j.refresh_token || st.refresh_token; // 返らない場合あり
+  st.expires_at = Date.now() + (j.expires_in*1000);
+  saveState(st);
+
+  // URLクリーンアップ
+  history.replaceState({}, "", st.redirect_uri);
   log("トークン取得OK。");
   setTokenInfo();
 }
 
 async function refreshIfNeeded(){
-  const st = LS.load();
+  const st = loadState();
   if(!st.access_token) return false;
   const left = st.expires_at - Date.now();
-  if(left > 60000) return true; // 60秒以上残ってる
+  if(left > 60_000) return true; // 60秒以上残っている
 
   if(!st.refresh_token){
     log("refresh_tokenが無いので再認証が必要です。");
     return false;
   }
+
   log("トークン更新中…");
   const body = new URLSearchParams({
     grant_type: "refresh_token",
@@ -226,19 +221,26 @@ async function refreshIfNeeded(){
   st.access_token = j.access_token;
   if(j.refresh_token) st.refresh_token = j.refresh_token;
   st.expires_at = Date.now() + (j.expires_in*1000);
-  LS.save(st);
+  saveState(st);
   setTokenInfo();
   return true;
 }
 
+/* ---------- Spotify API呼び出し ---------- */
 async function spGet(url){
-  const st = LS.load();
+  const st = loadState();
   const ok = await refreshIfNeeded();
-  if(!ok) throw new Error("access_tokenなし（再認証を実行してください）");
+  if(!ok) throw new Error("access_tokenなし（「Spotifyに接続」を実行してください）");
   const r = await fetch(url, { headers: { Authorization: "Bearer " + st.access_token }});
+  if(r.status === 429){
+    const retry = Number(r.headers.get("Retry-After") || "1") * 1000;
+    log(`429 Rate limit → ${retry}ms 待機`);
+    await sleep(retry);
+    return spGet(url);
+  }
   if(!r.ok){
     const t = await r.text().catch(()=> "");
-    throw new Error(`HTTP ${r.status} ${r.statusText}\\n${t}`);
+    throw new Error(`HTTP ${r.status} ${r.statusText}\n${t}`);
   }
   return r.json();
 }
@@ -250,9 +252,16 @@ async function spPaged(url, key="items"){
     if(Array.isArray(j[key])) out.push(...j[key]);
     else if(Array.isArray(j.items)) out.push(...j.items);
     next = j.next;
-    await new Promise(r=>setTimeout(r, 60));
+    await sleep(60); // 小休止
   }
   return out;
+}
+
+function idFromUrlOrId(s){
+  if(!s) return "";
+  s = s.trim();
+  try { const u = new URL(s); const p=u.pathname.split("/"); return p[2]||s; }
+  catch{ return s; }
 }
 
 function toCSVRow(arr){
@@ -262,6 +271,7 @@ function toCSVRow(arr){
     return (s.includes('"')||s.includes(",")||s.includes("\n"))? '"'+s.replace(/"/g,'""')+'"' : s;
   }).join(",");
 }
+
 function downloadCSV(rows, name){
   const blob = new Blob([rows.join("\n")], {type:"text/csv;charset=utf-8"});
   const url = URL.createObjectURL(blob);
@@ -272,24 +282,30 @@ function downloadCSV(rows, name){
 
 function setEq(a,b){ a=[...new Set(a)]; b=[...new Set(b)]; return a.length===b.length && a.every(x=>b.includes(x)); }
 
+/* ---------- UIイベント ---------- */
 $("#loginBtn").addEventListener("click", authorize);
 
 $("#runBtn").addEventListener("click", async ()=>{
   $("#runBtn").disabled = true;
   try{
-    const market = $("#market").value || "JP";
+    // 入力取得
+    const marketRaw = ($("#market").value||"").trim();
     const artistId = $("#artistId").value.trim();
     const expected = ($("#expectedIds").value||"").split(",").map(s=>s.trim()).filter(Boolean);
+    const groups = [
+      $("#incAlbum").checked ? "album":null,
+      $("#incSingle").checked ? "single":null,
+      $("#incCompilation").checked ? "compilation":null,
+      $("#incAppearsOn").checked ? "appears_on":null
+    ].filter(Boolean).join(",");
 
+    // アルバムID収集
     let albumIds = [];
     if(artistId){
-      const groups = [
-        $("#incAlbum").checked ? "album":null,
-        $("#incSingle").checked ? "single":null,
-        $("#incCompilation").checked ? "compilation":null
-      ].filter(Boolean).join(",");
-      log(`アーティスト ${artistId} のアルバム一覧取得（include_groups=${groups}）…`);
-      const list = await spPaged(`https://api.spotify.com/v1/artists/${artistId}/albums?limit=50&include_groups=${groups}&market=${market}`);
+      const base = `https://api.spotify.com/v1/artists/${artistId}/albums?limit=50&include_groups=${groups}`;
+      const url = marketRaw ? `${base}&market=${encodeURIComponent(marketRaw)}` : base;
+      log(`アーティスト ${artistId} のアルバム一覧取得（include_groups=${groups}${marketRaw?`, market=${marketRaw}`:""}）…`);
+      const list = await spPaged(url);
       const seen = new Set();
       for(const a of list){ if(!seen.has(a.id)){ seen.add(a.id); albumIds.push(a.id); } }
       log(`→ ${albumIds.length}件`);
@@ -297,8 +313,10 @@ $("#runBtn").addEventListener("click", async ()=>{
       const raw = $("#albumList").value.trim();
       if(!raw) throw new Error("アーティストID か アルバムURL/ID を入力してください。");
       albumIds = raw.split(/\r?\n/).map(idFromUrlOrId).filter(Boolean);
+      log(`指定アルバム ${albumIds.length}件を処理します。`);
     }
 
+    // CSVヘッダ
     const header = [
       "album_id","album_name","album_type","album_artists_ids","album_artists_names",
       "track_id","disc","track_number","track_name","duration_ms",
@@ -308,14 +326,18 @@ $("#runBtn").addEventListener("click", async ()=>{
     ];
     const rows=[toCSVRow(header)];
 
+    // 各アルバム処理
     for(const aid of albumIds){
-      log(`アルバム ${aid} 情報…`);
-      const alb = await spGet(`https://api.spotify.com/v1/albums/${aid}?market=${market}`);
+      const albUrl = `https://api.spotify.com/v1/albums/${aid}` + (marketRaw? `?market=${encodeURIComponent(marketRaw)}` : "");
+      log(`アルバム ${aid} 情報取得…`);
+      const alb = await spGet(albUrl);
       const albumArtistIds = alb.artists.map(a=>a.id);
       const albumArtistNames = alb.artists.map(a=>a.name);
       const albumType = alb.album_type;
 
-      const tracks = await spPaged(`https://api.spotify.com/v1/albums/${aid}/tracks?limit=50&market=${market}`);
+      const tracksUrlBase = `https://api.spotify.com/v1/albums/${aid}/tracks?limit=50`;
+      const tracksUrl = marketRaw ? `${tracksUrlBase}&market=${encodeURIComponent(marketRaw)}` : tracksUrlBase;
+      const tracks = await spPaged(tracksUrl);
 
       for(const t of tracks){
         const tIds = t.artists.map(a=>a.id);
@@ -326,7 +348,7 @@ $("#runBtn").addEventListener("click", async ()=>{
 
         const expectedOnly = expected.length? setEq(tIds, expected) : null;
         const hasExtra = extraIds.length>0;
-        // “プライマリーにRemixerが入った疑い”の簡易判定
+        // “プライマリーにRemixerが入った疑い”
         const suspected = hasExtra || (expected.length? !expectedOnly : false) || remix;
 
         rows.push(toCSVRow([
@@ -351,13 +373,14 @@ $("#runBtn").addEventListener("click", async ()=>{
   }
 });
 
+/* ---------- 起動時処理 ---------- */
 (function boot(){
-  // 既定値の埋め込み（あなたの値に差し替えてOK）
-  $("#clientId").value   = "CLIENT_ID_HERE";
-  $("#redirectUri").value= "REDIRECT_URI_HERE";
-  $("#artistId").value   = "55fvQ5I2IZUfcFT2DV02T3"; // TDCS
+  // 既定値（あなたの値に置換してOK）
+  $("#clientId").value    = "CLIENT_ID_HERE";
+  $("#redirectUri").value = "REDIRECT_URI_HERE";
+  $("#artistId").value    = "55fvQ5I2IZUfcFT2DV02T3"; // TDCS デフォルト
 
-  exchangeToken().then(setTokenInfo);
+  exchangeTokenIfReturning().then(setTokenInfo);
   setInterval(setTokenInfo, 1000);
 })();
 </script>
