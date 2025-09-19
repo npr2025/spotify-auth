@@ -16,7 +16,7 @@
 <h1>Spotify 認証（スコープなし）</h1>
 <div class="row">
   <button id="connectBtn">Spotifyに接続</button>
-  <a href="./fulltracks_ultra_safe_v2.html?v=20250919-1"><button>戻る</button></a>
+  <a href="./fulltracks_ultra_safe_v2.html?v=20250919-2"><button>戻る</button></a>
   <button id="clearBtn" style="background:#eee;color:#111;border-color:#bbb">保存トークン削除</button>
 </div>
 <p class="muted">Client ID: <code>378ef0f44b36499abd10d118ddbddc98</code> / Redirect: <code>https://npr2025.github.io/spotify-auth/callback.html</code></p>
@@ -36,8 +36,6 @@ document.getElementById("clearBtn").onclick=()=>{
   localStorage.removeItem("sp_token");
   sessionStorage.removeItem("sp_pkce_verifier");
   sessionStorage.removeItem("sp_state");
-  localStorage.removeItem("sp_pkce_verifier");
-  localStorage.removeItem("sp_state");
   log("cleared saved tokens & pkce caches");
 };
 
@@ -45,16 +43,17 @@ document.getElementById("connectBtn").onclick=async()=>{
   const verifier=rnd(); const challenge=base64url(await sha256(verifier)); const state=Math.random().toString(36).slice(2);
   sessionStorage.setItem("sp_pkce_verifier",verifier);
   sessionStorage.setItem("sp_state",state);
-  // localStorageは使わない（古残りで衝突させない）
   const params={
     client_id:CLIENT_ID,
     response_type:"code",
     redirect_uri:REDIRECT_URI,
     code_challenge_method:"S256",
     code_challenge:challenge,
-    state
+    state,
+    // scope は指定しない（no-scope）
+    show_dialog:"true" // refresh_token 付与を安定化
   };
-  const usp=new URLSearchParams(params); // ★scopeは一切追加しない
+  const usp=new URLSearchParams(params);
   const url="https://accounts.spotify.com/authorize?"+usp.toString();
   log("authorize → "+url);
   location.href=url;
