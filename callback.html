@@ -27,22 +27,31 @@ async function exchange(code,verifier){
   return res.json();
 }
 
-(async()=>{
+(function(){
   const sp=new URLSearchParams(location.search);
   const code=sp.get("code");const state=sp.get("state");
-  if(!code){msg.textContent="エラー: codeなし";return;}
+  const msgEl=document.getElementById("msg");
+  if(!code){msgEl.textContent="エラー: codeなし";return;}
   const st=sessionStorage.getItem("sp_state")||localStorage.getItem("sp_state");
-  if(state!==st){msg.textContent="エラー: state不一致";return;}
+  if(state!==st){msgEl.textContent="エラー: state不一致";return;}
   const verifier=sessionStorage.getItem("sp_pkce_verifier")||localStorage.getItem("sp_pkce_verifier");
-  if(!verifier){msg.textContent="エラー: verifierなし";return;}
-  try{
-    const tok=await exchange(code,verifier);
+  if(!verifier){msgEl.textContent="エラー: verifierなし";return;}
+  exchange(code,verifier).then(tok=>{
     const expires_at=Date.now()+tok.expires_in*1000-10000;
-    localStorage.setItem("sp_token",JSON.stringify({access_token:tok.access_token,expires_at}));
+    const saved={
+      access_token: tok.access_token,
+      refresh_token: tok.refresh_token||"",
+      token_type: tok.token_type||"Bearer",
+      scope: tok.scope||"",
+      expires_at
+    };
+    localStorage.setItem("sp_token",JSON.stringify(saved));
     sessionStorage.clear();localStorage.removeItem("sp_pkce_verifier");localStorage.removeItem("sp_state");
-    msg.innerHTML="<span class=ok>認証成功</span>";
-    setTimeout(()=>location.href="./fulltracks_ultra_safe_v2.html",1000);
-  }catch(e){msg.innerHTML="<span class=bad>交換失敗:"+e+"</span>";}
+    msgEl.innerHTML="<span class=ok>認証成功</span>";
+    setTimeout(()=>location.href="./fulltracks_ultra_safe_v2.html",800);
+  }).catch(e=>{
+    msgEl.innerHTML="<span class=bad>交換失敗: "+(e.message||e)+"</span>";
+  });
 })();
 </script>
 </body>
