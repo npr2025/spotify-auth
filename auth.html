@@ -4,14 +4,17 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Spotify Auth (PKCE)</title>
+<style>body{font-family:system-ui;margin:2rem}button{padding:.6rem 1rem;border-radius:8px;border:1px solid #999;background:#111;color:#fff;cursor:pointer}</style>
 </head>
 <body>
 <h1>Spotify 認証</h1>
 <button id="connectBtn">Spotifyに接続</button>
-<a href="./fulltracks_ultra_safe_v2.html">戻る</a>
+<a href="./fulltracks_ultra_safe_v2.html" style="margin-left:1rem">戻る</a>
 <script>
 const CLIENT_ID="378ef0f44b36499abd10d118ddbddc98";
 const REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
+// 必要最低限：user-read-private（market=from_token用）+ offline_access（refresh用）
+const SCOPE="user-read-private offline_access";
 
 function base64url(a){return btoa(String.fromCharCode.apply(null,new Uint8Array(a))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");}
 async function sha256(s){return crypto.subtle.digest("SHA-256",new TextEncoder().encode(s));}
@@ -22,7 +25,13 @@ document.getElementById("connectBtn").onclick=async()=>{
   sessionStorage.setItem("sp_pkce_verifier",verifier);sessionStorage.setItem("sp_state",state);
   localStorage.setItem("sp_pkce_verifier",verifier);localStorage.setItem("sp_state",state);
   location.href="https://accounts.spotify.com/authorize?"+new URLSearchParams({
-    client_id:CLIENT_ID,response_type:"code",redirect_uri:REDIRECT_URI,code_challenge_method:"S256",code_challenge:challenge,state
+    client_id:CLIENT_ID,
+    response_type:"code",
+    redirect_uri:REDIRECT_URI,
+    code_challenge_method:"S256",
+    code_challenge:challenge,
+    scope:SCOPE,
+    state
   });
 };
 </script>
