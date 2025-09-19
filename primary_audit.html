@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>TDCS Full Tracks Harvester — Ultra Safe v2 (no-search, 60s cap, cached index, no-VA)</title>
+<title>TDCS Full Tracks Harvester — Ultra Safe v2 (no-search, 60s cap, cached index, forced-first, no-VA)</title>
 <link rel="preconnect" href="https://accounts.spotify.com"/>
 <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
 <style>
@@ -26,7 +26,7 @@
   <h1>TDCS Full Tracks Harvester — Ultra Safe v2</h1>
   <div class="small muted">Client ID: <code>378ef0f44b36499abd10d118ddbddc98</code> | Redirect: <code>https://npr2025.github.io/spotify-auth/callback.html</code></div>
   <div class="row">
-    <a href="./auth.html?v=20250919-7"><button>Spotifyに接続</button></a>
+    <a href="./auth.html?v=20250919-8"><button>Spotifyに接続</button></a>
     <button id="clearBtn" style="background:#eee;color:#111;border-color:#bbb">保存トークン削除</button>
     <span id="authStatus" class="muted">未接続</span>
   </div>
@@ -105,16 +105,18 @@
 </section>
 
 <script>
-const TARGET_ARTIST_ID="55fvQ5I2IZUfcFT2DV02T3";
+/*** 基本設定 ***/
+const TARGET_ARTIST_ID="55fvQ5I2IZUfcFT2DV02T3"; // TDCS
 const CHECKPOINT_KEY="tdcs_fulltracks_checkpoint_v2";
 const CATALOG_CACHE_KEY="tdcs_catalog_cache_v2_noVA";
 
-// 手動で常に許可したいアルバムID（必要に応じて追加）
+/* 手動で常に許可したいアルバム（即インデックスへ収載） */
 const ALWAYS_KEEP_ALBUM_IDS = new Set([
   "06Yvg4vlPaVfnAWVwmJX27", // Roughside Out: B
   "4aeD4BUM5mAA1v1hCp9irx"  // Hype Of The One Sided
 ]);
 
+/*** DOM / 小物 ***/
 const $=s=>document.querySelector(s);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const jitter=v=> ($("#slowJitter").checked? v+Math.floor(Math.random()*Math.floor(v*0.2)) : v);
@@ -124,6 +126,7 @@ function setRate(t){ $("#ratePill").textContent=t; }
 function setIndexState(t){ $("#indexPill").textContent=t; }
 function fmtSec(s){const m=Math.floor(s/60),ss=s%60;return `${m}:${String(ss).padStart(2,'0')}`}
 
+/*** トークン ***/
 function getTokObj(){ try{ return JSON.parse(localStorage.getItem("sp_token")||"null"); }catch{ return null; } }
 function tokenStatusText(){
   const o=getTokObj(); if(!o) return "未接続";
@@ -144,7 +147,7 @@ async function refreshIfNeeded(){
   return next.access_token;
 }
 
-/* 429：Retry-After を常に60s上限でcap。throw→上位で後回し。 */
+/*** レート制御 & API ***/
 let penaltyUntil=0;
 function inPenalty(){ return Date.now()<penaltyUntil; }
 
@@ -212,7 +215,7 @@ async function api(endpoint, params={}, opt={}){
   }
 }
 
-/*** ユーティリティ ***/
+/*** CSV/テーブルユーティリティ ***/
 function detectCols(headers){
   const hmap={}; headers.forEach(h=>hmap[h.trim().toLowerCase()]=h);
   const get=(...c)=> c.map(s=>s.toLowerCase()).find(k=>hmap[k]) ? hmap[c.map(s=>s.toLowerCase()).find(k=>hmap[k])] : null;
@@ -257,7 +260,7 @@ function isVariousArtistsAlbum(alb){
   return isVAName || isCompNoTarget;
 }
 
-/*** カタログ・インデックス（search無し＋キャッシュ＋VA除外） ***/
+/*** カタログオブジェクト & 正規化 ***/
 const Catalog = {
   albumIds: new Set(),
   albumById: new Map(),    // id -> {id, name, url, upc, artists, album_type, ...}
@@ -266,6 +269,7 @@ const Catalog = {
 };
 function norm(s){ return String(s||"").toLowerCase().replace(/[^\p{Letter}\p{Number}]+/gu," ").trim(); }
 
+/*** カタログキャッシュ ***/
 function saveCatalogCache(){
   const obj={
     albumIds:[...Catalog.albumIds],
@@ -290,6 +294,7 @@ function loadCatalogCache(){
 }
 function clearCatalogCache(){ localStorage.removeItem(CATALOG_CACHE_KEY); }
 
+/*** フルカタログ取得（必要時のみ） ***/
 async function buildCatalogIndex(){
   setIndexState("building…");
   $("#idxSource").textContent="source: live";
@@ -300,7 +305,7 @@ async function buildCatalogIndex(){
     let page;
     try{
       page=await api(`/v1/artists/${TARGET_ARTIST_ID}/albums`,{
-        include_groups:"album,single,compilation,appears_on", // 取得は広め→後段でVA除外
+        include_groups:"album,single,compilation,appears_on", // 取得広め→後段でVA除外
         limit:50, offset
       });
       consec429=0;
@@ -318,8 +323,7 @@ async function buildCatalogIndex(){
     for(const a of items){
       if(!a || !a.id || seen.has(a.id)) continue;
       seen.add(a.id);
-      // a は簡易オブジェクトなので VA 判定は hydrate 後に最終確認
-      Catalog.albumIds.add(a.id);
+      Catalog.albumIds.add(a.id); // hydrate時にVA除外確定
     }
     got+=items.length; ilog(`[index] fetched ${got} albums (unique:${Catalog.albumIds.size})`);
     if(!page.next || !items.length) break;
@@ -346,8 +350,7 @@ async function buildCatalogIndex(){
     for(const alb of (resp.albums||[])){
       if(!alb || !alb.id) continue;
       if($("#excludeVA").checked && !ALWAYS_KEEP_ALBUM_IDS.has(alb.id) && isVariousArtistsAlbum(alb)){
-        // VA除外
-        continue;
+        continue; // VAは完全除外
       }
       const upc=digits(alb.external_ids?.upc||"");
       Catalog.albumIds.add(alb.id);
@@ -365,44 +368,87 @@ async function buildCatalogIndex(){
     await sleep(jitter(Number($("#batchPauseMs").value||1200)));
   }
 
-  // 手動許可IDを確実に収載
-  const forceIds = [...ALWAYS_KEEP_ALBUM_IDS].filter(id => !Catalog.albumById.has(id));
-  if(forceIds.length){
-    for(let i=0;i<forceIds.length;i+=20){
-      const slice=forceIds.slice(i,i+20);
-      let resp;
-      try{ resp=await api(`/v1/albums`,{ids:slice.join(",")}); }
-      catch(e){
-        if(e && e.code===429){
-          const w=(e.retryAfter||60000);
-          ilog(`[index] 429 wait ${Math.round(w/1000)}s (force hydrate)`);
-          await sleep(w + jitter(500)); i-=20; continue;
-        } else { throw e; }
-      }
-      for(const alb of (resp.albums||[])){
-        if(!alb || !alb.id) continue;
-        const upc=digits(alb.external_ids?.upc||"");
-        Catalog.albumIds.add(alb.id);
-        Catalog.albumById.set(alb.id,{
-          id:alb.id, name:alb.name||"",
-          url:alb.external_urls?.spotify||`https://open.spotify.com/album/${alb.id}`,
-          upc, label:alb.label||"", release_date:alb.release_date||"",
-          artists: alb.artists||[], album_type: alb.album_type||""
-        });
-        const nm=norm(alb.name||"");
-        if(upc) Catalog.upcToAlbumId.set(upc, alb.id);
-        if(nm){ if(!Catalog.nameToIds.has(nm)) Catalog.nameToIds.set(nm,[]); Catalog.nameToIds.get(nm).push(alb.id); }
-      }
-    }
-    ilog(`[index] forced include albums: ${forceIds.length}`);
-  }
+  // ALWAYS_KEEP を確実に収載
+  await hydrateForcedAlbumsFirst(/*quiet*/true);
 
   ilog(`[index] UPC mapped: ${Catalog.upcToAlbumId.size} (VA除外:${$("#excludeVA").checked?"ON":"OFF"})`);
   saveCatalogCache();
   setIndexState("ready");
 }
 
-/*** 収集（既存） ***/
+/*** “強制アルバムを先に”収載（ホットフィックス） ***/
+async function hydrateForcedAlbumsFirst(quiet=false){
+  const need=[...ALWAYS_KEEP_ALBUM_IDS].filter(id=>!Catalog.albumById.has(id));
+  if(!need.length){
+    setIndexState("ready(partial)");
+    $("#idxSource").textContent="source: forced";
+    if(!quiet) ilog(`[index] forced albums already present`);
+    return;
+  }
+  for(let i=0;i<need.length;i+=20){
+    let resp;
+    try{
+      resp=await api(`/v1/albums`,{ids:need.slice(i,i+20).join(",")});
+    }catch(e){
+      if(e && e.code===429){
+        const w=(e.retryAfter||60000);
+        ilog(`[index] 429 wait ${Math.round(w/1000)}s (forced)`);
+        await sleep(w + 500);
+        i-=20; continue;
+      } else { throw e; }
+    }
+    for(const alb of (resp.albums||[])){
+      if(!alb || !alb.id) continue;
+      const upc=digits(alb.external_ids?.upc||"");
+      Catalog.albumIds.add(alb.id);
+      Catalog.albumById.set(alb.id,{
+        id:alb.id, name:alb.name||"",
+        url:alb.external_urls?.spotify||`https://open.spotify.com/album/${alb.id}`,
+        upc, label:alb.label||"", release_date:alb.release_date||"",
+        artists: alb.artists||[], album_type: alb.album_type||""
+      });
+      const nm=norm(alb.name||"");
+      if(nm){ if(!Catalog.nameToIds.has(nm)) Catalog.nameToIds.set(nm,[]); Catalog.nameToIds.get(nm).push(alb.id); }
+      if(upc) Catalog.upcToAlbumId.set(upc, alb.id);
+    }
+  }
+  setIndexState("ready(partial)");
+  $("#idxSource").textContent="source: forced";
+  if(!quiet) ilog(`[index] forced include albums: ${need.length}`);
+}
+
+/*** インデックス利用（自動は“強制だけ / キャッシュ”、フルは手動） ***/
+async function ensureIndex(){
+  if(Catalog.upcToAlbumId.size>0){ setIndexState("ready"); $("#idxSource").textContent="source: live/cache"; return; }
+
+  // ① まず ALWAYS_KEEP を即収載（小規模で429に強い）
+  await hydrateForcedAlbumsFirst();
+
+  // ② キャッシュがあればそれで ready（重い取得はしない）
+  if(loadCatalogCache()){
+    setIndexState("ready");
+    $("#idxSource").textContent="source: cache";
+    ilog(`[index] loaded from cache (UPC mapped: ${Catalog.upcToAlbumId.size})`);
+    return;
+  }
+
+  // ③ フルはユーザー操作で（[カタログ再取得]ボタン）
+}
+
+/*** URL→アルバム解決（track→album対応） ***/
+async function urlAlbum(u){
+  const p=parseSpotifyId(u); if(!p) return null;
+  if(p.type==="album"){ try{ return await api(`/v1/albums/${p.id}`,{});}catch{return null;} }
+  if(p.type==="track" && $("#cleanUseUrl").checked){
+    try{
+      const tr=await api(`/v1/tracks/${p.id}`,{});
+      if(tr && tr.album){ return await api(`/v1/albums/${tr.album.id}`,{}); }
+    }catch(e){ return null; }
+  }
+  return null;
+}
+
+/*** 収集 ***/
 async function harvestAlbumTracksFull(albumId, sourceKey, albumUrl){
   const alb = Catalog.albumById.get(albumId) || await api(`/v1/albums/${albumId}`, {});
   if($("#excludeVA").checked && !ALWAYS_KEEP_ALBUM_IDS.has(albumId) && isVariousArtistsAlbum(alb)){
@@ -449,7 +495,7 @@ async function harvestAlbumTracksFull(albumId, sourceKey, albumUrl){
   return out;
 }
 
-/*** CSV / 実行状態 ***/
+/*** 実行状態/チェックポイント ***/
 let g={rows:[],cols:{},uniqueKeys:[],rowsByKey:null,results:[],doneKeys:new Set(),running:false,fileName:''};
 let stopSignal=false;
 function loadCheckpoint(){ try{ const cp=JSON.parse(localStorage.getItem(CHECKPOINT_KEY)||"null"); if(!cp) return null; g.doneKeys=new Set(cp.done||[]); g.results=cp.results||[]; return cp; }catch{return null;} }
@@ -472,29 +518,6 @@ function refreshAuthStatus(){ $("#authStatus").textContent = tokenStatusText(); 
 function maybeEnableStart(){ $("#startBtn").disabled = !(g.rows?.length>0 && !!getTokObj()); }
 
 /*** クレンジング ***/
-async function ensureIndex(){
-  if(Catalog.upcToAlbumId.size>0){ setIndexState("ready"); $("#idxSource").textContent="source: live/cache"; return; }
-  if(loadCatalogCache()){
-    setIndexState("ready");
-    $("#idxSource").textContent="source: cache";
-    ilog(`[index] loaded from cache (UPC mapped: ${Catalog.upcToAlbumId.size})`);
-    return;
-  }
-  await buildCatalogIndex();
-}
-
-async function urlAlbum(u){
-  const p=parseSpotifyId(u); if(!p) return null;
-  if(p.type==="album"){ return await api(`/v1/albums/${p.id}`,{}); }
-  if(p.type==="track" && $("#cleanUseUrl").checked){
-    try{
-      const tr=await api(`/v1/tracks/${p.id}`,{});
-      if(tr && tr.album){ return await api(`/v1/albums/${tr.album.id}`,{}); }
-    }catch(e){ return null; }
-  }
-  return null;
-}
-
 async function cleanseRows(){
   await ensureIndex();
   const rows=g.rows||[]; const cols=g.cols||{};
@@ -509,9 +532,9 @@ async function cleanseRows(){
                     || title.toLowerCase().replace(/[^\p{Letter}\p{Number}]+/gu," ").trim();
 
     let keep=false, reason="";
-    // 1) UPCが許可リストにある（VAはインデックスで除外済みなのでここは安全）
+    // 1) UPC一致（VAはインデックス時点で除外済）
     if(upc && allowUPC.has(upc)){ keep=true; r.__keep_reason="upc_match"; }
-    // 2) URLが対象アルバム/トラック→アルバムで、かつVAでない
+    // 2) URL一致（track→album解決 / VAは不許可）
     else if(url){
       const alb=await urlAlbum(url);
       if(alb){
@@ -524,7 +547,7 @@ async function cleanseRows(){
         reason="url_not_in_artist_catalog";
       }
     }
-    // 3) タイトル一致フォールバック（VA除外はインデックス側で担保）
+    // 3) タイトル一致フォールバック（インデックスでVA除外済）
     else if(nameKey && Catalog.nameToIds.has(nameKey)){
       keep=true; r.__keep_reason="title_match";
     }
@@ -558,7 +581,7 @@ function download(name, csv){
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name; a.click(); URL.revokeObjectURL(a.href);
 }
 
-/*** ラン（収集は任意） ***/
+/*** ラン（収集は任意。クリーナー主体なら未使用でもOK） ***/
 async function run(){
   await ensureIndex();
   g.running=true; stopSignal=false; $("#pauseBtn").disabled=false; $("#startBtn").disabled=true; $("#resumeBtn").disabled=true;
@@ -575,11 +598,11 @@ async function run(){
 }
 
 /*** 起動 ***/
-window.addEventListener("load", ()=>{
+window.addEventListener("load", async ()=>{
   $("#authStatus").textContent = tokenStatusText();
 
   $("#clearBtn").onclick=()=>{ localStorage.removeItem("sp_token"); $("#authStatus").textContent = tokenStatusText(); maybeEnableStart(); };
-  $("#rebuildIdxBtn").onclick=()=>{ clearCatalogCache(); Catalog.albumIds.clear(); Catalog.albumById.clear(); Catalog.upcToAlbumId.clear(); Catalog.nameToIds.clear(); ilog("[index] cache cleared"); setIndexState("idle"); $("#idxSource").textContent="source: -"; };
+  $("#rebuildIdxBtn").onclick=()=>{ clearCatalogCache(); Catalog.albumIds.clear(); Catalog.albumById.clear(); Catalog.upcToAlbumId.clear(); Catalog.nameToIds.clear(); ilog("[index] cache cleared"); setIndexState("idle"); $("#idxSource").textContent="source: -"; buildCatalogIndex().catch(e=>ilog(`[index err] ${e.message||e}`)); };
 
   $("#diagBtn").onclick=async()=>{
     const t=getTokObj();
@@ -623,6 +646,9 @@ window.addEventListener("load", ()=>{
     const csv=toCSV(lastClean.dropped);
     download(`Spotify未配信や対象外_${g.fileName||'out'}.csv`,csv);
   };
+
+  // 起動時に“強制アルバムだけ”先に収載（軽量・安全）
+  hydrateForcedAlbumsFirst().catch(e=>ilog(`[index forced err] ${e.message||e}`));
 
   setInterval(()=>{ $("#authStatus").textContent = tokenStatusText(); $("#resumeBtn").disabled = g.running || g.uniqueKeys.length===0; maybeEnableStart(); }, 1000);
 });
