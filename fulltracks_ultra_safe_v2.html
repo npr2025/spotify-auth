@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>TDCS Full Tracks Harvester — Ultra Ultra Safe v2 (no-search-by-default)</title>
+<title>TDCS Full Tracks Harvester — Ultra Ultra Safe v2 (no-search)</title>
 <link rel="preconnect" href="https://accounts.spotify.com"/>
 <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
 <style>
@@ -26,7 +26,7 @@
   <h1>TDCS Full Tracks Harvester — Ultra Ultra Safe v2</h1>
   <div class="small muted">Client ID: <code>378ef0f44b36499abd10d118ddbddc98</code> | Redirect: <code>https://npr2025.github.io/spotify-auth/callback.html</code></div>
   <div class="row">
-    <a href="./auth.html?v=20250919-2"><button>Spotifyに接続</button></a>
+    <a href="./auth.html?v=20250919-3"><button>Spotifyに接続</button></a>
     <button id="clearBtn" style="background:#eee;color:#111;border-color:#bbb">保存トークン削除</button>
     <span id="authStatus" class="muted">未接続</span>
   </div>
@@ -36,21 +36,21 @@
   <h2>入力と実行設定</h2>
   <div class="row">
     <input type="file" id="csvFile" accept=".csv"/>
-    <label>最小間隔(ms)：<input id="minDelayMs" type="number" value="2500" step="50" style="width:7rem"></label>
-    <label>RPM上限(1分)：<input id="rpmCap" type="number" value="10" step="1" style="width:5rem"></label>
-    <label>1時間予算(req)：<input id="hourBudget" type="number" value="800" step="50" style="width:6rem"></label>
+    <label>最小間隔(ms)：<input id="minDelayMs" type="number" value="3200" step="50" style="width:7rem"></label>
+    <label>RPM上限(1分)：<input id="rpmCap" type="number" value="8" step="1" style="width:5rem"></label>
+    <label>1時間予算(req)：<input id="hourBudget" type="number" value="600" step="50" style="width:6rem"></label>
     <label>最大バックオフ(ms)：<input id="maxBackoffMs" type="number" value="30000" step="500" style="width:7rem"></label>
     <label>最大リトライ：<input id="maxRetries" type="number" value="6" step="1" style="width:5rem"></label>
-    <label>429ロングCD(ms)：<input id="cooldownMs" type="number" value="600000" step="60000" style="width:8rem"></label>
+    <label>429上限(ms)：<input id="cooldownCapMs" type="number" value="120000" step="10000" style="width:8rem"></label>
   </div>
   <div class="row">
     <label>アルバムバッチ間隔(ms)：<input id="batchPauseMs" type="number" value="1200" step="100" style="width:7rem"></label>
     <label>トラックページ間隔(ms)：<input id="pagePauseMs" type="number" value="300" step="50" style="width:6rem"></label>
     <label>tracks?ids バッチ(≤50)：<input id="trkBatch" type="number" value="40" min="1" max="50" step="1" style="width:5rem"></label>
     <label>albums?ids バッチ(≤20)：<input id="albBatch" type="number" value="20" min="1" max="20" step="1" style="width:5rem"></label>
-    <label>ロングブレイク：<input id="longBreakEvery" type="number" value="150" step="10" style="width:5rem"> req毎 / <input id="longBreakMs" type="number" value="240000" step="60000" style="width:7rem"> ms</label>
+    <label>ロングブレイク：<input id="longBreakEvery" type="number" value="160" step="10" style="width:5rem"> req毎 / <input id="longBreakMs" type="number" value="240000" step="60000" style="width:7rem"> ms</label>
     <label><input id="slowJitter" type="checkbox" checked> ジッターON</label>
-    <label><input id="useSearchFallback" type="checkbox"> UPC/ISRC検索を許可（最終手段）</label>
+    <label><input id="strictNoSearch" type="checkbox" checked> search完全禁止</label>
   </div>
   <div class="row">
     <label><input id="scanAllTracks" type="checkbox" checked> 全アルバムでトラック走査（フル）</label>
@@ -122,7 +122,7 @@ async function refreshIfNeeded(){
   putTokObj(next); return next.access_token;
 }
 
-/* 429対策：受信後しばらく全リクエストに遅延を上乗せ */
+/* 429対策：受信後しばらく全リクエストに遅延を上乗せ／Retry-Afterを最大120sにキャップ */
 let penaltyUntil=0;
 function inPenalty(){ return Date.now()<penaltyUntil; }
 
@@ -134,11 +134,11 @@ async function api(endpoint, params={}, opt={}){
   const method=opt.method||"GET";
   const maxRetries=Number($("#maxRetries").value||6);
   const maxBackoff=Number($("#maxBackoffMs").value||30000);
-  const minDelay=Number($("#minDelayMs").value||2500);
-  const rpmCap=Number($("#rpmCap").value||10);
-  const hourBudget=Number($("#hourBudget").value||800);
-  const cooldownMs=Number($("#cooldownMs").value||600000);
-  const longBreakEvery=Number($("#longBreakEvery").value||150);
+  const minDelay=Number($("#minDelayMs").value||3200);
+  const rpmCap=Number($("#rpmCap").value||8);
+  const hourBudget=Number($("#hourBudget").value||600);
+  const cooldownCapMs=Number($("#cooldownCapMs").value||120000);
+  const longBreakEvery=Number($("#longBreakEvery").value||160);
   const longBreakMs=Number($("#longBreakMs").value||240000);
 
   const now=Date.now();
@@ -147,11 +147,10 @@ async function api(endpoint, params={}, opt={}){
   if(reqCountMin && (reqCountMin%longBreakEvery===0)){ setRate(`long break ${longBreakMs}ms`); await sleep(longBreakMs); }
 
   if(reqCountMin>=rpmCap){ const wait=60000-(now-windowStart)+50; setRate(`rpm-cap wait ${wait}ms`); await sleep(wait); }
-  if(hourCount>=hourBudget){ setRate(`hour budget cooldown ${cooldownMs}ms`); await sleep(cooldownMs); hourStart=Date.now(); hourCount=0; }
+  if(hourCount>=hourBudget){ setRate(`hour budget cooldown 120000ms`); await sleep(120000); hourStart=Date.now(); hourCount=0; }
 
-  // 基本遅延＋ペナルティ
   let baseDelay=jitter(minDelay);
-  if(inPenalty()) baseDelay+=15000;
+  if(inPenalty()) baseDelay+=12000;
   await sleep(baseDelay);
 
   let url=base+endpoint;
@@ -171,12 +170,12 @@ async function api(endpoint, params={}, opt={}){
 
       if(res.status===401 && attempt===0){ await refreshIfNeeded(); attempt++; continue; }
       if(res.status===429){
-        const raS=Number(res.headers.get("Retry-After"))||Math.ceil(cooldownMs/1000);
-        const ra=raS*1000;
-        log(`[429] Retry-After: ${raS}s → global slow-mode`);
-        penaltyUntil=Date.now()+Math.max(ra,300000); // 最低5分はスローモード
-        // UPC/ISRC検索での 429 は待たず「後回し」するため、throw で上へ
-        throw Object.assign(new Error("RATE_LIMIT"),{code:429, retryAfter:ra});
+        const ra=(Number(res.headers.get("Retry-After"))||60)*1000;
+        const capped=Math.min(ra, cooldownCapMs);
+        penaltyUntil=Date.now()+Math.max(capped,30000);
+        setRate(`429 slow-mode ${capped}ms`); log(`[429] Retry-After(raw): ${Math.round(ra/1000)}s → cap ${Math.round(capped/1000)}s`);
+        // search を使わないので、ここは待たずに throw して上位で「後回し」判定する
+        const err=new Error("RATE_LIMIT"); err.code=429; err.retryAfter=capped; throw err;
       }
       if(res.status>=500){
         if(attempt>=maxRetries) throw new Error(`HTTP ${res.status} ${await res.text()}`);
@@ -188,21 +187,11 @@ async function api(endpoint, params={}, opt={}){
       }
       setRate("ok"); return await res.json();
     }catch(e){
-      if(e && e.code===429){ throw e; } // 上位でスキップ制御
+      if(e && e.code===429){ throw e; }
       if(attempt>=maxRetries){ throw e; }
       setRate(`err backoff ${backoff}ms`); await sleep(backoff); backoff=Math.min(maxBackoff,backoff*2); attempt++;
     }
   }
-}
-
-/** search は原則使わない。必要時のみトグルONで使用 */
-async function searchAlbumsByUPC(upc){
-  if(!$("#useSearchFallback").checked) throw new Error("search disabled");
-  return api("/v1/search",{q:`upc:${upc}`,type:"album",limit:1});
-}
-async function searchTracksByISRC(isrc){
-  if(!$("#useSearchFallback").checked) throw new Error("search disabled");
-  return api("/v1/search",{q:`isrc:${isrc}`,type:"track",limit:1});
 }
 
 /** CSV 列検出／プレビュー */
@@ -226,7 +215,7 @@ function norm(s){ return String(s||"").toLowerCase().replace(/[^\p{Letter}\p{Num
 /** カタログ・インデックス（search無し） */
 const Catalog = {
   albumIds: new Set(),
-  albumById: new Map(),       // id -> minimal album object
+  albumById: new Map(),       // id -> minimal album
   upcToAlbumId: new Map(),    // upc -> id
   nameToIds: new Map(),       // normalized album name -> [ids]
 };
@@ -234,13 +223,19 @@ const Catalog = {
 async function buildCatalogIndex(){
   setIndexState("building…");
   ilog(`[index] fetch artist albums for ${TARGET_ARTIST_ID}`);
-  // 1) /v1/artists/{id}/albums を全ページ取得
+  // 1) /v1/artists/{id}/albums を全ページ取得（album/single/compilation のみ）
   let offset=0, got=0;
   const seen=new Set();
   while(true){
-    const page=await api(`/v1/artists/${TARGET_ARTIST_ID}/albums`,{
-      include_groups:"album,single,compilation", limit:50, offset
-    });
+    let page;
+    try{
+      page=await api(`/v1/artists/${TARGET_ARTIST_ID}/albums`,{
+        include_groups:"album,single,compilation", limit:50, offset
+      });
+    }catch(e){
+      if(e && e.code===429){ ilog(`[index] defer page offset=${offset}`); continue; }
+      else throw e;
+    }
     const items=page.items||[];
     for(const a of items){
       if(!a || !a.id || seen.has(a.id)) continue;
@@ -261,7 +256,13 @@ async function buildCatalogIndex(){
   const batchSize=Math.min(20, Number($("#albBatch").value||20));
   for(let i=0;i<ids.length;i+=batchSize){
     const slice=ids.slice(i,i+batchSize);
-    const resp=await api(`/v1/albums`,{ids:slice.join(",")});
+    let resp;
+    try{
+      resp=await api(`/v1/albums`,{ids:slice.join(",")});
+    }catch(e){
+      if(e && e.code===429){ ilog(`[index] defer batch i=${i}`); i-=batchSize; continue; }
+      else throw e;
+    }
     for(const alb of (resp.albums||[])){
       if(!alb || !alb.id) continue;
       Catalog.albumById.set(alb.id,{
@@ -280,27 +281,7 @@ async function buildCatalogIndex(){
   setIndexState("ready");
 }
 
-/** 文字列一致でアルバム候補 */
-function resolveByText(albumTitle, version){
-  const key=norm(albumTitle+" "+(version||""));
-  if(!key) return null;
-  // 完全一致
-  if(Catalog.nameToIds.has(key)){
-    const id=Catalog.nameToIds.get(key)[0];
-    const a=Catalog.albumById.get(id);
-    return a?{albumId:a.id,url:a.url}:null;
-  }
-  // 緩い一致（タイトルだけ）
-  const tkey=norm(albumTitle);
-  if(Catalog.nameToIds.has(tkey)){
-    const id=Catalog.nameToIds.get(tkey)[0];
-    const a=Catalog.albumById.get(id);
-    return a?{albumId:a.id,url:a.url}:null;
-  }
-  return null;
-}
-
-/** URL/UPC/ISRC/テキストで解決（search無し優先） */
+/** URL/UPC/テキストで解決（search完全禁止） */
 function parseSpotifyId(u){
   if(!u) return null;
   try{
@@ -312,6 +293,21 @@ function parseSpotifyId(u){
     const type=seg[0], id=seg[1]?.split("?")[0];
     if(type && id) return {type,id};
   }catch{}
+  return null;
+}
+function resolveByText(albumTitle, version){
+  const key=norm(albumTitle+" "+(version||""));
+  if(key && Catalog.nameToIds.has(key)){
+    const id=Catalog.nameToIds.get(key)[0];
+    const a=Catalog.albumById.get(id);
+    return a?{albumId:a.id,url:a.url}:null;
+  }
+  const tkey=norm(albumTitle);
+  if(tkey && Catalog.nameToIds.has(tkey)){
+    const id=Catalog.nameToIds.get(tkey)[0];
+    const a=Catalog.albumById.get(id);
+    return a?{albumId:a.id,url:a.url}:null;
+  }
   return null;
 }
 
@@ -336,36 +332,14 @@ async function resolveAlbum(row, cols){
     const id=Catalog.upcToAlbumId.get(upc);
     if(id){ const a=Catalog.albumById.get(id); return {albumId:id, url:a?.url||`https://open.spotify.com/album/${id}`}; }
   }
-  // 2) タイトル照合（弱）
+  // 2) タイトル照合
   const albumTitle=cols.album&&row[cols.album]?String(row[cols.album]).trim():'';
   const version=cols.version&&row[cols.version]?String(row[cols.version]).trim():'';
   const byText = resolveByText(albumTitle, version);
   if(byText) return byText;
 
-  // 3) 最終手段：search（トグルON時のみ）
-  if(cols.upc && row[cols.upc] && $("#useSearchFallback").checked){
-    const upc=String(row[cols.upc]).trim();
-    try{
-      const s=await searchAlbumsByUPC(upc);
-      const a=s.albums?.items?.[0];
-      if(a) return {albumId:a.id,url:a.external_urls.spotify};
-    }catch(e){
-      if(e && e.code===429){ throw e; }
-      log(`Resolve err: upc:${upc} → ${e.message||e}`);
-    }
-  }
-  if(cols.isrc && row[cols.isrc] && $("#useSearchFallback").checked){
-    const isrc=String(row[cols.isrc]).trim();
-    try{
-      const s=await searchTracksByISRC(isrc);
-      const t=s.tracks?.items?.[0];
-      if(t&&t.album) return {albumId:t.album.id,url:t.album.external_urls.spotify};
-    }catch(e){
-      if(e && e.code===429){ throw e; }
-      log(`Resolve err: isrc:${isrc} → ${e.message||e}`);
-    }
-  }
-  return null;
+  // 3) search は完全禁止（トグルが true でも呼ばない設計）
+  throw Object.assign(new Error("UNRESOLVED_NOSEARCH"), {code:"UNRESOLVED_NOSEARCH"});
 }
 
 /** 収集 */
@@ -438,13 +412,13 @@ function refreshAuthStatus(){ $("#authStatus").textContent = tokenStatusText(); 
 function maybeEnableStart(){ $("#startBtn").disabled = !(g.rows?.length>0 && !!getTokObj()); }
 
 async function run(){
-  // 先にカタログインデックスを確実に構築
+  // 先にカタログインデックスを構築
   if(Catalog.upcToAlbumId.size===0){ await buildCatalogIndex(); }
 
   g.running=true; stopSignal=false; $("#pauseBtn").disabled=false; $("#startBtn").disabled=true; $("#resumeBtn").disabled=true;
   const total=g.uniqueKeys.length; let done=0;
 
-  const deferred=[]; // 429等で後回し
+  const deferred=[]; // 429等や未解決は後回し
   for(const key of g.uniqueKeys){
     if(g.doneKeys.has(key)){ done++; $("#prog").value=Math.round(done/total*100); continue; }
     if(stopSignal){ g.running=false; $("#resumeBtn").disabled=false; $("#pauseBtn").disabled=true; log("一時停止"); return; }
@@ -453,14 +427,18 @@ async function run(){
     try{
       const sampleRow=g.rowsByKey.get(key)[0];
       const r=await resolveAlbum(sampleRow, g.cols);
-      if(!r){ log(`Resolve err: ${key} → not found`); g.doneKeys.add(key); done++; $("#prog").value=Math.round(done/total*100); saveCheckpoint(); continue; }
-      const outs=await harvestAlbumTracksFull(r.albumId, key, r.url);
-      g.results.push(...outs);
-      log(`album:${r.albumId} tracks:${outs.length}`);
+      if(!r){ log(`Resolve err: ${key} → not found`); }
+      else{
+        const outs=await harvestAlbumTracksFull(r.albumId, key, r.url);
+        g.results.push(...outs);
+        log(`album:${r.albumId} tracks:${outs.length}`);
+      }
     }catch(e){
       if(e && e.code===429){
-        log(`defer: ${key} (rate limit)`);
+        log(`defer(rate-limit): ${key}`);
         deferred.push(key);
+      }else if(e && e.code==="UNRESOLVED_NOSEARCH"){
+        log(`skip(unmapped, no-search): ${key}`);
       }else{
         log(`Resolve err: ${key} → ${e.message||e}`);
       }
@@ -470,7 +448,7 @@ async function run(){
     if(done%3===0) saveCheckpoint();
   }
 
-  // 後回し分を最後にもう一周（1回だけ）
+  // 後回し分を最後に一巡だけ再試行
   if(deferred.length){
     log(`--- retry deferred ${deferred.length} keys ---`);
     for(const key of deferred){
@@ -478,7 +456,7 @@ async function run(){
       try{
         const sampleRow=g.rowsByKey.get(key)[0];
         const r=await resolveAlbum(sampleRow, g.cols);
-        if(!r){ log(`Resolve err: ${key} → not found (deferred)`); continue; }
+        if(!r){ log(`deferred not found: ${key}`); continue; }
         const outs=await harvestAlbumTracksFull(r.albumId, key, r.url);
         g.results.push(...outs);
         log(`[deferred ok] album:${r.albumId} tracks:${outs.length}`);
