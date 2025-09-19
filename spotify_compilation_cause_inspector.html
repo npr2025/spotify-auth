@@ -1,0 +1,44 @@
+<!doctype html><meta charset="utf-8">
+<title>Spotify Compilation Cause Inspector</title>
+<link rel="preconnect" href="https://accounts.spotify.com"><link rel="preconnect" href="https://api.spotify.com">
+<style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial,'Noto Sans JP';margin:20px;background:#0b0b0b;color:#e9e9e9}
+.card{background:#151515;border:1px solid #242424;border-radius:12px;padding:14px;margin:10px 0}
+label{display:block;margin:6px 0 4px}input,button{font-size:15px}input{width:100%;padding:8px;border-radius:10px;border:1px solid #2a2a2a;background:#0f0f0f;color:#fff}
+button{padding:8px 12px;border-radius:10px;border:1px solid #2a2a2a;background:#0f0f0f;color:#fff;cursor:pointer}button.primary{background:#21e58a;border-color:#21e58a;color:#052f1a;font-weight:700}</style>
+<h1>Compilation Cause Inspector <small>PKCE / scopesなし</small></h1>
+<div class=card>
+  <label>Client ID</label><input id=cid>
+  <label>Redirect URI</label><input id=cb placeholder="https://npr2025.github.io/spotify-auth/callback.html">
+  <label>Scopes（空でOK）</label><input id=sc>
+  <p><button id=auth class=primary>Spotifyに接続</button> <button id=clear>保存トークン削除</button> <span id=stat style="opacity:.8"></span></p>
+</div>
+<div class=card>
+  <label>アルバムURL/ID（改行区切り）</label>
+  <input id=albums value="https://open.spotify.com/album/06Yvg4vlPaVfnAWVwmJX27
+https://open.spotify.com/album/4aeD4BUM5mAA1v1hCp9irx">
+  <label>期待プライマリーID（カンマ区切り）</label><input id=expected value="55fvQ5I2IZUfcFT2DV02T3">
+  <label>要注意判定の閾値</label><input id=th value="0.5">
+  <p><button id=run class=primary>原因を解析（2タイトル）</button> <span id=msg style="opacity:.8"></span></p>
+</div>
+<div id=out></div>
+<script>
+const qs=new URLSearchParams(location.search); const LS={tok:"tokC",cfg:"cfgC",ver:"verC"}; const $=id=>document.getElementById(id); const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function save(){localStorage.setItem(LS.cfg, JSON.stringify({cid:cid.value,cb:cb.value,sc:sc.value}))}
+function load(){try{const c=JSON.parse(localStorage.getItem(LS.cfg)||'null'); if(c){cid.value=c.cid||''; cb.value=c.cb||''; sc.value=c.sc||''}}catch(e){}}
+function base64url(a){return btoa(String.fromCharCode.apply(null,new Uint8Array(a))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
+async function sha256(s){return await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s))}
+function rnd(n=64){const a=new Uint8Array(n);crypto.getRandomValues(a);return Array.from(a).map(x=>('0'+x.toString(16)).slice(-2)).join('')}
+async function auth(){save(); if(!cid.value||!cb.value){alert('Client ID/Redirect URI');return} const ver=rnd(64); localStorage.setItem(LS.ver, JSON.stringify({ver})); const chall=base64url(await sha256(ver)); const u=new URL('https://accounts.spotify.com/authorize'); u.searchParams.set('response_type','code'); u.searchParams.set('client_id', cid.value); u.searchParams.set('redirect_uri', cb.value); u.searchParams.set('code_challenge_method','S256'); u.searchParams.set('code_challenge', chall); if(sc.value) u.searchParams.set('scope', sc.value); location.href=u}
+async function exch(code){const ver=JSON.parse(localStorage.getItem(LS.ver)||'{}').ver||''; const p=new URLSearchParams(); p.set('client_id', cid.value); p.set('grant_type','authorization_code'); p.set('code', code); p.set('redirect_uri', cb.value); p.set('code_verifier', ver); const r=await fetch('https://accounts.spotify.com/api/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:p.toString()}); if(!r.ok){msg.textContent='交換エラー'; throw new Error(await r.text())} const t=await r.json(); t.obtained_at=Date.now(); localStorage.setItem(LS.tok, JSON.stringify(t)); history.replaceState({},document.title,location.pathname)}
+function tok(){try{return JSON.parse(localStorage.getItem(LS.tok)||'null')}catch(e){return null}} function setStat(){const t=tok(); stat.textContent=!t?'未接続':((t.obtained_at+t.expires_in*1000>Date.now())?'トークンOK':'期限切れ')} setInterval(setStat,1000)
+async function api(path, params={}, method='GET'){const t=tok(); if(!t) throw new Error('未認証'); const url=new URL('https://api.spotify.com/v1'+path); Object.entries(params).forEach(([k,v])=>{if(v!==undefined&&v!==null&&v!=='') url.searchParams.set(k,v)}); const r=await fetch(url,{method,headers:{Authorization:`Bearer ${t.access_token}`}}); if(r.status===429){const ra=parseInt(r.headers.get('Retry-After')||'1',10); await sleep((ra+0.05)*1000); return api(path,params,method)} if(!r.ok) throw new Error(await r.text()); return r.json()}
+function parseIds(){return (albums.value||'').split(/\r?\n/).map(s=>{s=s.trim(); if(/^[A-Za-z0-9]{22}$/.test(s)) return s; const m=s.match(/album\/([A-Za-z0-9]{22})/); return m?m[1]:null}).filter(Boolean)}
+async function albumAndTracks(id){const a=await api('/albums/'+id,{}); let items=[],offset=0,next=true; while(next){const x=await api('/albums/'+id+'/tracks',{limit:50,offset}); items=items.concat(x.items||[]); if(x.next){const u=new URL(x.next); offset=parseInt(u.searchParams.get('offset')||'0',10)+50}else next=false} return {a,items}}
+function analyze(a,items,expected,th){const albIds=new Set((a.artists||[]).map(x=>x.id)); let bad=[]; items.forEach((t,i)=>{const ids=(t.artists||[]).map(x=>x.id); const names=(t.artists||[]).map(x=>x.name); const extra=ids.filter(id=>!albIds.has(id)&&!expected.has(id)); if(extra.length) bad.push({no:t.track_number??(i+1),name:t.name,extra:extra.map(id=>names[ids.indexOf(id)]).filter(Boolean)})}); const ratio=items.length?bad.length/items.length:0; return {album:a,bad,ratio}}
+function render(i,res){const a=res.album; const pct=Math.round(res.ratio*100); const el=document.createElement('div'); el.className='card'; el.innerHTML=`<h3>${i}. <a target=_blank href="https://open.spotify.com/album/${a.id}">${a.name}</a></h3>
+<div style="opacity:.85">album_type: <b>${a.album_type}</b> / album_artists: ${(a.artists||[]).map(x=>x.name).join(', ')} / extra-primary: <b>${pct}%</b></div>
+<details><summary>要注意トラック（${res.bad.length}）</summary><ol>${res.bad.map(d=>`<li>#${d.no} ${d.name} — 余分: ${d.extra.join(', ')}</li>`).join('')}</ol></details>`; document.getElementById('out').appendChild(el)}
+run.onclick=async()=>{try{msg.textContent='解析中…'; out.innerHTML=''; const ids=parseIds(); const expectedSet=new Set((expected.value||'').split(',').map(s=>s.trim()).filter(Boolean)); const thv=parseFloat(th.value||'0.5'); let i=0; for(const id of ids){const {a,items}=await albumAndTracks(id); const res=analyze(a,items,expectedSet,thv); render(++i,res); await sleep(15)} msg.textContent='完了'}catch(e){msg.textContent='エラー: '+e.message}};
+document.getElementById('auth').onclick=auth; document.getElementById('clear').onclick=()=>{localStorage.removeItem(LS.tok); setStat(); alert('保存トークンを削除しました')};
+load(); if(qs.get('code')){exch(qs.get('code')).then(()=>msg.textContent='接続完了').catch(e=>msg.textContent='交換エラー')}
+</script>
