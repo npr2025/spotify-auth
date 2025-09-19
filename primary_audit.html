@@ -1,7 +1,9 @@
 <!doctype html>
 <meta charset="utf-8"/>
-<title>Spotify Primary Artist Auditor (PKCE)</title>
+<title>Spotify Primary Artist Auditor (PKCE + FUGA照合)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- FUGA CSVの堅牢な読み込み用（Papa Parse） -->
+<script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
 <style>
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Noto Sans JP";margin:2rem;line-height:1.5}
   .card{border:1px solid #ddd;border-radius:10px;padding:1rem;margin-bottom:1rem}
@@ -16,11 +18,13 @@
   .log{white-space:pre-wrap;background:#fafafa;border:1px dashed #ccc;padding:.75rem;border-radius:8px;max-height:260px;overflow:auto}
   .pill{display:inline-block;border:1px solid #ccc;border-radius:999px;padding:.2rem .6rem;margin:.15rem .4rem .15rem 0}
   small{display:block;margin-top:.25rem}
+  .hint{background:#fff7e6;border:1px solid #ffd699;padding:.5rem .75rem;border-radius:8px}
 </style>
 
 <div class="card">
   <h2>Spotify Primary Artist Auditor</h2>
-  <p>アーティストIDまたはアルバムURLを指定して、<b>各トラックに“アルバムアーティスト以外のプライマリー”が入っていないか</b>を一括チェック → CSV出力します。</p>
+  <p>アーティストIDまたはアルバムURLを指定して、<b>各トラックに“アルバムアーティスト以外のプライマリー”が入っていないか</b>を一括チェック → CSV出力します。<br>
+  さらに <b>FUGA CSV</b> を読み込むと、<u>FUGAでのPrimary集合</u>を「正解」としてSpotify結果と突き合わせます。</p>
 
   <div class="row">
     <div>
@@ -38,7 +42,7 @@
   <div class="row">
     <div>
       <label>アーティストID（例：TDCS = <span class="mono">55fvQ5I2IZUfcFT2DV02T3</span>）</label>
-      <input id="artistId" placeholder="55fvQ5I2IZUfcFT2DV02T3">
+      <input id="artistId" placeholder="55fvQ5I2IZUfcFT2DV02T3" value="55fvQ5I2IZUfcFT2DV02T3">
       <small class="muted">指定すると全アルバム/シングル/コンピ/appears_onを走査（下のアルバム入力より優先）</small>
     </div>
     <div>
@@ -59,7 +63,7 @@
   <div class="row">
     <div>
       <label>期待アーティストID（カンマ区切り）</label>
-      <input id="expectedIds" placeholder="例）55fvQ5I2IZUfcFT2DV02T3">
+      <input id="expectedIds" placeholder="例）55fvQ5I2IZUfcFT2DV02T3" value="55fvQ5I2IZUfcFT2DV02T3">
       <small class="muted">“このIDだけがプライマリーであるべき”という集合。合わなければフラグ</small>
     </div>
     <div>
@@ -73,9 +77,29 @@
     <div>
       <button id="loginBtn">Spotifyに接続（PKCE）</button>
       <small id="tokenInfo" class="muted">access_token: なし</small>
+      <div class="hint" style="margin-top:.5rem">
+        <b>接続できない時：</b> Redirect URI は Developer 側の設定と <u>1文字でも違うとNG</u>。<br>
+        GitHub Pages の実URL（.html含む）を登録＆ここにも同じ値を入れてください。
+      </div>
     </div>
-    <div><button id="runBtn" disabled>実行 → CSVを作る</button></div>
+    <div>
+      <button id="runBtn" disabled>実行 → CSVを作る</button>
+      <small class="muted">ISRCを付けたい場合は下の「ISRC付与（遅い）」をONにしてから実行</small>
+    </div>
   </div>
+</div>
+
+<div class="card">
+  <h3>FUGA CSV（任意・推奨）</h3>
+  <p class="muted">
+    FUGAエクスポート（列: <code>Album title</code> / <code>Track title</code> / <code>Primary artists</code> / <code>ISRC</code> など）を読み込み、<br>
+    <b>FUGAでのPrimary集合</b>を「正解」として Spotify 結果と突き合わせます（名前一致＋任意でISRC一致）。
+  </p>
+  <input type="file" id="fugaCsv" accept=".csv">
+  <div style="margin:.5rem 0 0">
+    <label class="pill"><input type="checkbox" id="enrichISRC"> Spotify側の各トラックにISRCを付与（/v1/tracks ルックアップ・遅い）</label>
+  </div>
+  <small class="muted">ONにすると1曲ずつ /v1/tracks を叩いて <code>external_ids.isrc</code> を取得。FUGAとISRCで突合可能に。</small>
 </div>
 
 <div class="card">
@@ -257,13 +281,74 @@ async function spPaged(url, key="items"){
   return out;
 }
 
-function idFromUrlOrId(s){
-  if(!s) return "";
-  s = s.trim();
-  try { const u = new URL(s); const p=u.pathname.split("/"); return p[2]||s; }
-  catch{ return s; }
+/* ---------- FUGA CSV 突合 ---------- */
+let FUGA_MAP_BY_NAME = null; // key: albumTitle||trackTitle → Set(primary names lower)
+let FUGA_MAP_BY_ISRC = null; // key: ISRC → Set(primary names lower)
+let FUGA_HEADERS = null;
+
+function norm(s){ return (s||"").trim().toLowerCase(); }
+function splitNames(s){
+  if(!s) return [];
+  let x = String(s);
+  [";", ",", "/", "&", " x ", " X "].forEach(sep => x = x.split(sep).join("|"));
+  return x.split("|").map(v => v.trim()).filter(Boolean);
 }
 
+function buildFugaMaps(rows){
+  const mapName = new Map();
+  const mapISRC = new Map();
+  let missName = 0, missISRC = 0;
+
+  for(const r of rows){
+    const at = (r["Album title"] ?? r["Album Title"] ?? "").trim();
+    const tt = (r["Track title"] ?? r["Track Title"] ?? "").trim();
+    const isrc = (r["ISRC"] ?? r["isrc"] ?? "").trim();
+    const primRaw = (r["Primary artists"] ?? r["Primary Artists"] ?? "").trim();
+
+    const primSet = new Set(splitNames(primRaw).map(n => n.toLowerCase()).filter(Boolean));
+    if(primSet.size === 0) continue;
+
+    if(at && tt){
+      const key = norm(at) + "||" + norm(tt);
+      const prev = mapName.get(key) || new Set();
+      primSet.forEach(v => prev.add(v));
+      mapName.set(key, prev);
+    }else{
+      missName++;
+    }
+
+    if(isrc){
+      const prev = mapISRC.get(isrc) || new Set();
+      primSet.forEach(v => prev.add(v));
+      mapISRC.set(isrc, prev);
+    }else{
+      missISRC++;
+    }
+  }
+
+  log(`FUGA: name-key=${mapName.size} / isrc-key=${mapISRC.size}（name欠落:${missName}, isrc欠落:${missISRC}）`);
+  return { mapName, mapISRC };
+}
+
+$("#fugaCsv").addEventListener("change", (e)=>{
+  const file = e.target.files?.[0];
+  if(!file) return;
+  Papa.parse(file, {
+    header: true,
+    skipEmptyLines: true,
+    complete: (res)=>{
+      FUGA_HEADERS = res.meta.fields || [];
+      const rows = res.data || [];
+      const {mapName, mapISRC} = buildFugaMaps(rows);
+      FUGA_MAP_BY_NAME = mapName;
+      FUGA_MAP_BY_ISRC  = mapISRC;
+      log(`FUGA CSV 読み込み: ${rows.length} rows / headers: ${FUGA_HEADERS.join(", ")}`);
+    },
+    error: (err)=> log("FUGA CSV 読み込み失敗: " + err.message)
+  });
+});
+
+/* ---------- CSV出力ユーティリティ ---------- */
 function toCSVRow(arr){
   return arr.map(v=>{
     if(v==null) return "";
@@ -288,10 +373,11 @@ $("#loginBtn").addEventListener("click", authorize);
 $("#runBtn").addEventListener("click", async ()=>{
   $("#runBtn").disabled = true;
   try{
-    // 入力取得
     const marketRaw = ($("#market").value||"").trim();
     const artistId = $("#artistId").value.trim();
     const expected = ($("#expectedIds").value||"").split(",").map(s=>s.trim()).filter(Boolean);
+    const enrichISRC = $("#enrichISRC").checked;
+
     const groups = [
       $("#incAlbum").checked ? "album":null,
       $("#incSingle").checked ? "single":null,
@@ -312,7 +398,9 @@ $("#runBtn").addEventListener("click", async ()=>{
     }else{
       const raw = $("#albumList").value.trim();
       if(!raw) throw new Error("アーティストID か アルバムURL/ID を入力してください。");
-      albumIds = raw.split(/\r?\n/).map(idFromUrlOrId).filter(Boolean);
+      albumIds = raw.split(/\r?\n/).map(s=>{
+        s=s.trim(); try{ const u=new URL(s); return u.pathname.split("/")[2]||s; }catch{return s;}
+      }).filter(Boolean);
       log(`指定アルバム ${albumIds.length}件を処理します。`);
     }
 
@@ -322,7 +410,9 @@ $("#runBtn").addEventListener("click", async ()=>{
       "track_id","disc","track_number","track_name","duration_ms",
       "track_artists_ids","track_artists_names",
       "extra_artist_ids","extra_artist_names",
-      "has_extra_artists","remix_in_title","expected_only","flag_suspected"
+      "has_extra_artists","remix_in_title",
+      "expected_only","flag_suspected",
+      "track_isrc","fuga_primary_names","fuga_compare_key","fuga_match_by","fuga_expected_only","fuga_mismatch"
     ];
     const rows=[toCSVRow(header)];
 
@@ -351,13 +441,57 @@ $("#runBtn").addEventListener("click", async ()=>{
         // “プライマリーにRemixerが入った疑い”
         const suspected = hasExtra || (expected.length? !expectedOnly : false) || remix;
 
+        // ISRC（任意・遅い）
+        let trackISRC = "";
+        if(enrichISRC){
+          const tkUrl = `https://api.spotify.com/v1/tracks/${t.id}` + (marketRaw? `?market=${encodeURIComponent(marketRaw)}` : "");
+          try{
+            const tk = await spGet(tkUrl);
+            trackISRC = tk?.external_ids?.isrc || "";
+            // 小休止（連続呼び出し負荷軽減）
+            await sleep(50);
+          }catch(e){
+            log(`ISRC取得失敗 ${t.id}: ${e.message.split("\n")[0]}`);
+          }
+        }
+
+        // FUGA照合
+        let fugaExpectedOnly = null, fugaMismatch = false, fugaMatchBy = "none", fugaPrimNames = "", fugaKey = "";
+
+        if(FUGA_MAP_BY_NAME || FUGA_MAP_BY_ISRC){
+          const tNamesLower = t.artists.map(a => a.name.toLowerCase());
+          const tSet = new Set(tNamesLower);
+
+          // 1) ISRCで突合
+          if(trackISRC && FUGA_MAP_BY_ISRC && FUGA_MAP_BY_ISRC.has(trackISRC)){
+            const expect = FUGA_MAP_BY_ISRC.get(trackISRC);
+            fugaPrimNames = [...expect].join(";");
+            fugaMatchBy = "isrc";
+            fugaExpectedOnly = (expect.size === tSet.size) && ([...expect].every(n => tSet.has(n)));
+            fugaMismatch = !fugaExpectedOnly;
+          }else{
+            // 2) 名前（アルバム名 + 曲名）で突合
+            const key = norm(alb.name) + "||" + norm(t.name);
+            fugaKey = key;
+            if(FUGA_MAP_BY_NAME && FUGA_MAP_BY_NAME.has(key)){
+              const expect = FUGA_MAP_BY_NAME.get(key);
+              fugaPrimNames = [...expect].join(";");
+              fugaMatchBy = "name";
+              fugaExpectedOnly = (expect.size === tSet.size) && ([...expect].every(n => tSet.has(n)));
+              fugaMismatch = !fugaExpectedOnly;
+            }
+          }
+        }
+
         rows.push(toCSVRow([
           alb.id, alb.name, albumType,
           albumArtistIds.join(";"), albumArtistNames.join(";"),
           t.id, t.disc_number, t.track_number, t.name, t.duration_ms,
           tIds.join(";"), tNames.join(";"),
           extraIds.join(";"), extraNames.join(";"),
-          hasExtra, remix, expectedOnly, suspected
+          hasExtra, remix,
+          expectedOnly, suspected,
+          trackISRC, fugaPrimNames, fugaKey, fugaMatchBy, fugaExpectedOnly, fugaMismatch
         ]));
       }
     }
@@ -379,6 +513,7 @@ $("#runBtn").addEventListener("click", async ()=>{
   $("#clientId").value    = "CLIENT_ID_HERE";
   $("#redirectUri").value = "REDIRECT_URI_HERE";
   $("#artistId").value    = "55fvQ5I2IZUfcFT2DV02T3"; // TDCS デフォルト
+  $("#expectedIds").value = "55fvQ5I2IZUfcFT2DV02T3";
 
   exchangeTokenIfReturning().then(setTokenInfo);
   setInterval(setTokenInfo, 1000);
