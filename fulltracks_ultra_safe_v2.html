@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>TDCS Full Tracks Harvester — Ultra Ultra Safe v2 (noscope)</title>
+<title>TDCS Full Tracks Harvester — Ultra Ultra Safe v2 (no-scope)</title>
 <link rel="preconnect" href="https://accounts.spotify.com"/>
 <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
 <style>
@@ -23,10 +23,10 @@
 </head>
 <body>
 <header class="card">
-  <h1>TDCS Full Tracks Harvester — Ultra Ultra Safe v2 (noscope)</h1>
+  <h1>TDCS Full Tracks Harvester — Ultra Ultra Safe v2 (no-scope)</h1>
   <div class="small muted">Client ID: <code>378ef0f44b36499abd10d118ddbddc98</code> | Redirect: <code>https://npr2025.github.io/spotify-auth/callback.html</code></div>
   <div class="row">
-    <a href="./auth.html?v=20250919"><button>Spotifyに接続</button></a>
+    <a href="./auth.html?v=20250919-1"><button>Spotifyに接続</button></a>
     <button id="clearBtn" style="background:#eee;color:#111;border-color:#bbb">保存トークン削除</button>
     <span id="authStatus" class="muted">未接続</span>
   </div>
@@ -107,32 +107,17 @@ async function refreshIfNeeded(){
   const o=getTokObj(); if(!o) throw new Error("no token");
   const skew=15000;
   if(Date.now()< (o.expires_at-skew)) return o.access_token;
-  if(!o.refresh_token){
-    // リフレッシュなし → 再認証要求（UI操作）
-    throw new Error("token expired (no refresh_token). 再認証してください。");
-  }
-  const body=new URLSearchParams({
-    client_id:"378ef0f44b36499abd10d118ddbddc98",
-    grant_type:"refresh_token",
-    refresh_token:o.refresh_token
-  });
+  if(!o.refresh_token){ throw new Error("token expired (no refresh_token). 再認証してください。"); }
+  const body=new URLSearchParams({ client_id:"378ef0f44b36499abd10d118ddbddc98", grant_type:"refresh_token", refresh_token:o.refresh_token });
   const res=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
   if(!res.ok){ throw new Error(`refresh failed: ${await res.text()}`); }
   const tok=await res.json();
-  const next={
-    access_token: tok.access_token,
-    token_type: tok.token_type||o.token_type||"Bearer",
-    scope: tok.scope||o.scope||"",
-    refresh_token: tok.refresh_token||o.refresh_token||"",
-    expires_at: Date.now()+ (tok.expires_in||3600)*1000 - 10000
-  };
-  putTokObj(next);
-  return next.access_token;
+  const next={ access_token: tok.access_token, token_type: tok.token_type||o.token_type||"Bearer", scope: tok.scope||o.scope||"", refresh_token: tok.refresh_token||o.refresh_token||"", expires_at: Date.now()+ (tok.expires_in||3600)*1000 - 10000 };
+  putTokObj(next); return next.access_token;
 }
 
 let reqCountMin=0, windowStart=Date.now();
 let hourCount=0, hourStart=Date.now();
-let callN=0;
 async function api(endpoint, params={}, opt={}){
   const base="https://api.spotify.com";
   const method=opt.method||"GET";
@@ -142,7 +127,6 @@ async function api(endpoint, params={}, opt={}){
   const rpmCap=Number($("#rpmCap").value||5);
   const hourBudget=Number($("#hourBudget").value||300);
   const cooldownMs=Number($("#cooldownMs").value||600000);
-  callN++;
 
   const now=Date.now();
   if(now-windowStart>=60000){ windowStart=now; reqCountMin=0; }
@@ -170,8 +154,7 @@ async function api(endpoint, params={}, opt={}){
       if(res.status===401 && attempt===0){ await refreshIfNeeded(); attempt++; continue; }
       if(res.status===429){
         const ra=(Number(res.headers.get("Retry-After"))||Math.ceil(cooldownMs/1000))*1000;
-        log(`[429] Retry-After: ${Math.round(ra/1000)}s → long wait`);
-        setRate(`429 wait ${ra}ms`); await sleep(ra); attempt++; continue;
+        log(`[429] Retry-After: ${Math.round(ra/1000)}s → long wait`); setRate(`429 wait ${ra}ms`); await sleep(ra); attempt++; continue;
       }
       if(res.status>=500){
         if(attempt>=maxRetries) throw new Error(`HTTP ${res.status} ${await res.text()}`);
@@ -181,8 +164,7 @@ async function api(endpoint, params={}, opt={}){
         const bodyText=await res.text();
         throw new Error(`HTTP ${res.status} ${bodyText}`);
       }
-      setRate("ok");
-      return await res.json();
+      setRate("ok"); return await res.json();
     }catch(e){
       if(attempt>=maxRetries){ throw e; }
       setRate(`err backoff ${backoff}ms`); await sleep(backoff); backoff=Math.min(maxBackoff,backoff*2); attempt++;
@@ -190,30 +172,22 @@ async function api(endpoint, params={}, opt={}){
   }
 }
 
-async function searchAlbumsByUPC(upc){
-  // 検索APIはscope不要。market指定しない安全形。
-  return api("/v1/search",{q:`upc:${upc}`,type:"album",limit:1});
-}
+/*** 検索は scope 不要。market 指定も不要（国依存回避）。 ***/
+async function searchAlbumsByUPC(upc){ return api("/v1/search",{q:`upc:${upc}`,type:"album",limit:1}); }
 
 function detectCols(headers){
-  const hmap={}; headers.forEach((h,i)=> hmap[h.trim().toLowerCase()]=h);
+  const hmap={}; headers.forEach(h=>hmap[h.trim().toLowerCase()]=h);
   const get=(...c)=> c.map(s=>s.toLowerCase()).find(k=>hmap[k]) ? hmap[c.map(s=>s.toLowerCase()).find(k=>hmap[k])] : null;
-  return {
-    url: get("spotify_url","url","spotify"),
-    upc: get("upc","pos","ean"),
-    isrc: get("isrc"),
-    album: get("album title","album","release"),
-    version: get("album version","version","mix"),
-    track: get("track title","title","track")
-  };
+  return { url:get("spotify_url","url","spotify"), upc:get("upc","pos","ean"), isrc:get("isrc"),
+           album:get("album title","album","release"), version:get("album version","version","mix"), track:get("track title","title","track") };
 }
 
 function previewTable(rows){
   const tbl=$("#previewTbl");
-  const headers = rows.length ? Object.keys(rows[0]) : [];
-  tbl.querySelector("thead").innerHTML = `<tr>${headers.map(h=>`<th>${h}</th>`).join("")}</tr>`;
-  const bodyRows = rows.slice(0,10).map(r=>`<tr>${headers.map(h=>`<td>${(r[h]??"")}</td>`).join("")}</tr>`).join("");
-  tbl.querySelector("tbody").innerHTML = bodyRows || "<tr><td>（なし）</td></tr>";
+  const headers=rows.length?Object.keys(rows[0]):[];
+  tbl.querySelector("thead").innerHTML=`<tr>${headers.map(h=>`<th>${h}</th>`).join("")}</tr>`;
+  const bodyRows=rows.slice(0,10).map(r=>`<tr>${headers.map(h=>`<td>${(r[h]??"")}</td>`).join("")}</tr>`).join("");
+  tbl.querySelector("tbody").innerHTML=bodyRows||"<tr><td>（なし）</td></tr>";
 }
 
 function makeKey(row, cols){
@@ -228,8 +202,7 @@ function parseSpotifyId(u){
   if(!u) return null;
   try{
     if(u.startsWith("spotify:")){
-      const parts=u.split(":");
-      return {type:parts[1], id:parts[2]};
+      const parts=u.split(":"); return {type:parts[1], id:parts[2]};
     }
     const url=new URL(u);
     const seg=url.pathname.split("/").filter(Boolean);
@@ -259,9 +232,7 @@ async function resolveAlbum(row, cols){
       const s=await searchAlbumsByUPC(upc);
       const a=s.albums?.items?.[0];
       if(a) return {albumId:a.id,url:a.external_urls.spotify};
-    }catch(e){
-      log(`Resolve err: upc:${upc} → ${e.message||e}`);
-    }
+    }catch(e){ log(`Resolve err: upc:${upc} → ${e.message||e}`); }
   }
   if(cols.isrc && row[cols.isrc]){
     const isrc=String(row[cols.isrc]).trim();
@@ -281,12 +252,8 @@ async function resolveAlbum(row, cols){
   for(const q of queries){
     try{
       const res=await api('/v1/search',{...q,limit:3});
-      if(q.type==='album' && res.albums?.items?.length){
-        const a=res.albums.items[0]; if(a) return {albumId:a.id,url:a.external_urls.spotify};
-      }
-      if(q.type==='track' && res.tracks?.items?.length){
-        const t=res.tracks.items[0]; if(t&&t.album) return {albumId:t.album.id,url:t.album.external_urls.spotify};
-      }
+      if(q.type==='album' && res.albums?.items?.length){ const a=res.albums.items[0]; if(a) return {albumId:a.id,url:a.external_urls.spotify}; }
+      if(q.type==='track' && res.tracks?.items?.length){ const t=res.tracks.items[0]; if(t&&t.album) return {albumId:t.album.id,url:t.album.external_urls.spotify}; }
     }catch(e){}
     await sleep(jitter(200));
   }
@@ -295,13 +262,10 @@ async function resolveAlbum(row, cols){
 
 async function harvestAlbumTracksFull(albumId, sourceKey, albumUrl){
   const alb = await api(`/v1/albums/${albumId}`, {});
-  const tracks=[];
-  let offset=0;
+  const tracks=[]; let offset=0;
   while(true){
     const page=await api(`/v1/albums/${albumId}/tracks`, {limit:50, offset});
-    (page.items||[]).forEach(x=>{
-      tracks.push({id:x.id,name:x.name,disc_number:x.disc_number,track_number:x.track_number,artists:(x.artists||[]).map(a=>a.name).join(" & ")});
-    });
+    (page.items||[]).forEach(x=>{ tracks.push({id:x.id,name:x.name,disc_number:x.disc_number,track_number:x.track_number,artists:(x.artists||[]).map(a=>a.name).join(" & ")}); });
     offset += page.items?.length||0;
     await sleep(jitter(Number($("#pagePauseMs").value||400)));
     if(!page.next) break;
@@ -341,10 +305,11 @@ async function harvestAlbumTracksFull(albumId, sourceKey, albumUrl){
   return out;
 }
 
+/*** Checkpoint ***/
 let g={rows:[],cols:{},uniqueKeys:[],rowsByKey:null,results:[],doneKeys:new Set(),running:false,fileName:''};
 let stopSignal=false;
 function loadCheckpoint(){ try{ const cp=JSON.parse(localStorage.getItem(CHECKPOINT_KEY)||"null"); if(!cp) return null; g.doneKeys=new Set(cp.done||[]); g.results=cp.results||[]; return cp; }catch{return null;} }
-function saveCheckpoint(){ const cp={ done:[...g.doneKeys], results:g.results }; localStorage.setItem(CHECKPOINT_KEY, JSON.stringify(cp)); $("#downloadCheckpointBtn").disabled=false; }
+function saveCheckpoint(){ const cp={ done:[...g.doneKeys], results:g.results }; localStorage.setItem(CHECKPOINT_KEY, JSON.stringify(cp)); $("#downloadCheckpointBtn").disabled=true===false; }
 function clearCheckpoint(){ localStorage.removeItem(CHECKPOINT_KEY); g.doneKeys=new Set(); g.results=[]; $("#downloadCheckpointBtn").disabled=true; }
 
 async function run(){
@@ -408,7 +373,6 @@ window.addEventListener("load", ()=>{
     const t=getTokObj();
     if(!t){ log("[diag] no token"); return; }
     log(`[diag] token present scope:${t.scope||"(none)"} exp_in:${Math.max(0,Math.floor((t.expires_at-Date.now())/1000))}s`);
-    // /v1/me はscope不要で通る（通らない場合もある）→失敗しても無視
     try{ const me=await api("/v1/me", {}); log(`[diag] me.id:${me.id||"-"} country:${me.country||"-"} product:${me.product||"-"}`); }catch(e){ log(`[diag] /me skipped: ${e.message||e}`); }
   };
 
