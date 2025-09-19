@@ -13,8 +13,9 @@
 <script>
 const CLIENT_ID="378ef0f44b36499abd10d118ddbddc98";
 const REDIRECT_URI="https://npr2025.github.io/spotify-auth/callback.html";
-// 必要最低限：user-read-private（market=from_token用）+ offline_access（refresh用）
-const SCOPE="user-read-private offline_access";
+
+/* ★ここを修正：Illegal scopeの原因だった offline_access を削除し、必要最小限だけにする */
+const SCOPE = "user-read-private";
 
 function base64url(a){return btoa(String.fromCharCode.apply(null,new Uint8Array(a))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");}
 async function sha256(s){return crypto.subtle.digest("SHA-256",new TextEncoder().encode(s));}
