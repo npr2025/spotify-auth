@@ -3,135 +3,224 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>TDCS Full Tracks Harvester — Ultra Safe v2 (no-search, 60s cap, cached index, forced-first, no-VA)</title>
+<title>TDCS Full Tracks Harvester — Ultra Safe v2 (UI v9)</title>
 <link rel="preconnect" href="https://accounts.spotify.com"/>
 <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
 <style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial,'Noto Sans JP';margin:2rem}
-  .card{border:1px solid #ddd;border-radius:10px;padding:1rem;margin-bottom:1rem}
-  .row{display:flex;flex-wrap:wrap;gap:1rem;align-items:center}
-  button{padding:.6rem 1rem;border-radius:8px;border:1px solid #999;background:#111;color:#fff;cursor:pointer}
-  button[disabled]{opacity:.5;cursor:not-allowed}
-  input[type=file]{border:1px dashed #bbb;padding:.75rem;border-radius:8px;background:#fafafa}
-  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace}
-  .muted{color:#666}.ok{color:#0a7f29}.bad{color:#b00020}
-  progress{width:100%;height:14px}
-  table{border-collapse:collapse;width:100%}th,td{border:1px solid #eee;padding:.5rem;font-size:.9rem;text-align:left}
-  .pill{display:inline-block;padding:.1rem .5rem;border:1px solid #ccc;border-radius:999px;font-size:.8rem;background:#f6f6f6}
-  .small{font-size:.85rem}
+  :root{
+    --bg:#0b0d10; --card:#12161b; --muted:#9aa4af; --text:#e6edf3; --line:#1f2937;
+    --acc:#4f46e5; --acc-2:#00b894; --warn:#f59e0b; --bad:#ef4444; --ok:#22c55e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--bg); color:var(--text); font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial,'Noto Sans JP',sans-serif}
+  header{position:sticky;top:0;z-index:5;background:linear-gradient(180deg,rgba(18,22,27,.95),rgba(18,22,27,.85));backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+  .wrap{max-width:1100px;margin:0 auto;padding:18px}
+  h1{margin:4px 0 10px;font-size:18px;font-weight:700}
+  .row{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap}
+  .pill{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .6rem;border:1px solid var(--line);border-radius:999px;font-size:12px;color:var(--muted)}
+  .pill.ok{color:#0ad17a;border-color:#0ad17a26;background:#0ad17a14}
+  .pill.bad{color:var(--bad);border-color:#ef444426;background:#ef444414}
+  .pill.warn{color:var(--warn);border-color:#f59e0b26;background:#f59e0b14}
+  .btn{padding:.65rem 1rem;border-radius:10px;border:1px solid #2b3340;background:#1a2230;color:#fff;cursor:pointer}
+  .btn[disabled]{opacity:.5;cursor:not-allowed}
+  .btn.primary{background:var(--acc);border-color:var(--acc)}
+  .btn.ghost{background:#12161b;border-color:#2b3340}
+  .btn.danger{background:#7f1d1d;border-color:#b91c1c}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:14px 0}
+  .grid{display:grid;grid-template-columns:1.2fr .8fr;gap:14px}
+  .muted{color:var(--muted)}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono','Courier New',monospace}
+  details summary{cursor:pointer;color:#cbd5e1}
+  .stepper{display:flex;gap:10px;align-items:center;margin:8px 0 0}
+  .step{flex:1;display:flex;align-items:center;gap:.6rem;padding:.6rem;border:1px solid var(--line);border-radius:10px;background:#0f141a}
+  .k{width:24px;height:24px;border-radius:6px;background:#111a;display:flex;align-items:center;justify-content:center;font-weight:700}
+  .k.ok{background:#00b894}
+  .k.wait{background:#f59e0b}
+  .k.bad{background:#ef4444}
+  .statusbar{position:sticky;bottom:0;z-index:5;background:linear-gradient(180deg,rgba(18,22,27,.85),rgba(18,22,27,.98));border-top:1px solid var(--line)}
+  .log{white-space:pre-wrap;max-height:220px;overflow:auto;background:#0d1117;border:1px solid var(--line);border-radius:10px;padding:10px}
+  progress{width:100%;height:10px}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th,td{border:1px solid #1f2937;padding:.4rem .5rem;text-align:left;vertical-align:top}
+  .banner{display:none;padding:.6rem .8rem;border-radius:10px;margin:8px 0;font-weight:600}
+  .banner.bad{display:flex;background:#7f1d1d;color:#fff}
+  .mini{font-size:12px}
+  .kbd{border:1px solid var(--line);padding:.05rem .35rem;border-radius:6px;background:#0f141a}
+  .stat{display:flex;gap:10px;flex-wrap:wrap}
+  .stat .box{flex:1 0 160px;background:#0f141a;border:1px solid var(--line);border-radius:10px;padding:10px}
+  .chip{display:inline-block;padding:.05rem .45rem;border:1px solid var(--line);border-radius:999px;margin:.05rem;font-size:12px}
 </style>
 </head>
 <body>
-<header class="card">
-  <h1>TDCS Full Tracks Harvester — Ultra Safe v2</h1>
-  <div class="small muted">Client ID: <code>378ef0f44b36499abd10d118ddbddc98</code> | Redirect: <code>https://npr2025.github.io/spotify-auth/callback.html</code></div>
-  <div class="row">
-    <a href="./auth.html?v=20250919-8"><button>Spotifyに接続</button></a>
-    <button id="clearBtn" style="background:#eee;color:#111;border-color:#bbb">保存トークン削除</button>
-    <span id="authStatus" class="muted">未接続</span>
+<header>
+  <div class="wrap">
+    <div class="row" style="justify-content:space-between">
+      <div>
+        <h1>TDCS Full Tracks Harvester — Ultra Safe v2</h1>
+        <div class="muted mini">Client ID: <code>378ef0f44b36499abd10d118ddbddc98</code> / Redirect: <code>https://npr2025.github.io/spotify-auth/callback.html</code></div>
+      </div>
+      <div class="row">
+        <a href="./auth.html?v=20250919-9"><button class="btn">Spotifyに接続</button></a>
+        <button id="clearBtn" class="btn ghost">保存トークン削除</button>
+        <span id="authStatus" class="pill">未接続</span>
+      </div>
+    </div>
+
+    <!-- ステップ表示 -->
+    <div class="stepper">
+      <div class="step"><div id="s1" class="k">1</div><div><b>接続</b><div class="mini muted">トークン状態: <span id="tokState">-</span></div></div></div>
+      <div class="step"><div id="s2" class="k">2</div><div><b>CSV</b><div class="mini muted"><span id="csvState">未読込</span></div></div></div>
+      <div class="step"><div id="s3" class="k">3</div><div><b>クレンジング→出力</b><div class="mini muted">Various Artists 除外: <span id="vaState">ON</span></div></div></div>
+    </div>
   </div>
 </header>
 
-<section class="card">
-  <h2>入力と実行設定</h2>
-  <div class="row">
-    <input type="file" id="csvFile" accept=".csv"/>
-    <label>最小間隔(ms)：<input id="minDelayMs" type="number" value="3500" step="50" style="width:7rem"></label>
-    <label>RPM上限(1分)：<input id="rpmCap" type="number" value="6" step="1" style="width:5rem"></label>
-    <label>1時間予算(req)：<input id="hourBudget" type="number" value="480" step="50" style="width:6rem"></label>
-    <label>最大バックオフ(ms)：<input id="maxBackoffMs" type="number" value="30000" step="500" style="width:7rem"></label>
-    <label>最大リトライ：<input id="maxRetries" type="number" value="6" step="1" style="width:5rem"></label>
-    <label>429上限(ms)：<input id="cooldownCapMs" type="number" value="60000" step="5000" style="width:8rem"></label>
-  </div>
-  <div class="row">
-    <label>アルバムバッチ間隔(ms)：<input id="batchPauseMs" type="number" value="1200" step="100" style="width:7rem"></label>
-    <label>トラックページ間隔(ms)：<input id="pagePauseMs" type="number" value="300" step="50" style="width:6rem"></label>
-    <label>tracks?ids バッチ(≤50)：<input id="trkBatch" type="number" value="40" min="1" max="50" step="1" style="width:5rem"></label>
-    <label>albums?ids バッチ(≤20)：<input id="albBatch" type="number" value="20" min="1" max="20" step="1" style="width:5rem"></label>
-    <label>ロングブレイク：<input id="longBreakEvery" type="number" value="160" step="10" style="width:5rem"> req毎 / <input id="longBreakMs" type="number" value="240000" step="60000" style="width:7rem"> ms</label>
-    <label><input id="slowJitter" type="checkbox" checked> ジッターON</label>
-    <label><input id="strictNoSearch" type="checkbox" checked> search完全禁止</label>
-    <label><input id="excludeVA" type="checkbox" checked> Various Artists 全除外</label>
-  </div>
-  <div class="row">
-    <label><input id="scanAllTracks" type="checkbox" checked> 全アルバムでトラック走査（フル）</label>
-    <button id="startBtn" disabled>開始</button>
-    <button id="pauseBtn" disabled>一時停止</button>
-    <button id="resumeBtn" disabled>再開</button>
-    <button id="clearChkBtn">チェックポイント削除</button>
-    <button id="diagBtn" style="background:#0a7f29;border-color:#0a7f29">接続診断</button>
-  </div>
-  <div id="fileInfo" class="small muted"></div>
-  <div class="small muted">対応列：<code>spotify_url / UPC / ISRC / Album title / Album version / Track title</code></div>
-</section>
+<div class="wrap">
+  <!-- 429バナー -->
+  <div id="penaltyBanner" class="banner bad">RATE LIMIT: クールダウン中… 残り <span id="penaltyLeft">–</span>s</div>
 
-<section class="card">
-  <h2>カタログ・インデックス <span id="indexPill" class="pill">idle</span></h2>
+  <!-- 状態チップ -->
   <div class="row">
-    <button id="rebuildIdxBtn" style="background:#eee;color:#111;border-color:#bbb">カタログ再取得</button>
-    <span id="idxSource" class="small muted">source: -</span>
+    <span id="chipTok" class="pill">token: -</span>
+    <span id="chipIdx" class="pill">catalog: -</span>
+    <span id="chipCsv" class="pill">csv: -</span>
+    <span id="chipRate" class="pill">rate: idle</span>
   </div>
-  <div id="indexLog" class="mono small" style="white-space:pre-wrap;max-height:160px;overflow:auto"></div>
-</section>
 
-<section class="card">
-  <h2>クレンジング（Spotify未配信/対象外の潰し）</h2>
-  <div class="row">
-    <label><input id="cleanUseUrl" type="checkbox" checked> URLで補完（track→album解決を許可）</label>
-    <button id="cleanBtn" disabled>Spotify配信ありだけ保存</button>
-    <button id="cleanDroppedBtn" disabled>落とした行を保存</button>
-    <span id="cleanStat" class="muted small"></span>
+  <!-- 左: 操作 / 右: プレビュー -->
+  <div class="grid">
+    <div>
+      <section class="card">
+        <h3>1) 入力と基本設定</h3>
+        <div class="row" style="margin:.5rem 0 1rem">
+          <input type="file" id="csvFile" accept=".csv" class="btn ghost" title="FUGA清書CSVなどを選択"/>
+          <label class="mini muted">対応列: <code>spotify_url / UPC / ISRC / Album title / Album version / Track title</code></label>
+        </div>
+
+        <div class="row" style="gap:16px">
+          <label class="mini"><input id="cleanUseUrl" type="checkbox" checked> URLで補完（track→album解決）</label>
+          <label class="mini"><input id="excludeVA" type="checkbox" checked> Various Artists 全除外</label>
+        </div>
+
+        <details style="margin-top:10px">
+          <summary>詳細設定</summary>
+          <div class="row" style="margin-top:8px;gap:10px">
+            <label>最小間隔(ms)：<input id="minDelayMs" type="number" value="3500" step="50" style="width:7rem"></label>
+            <label>RPM上限：<input id="rpmCap" type="number" value="6" step="1" style="width:5rem"></label>
+            <label>1時間予算：<input id="hourBudget" type="number" value="480" step="50" style="width:6rem"></label>
+            <label>最大バックオフ(ms)：<input id="maxBackoffMs" type="number" value="30000" step="500" style="width:7rem"></label>
+            <label>最大リトライ：<input id="maxRetries" type="number" value="6" step="1" style="width:5rem"></label>
+            <label>429上限(ms)：<input id="cooldownCapMs" type="number" value="60000" step="5000" style="width:8rem"></label>
+          </div>
+          <div class="row" style="margin-top:6px;gap:10px">
+            <label>albums?ids：<input id="albBatch" type="number" value="20" min="1" max="20" step="1" style="width:5rem"></label>
+            <label>tracks?ids：<input id="trkBatch" type="number" value="40" min="1" max="50" step="1" style="width:5rem"></label>
+            <label>ロングブレイク：<input id="longBreakEvery" type="number" value="160" step="10" style="width:5rem"> req / <input id="longBreakMs" type="number" value="240000" step="60000" style="width:7rem"> ms</label>
+            <label class="mini"><input id="slowJitter" type="checkbox" checked> ジッターON</label>
+            <label class="mini"><input id="strictNoSearch" type="checkbox" checked> search完全禁止</label>
+          </div>
+        </details>
+      </section>
+
+      <section class="card">
+        <h3>2) カタログ・インデックス</h3>
+        <div class="row" style="justify-content:space-between">
+          <div class="row">
+            <button id="rebuildIdxBtn" class="btn ghost" title="全アルバムを取り直してキャッシュ更新">カタログ再取得</button>
+            <span id="idxSource" class="muted mini">source: -</span>
+          </div>
+          <span id="indexPill" class="pill">idle</span>
+        </div>
+        <div id="indexLog" class="log mini" style="margin-top:8px"></div>
+      </section>
+
+      <section class="card">
+        <h3>3) クレンジング → 書き出し</h3>
+        <div class="row">
+          <button id="cleanBtn" class="btn primary" disabled>Spotify配信ありだけ保存</button>
+          <button id="cleanDroppedBtn" class="btn" disabled>落とした行を保存（理由付き）</button>
+        </div>
+        <div id="cleanStat" class="mini muted" style="margin-top:8px">-</div>
+
+        <div class="stat" id="resultStats" style="display:none;margin-top:10px">
+          <div class="box"><div class="mini muted">kept</div><div id="statKept" style="font-size:22px;font-weight:800">0</div></div>
+          <div class="box"><div class="mini muted">dropped</div><div id="statDrop" style="font-size:22px;font-weight:800">0</div></div>
+          <div class="box"><div class="mini muted">drop_reason 内訳</div><div id="reasonChips"></div></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h3>ログ / 進捗</h3>
+        <div class="row" style="justify-content:space-between">
+          <span id="ratePill" class="pill">idle</span>
+          <progress id="prog" value="0" max="100" style="max-width:300px"></progress>
+        </div>
+        <div id="log" class="log" style="margin-top:8px"></div>
+        <div class="row" style="margin-top:8px">
+          <button id="startBtn" class="btn" disabled>（任意）収集を実行</button>
+          <button id="pauseBtn" class="btn ghost" disabled>一時停止</button>
+          <button id="resumeBtn" class="btn ghost" disabled>再開</button>
+          <button id="clearChkBtn" class="btn danger">チェックポイント削除</button>
+          <button id="diagBtn" class="btn ghost">接続診断</button>
+        </div>
+      </section>
+    </div>
+
+    <div>
+      <section class="card">
+        <h3>プレビュー（先頭10行）</h3>
+        <div id="fileInfo" class="mini muted">CSV未読込</div>
+        <table id="previewTbl"><thead></thead><tbody></tbody></table>
+      </section>
+
+      <section class="card">
+        <h3>エクスポート</h3>
+        <div class="row">
+          <button id="downloadTracksBtn" class="btn" disabled>フルトラックCSV</button>
+          <button id="downloadCheckpointBtn" class="btn" disabled>チェックポイントCSV</button>
+        </div>
+      </section>
+    </div>
   </div>
-  <div class="small muted">判定基準：<code>UPC ∈ (対象アーティストのSpotifyカタログ)</code> または <code>URLがそのアルバム/トラック（→アルバム）</code> に一致。ISRC検索は使いません。<br/>※「Various Artists」は常に除外（既定ON）。</div>
-</section>
+</div>
 
-<section class="card">
-  <h2>進捗 <span id="ratePill" class="pill">idle</span></h2>
-  <progress id="prog" value="0" max="100"></progress>
-  <div id="log" class="mono" style="white-space:pre-wrap;max-height:260px;overflow:auto"></div>
-</section>
-
-<section class="card">
-  <h2>エクスポート</h2>
-  <div class="row">
-    <button id="downloadTracksBtn" disabled>フルトラックCSV</button>
-    <button id="downloadCheckpointBtn" disabled>チェックポイントCSV</button>
+<!-- フッター状態バー -->
+<div class="statusbar">
+  <div class="wrap row" style="justify-content:space-between">
+    <div class="mini muted">Tips: 429が出たら自動で最大60秒だけ待機します。上の赤バナーに残秒が出ます。</div>
+    <div class="row mini muted">
+      <span>トークン: <span id="tokLeft">–</span></span>
+      <span class="kbd">F5</span>で再読込
+    </div>
   </div>
-</section>
-
-<section class="card">
-  <h2>プレビュー（10行）</h2>
-  <table id="previewTbl"><thead></thead><tbody></tbody></table>
-</section>
+</div>
 
 <script>
-/*** 基本設定 ***/
+/*** ========== 基本設定 / ホワイトリスト ========== ***/
 const TARGET_ARTIST_ID="55fvQ5I2IZUfcFT2DV02T3"; // TDCS
 const CHECKPOINT_KEY="tdcs_fulltracks_checkpoint_v2";
 const CATALOG_CACHE_KEY="tdcs_catalog_cache_v2_noVA";
-
-/* 手動で常に許可したいアルバム（即インデックスへ収載） */
 const ALWAYS_KEEP_ALBUM_IDS = new Set([
   "06Yvg4vlPaVfnAWVwmJX27", // Roughside Out: B
   "4aeD4BUM5mAA1v1hCp9irx"  // Hype Of The One Sided
 ]);
 
-/*** DOM / 小物 ***/
+/*** ========== DOMヘルパー ========== ***/
 const $=s=>document.querySelector(s);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const jitter=v=> ($("#slowJitter").checked? v+Math.floor(Math.random()*Math.floor(v*0.2)) : v);
 function log(m){ const el=$("#log"); el.textContent+=m+"\n"; el.scrollTop=el.scrollHeight; }
 function ilog(m){ const el=$("#indexLog"); el.textContent+=m+"\n"; el.scrollTop=el.scrollHeight; }
-function setRate(t){ $("#ratePill").textContent=t; }
-function setIndexState(t){ $("#indexPill").textContent=t; }
+function setRate(t){ $("#ratePill").textContent=t; $("#chipRate").textContent="rate: "+t; }
 function fmtSec(s){const m=Math.floor(s/60),ss=s%60;return `${m}:${String(ss).padStart(2,'0')}`}
 
-/*** トークン ***/
+/*** ========== トークン関連 ========== ***/
 function getTokObj(){ try{ return JSON.parse(localStorage.getItem("sp_token")||"null"); }catch{ return null; } }
+function putTokObj(o){ localStorage.setItem("sp_token",JSON.stringify(o)); }
 function tokenStatusText(){
   const o=getTokObj(); if(!o) return "未接続";
   const left=Math.max(0,Math.floor((o.expires_at-Date.now())/1000));
-  return `トークンOK（残り ${fmtSec(left)}） scope:${o.scope||"(none)"}`
+  return `OK（残り ${fmtSec(left)}） scope:${o.scope||"(none)"}`
 }
 async function refreshIfNeeded(){
   const o=getTokObj(); if(!o) throw new Error("no token");
@@ -143,14 +232,11 @@ async function refreshIfNeeded(){
   if(!res.ok){ throw new Error(`refresh failed: ${await res.text()}`); }
   const tok=await res.json();
   const next={ access_token: tok.access_token, token_type: tok.token_type||o.token_type||"Bearer", scope: tok.scope||o.scope||"", refresh_token: tok.refresh_token||o.refresh_token||"", expires_at: Date.now()+ (tok.expires_in||3600)*1000 - 10000 };
-  localStorage.setItem("sp_token",JSON.stringify(next));
-  return next.access_token;
+  putTokObj(next); return next.access_token;
 }
 
-/*** レート制御 & API ***/
-let penaltyUntil=0;
-function inPenalty(){ return Date.now()<penaltyUntil; }
-
+/*** ========== レート制御 / API ========== ***/
+let penaltyUntil=0; function inPenalty(){ return Date.now()<penaltyUntil; }
 let reqCountMin=0, windowStart=Date.now();
 let hourCount=0, hourStart=Date.now();
 
@@ -198,6 +284,8 @@ async function api(endpoint, params={}, opt={}){
         const ra=(Number(res.headers.get("Retry-After"))||60)*1000;
         const capped=Math.min(ra, cooldownCapMs);
         penaltyUntil=Date.now()+Math.max(capped,30000);
+        const leftSec=Math.round((penaltyUntil-Date.now())/1000);
+        $("#penaltyBanner").style.display="flex"; $("#penaltyLeft").textContent=leftSec;
         log(`[429] Retry-After(raw): ${Math.round(ra/1000)}s → cap ${Math.round(capped/1000)}s`);
         const err=new Error("RATE_LIMIT"); err.code=429; err.retryAfter=capped; throw err;
       }
@@ -215,7 +303,7 @@ async function api(endpoint, params={}, opt={}){
   }
 }
 
-/*** CSV/テーブルユーティリティ ***/
+/*** ========== CSVユーティリティ ========== ***/
 function detectCols(headers){
   const hmap={}; headers.forEach(h=>hmap[h.trim().toLowerCase()]=h);
   const get=(...c)=> c.map(s=>s.toLowerCase()).find(k=>hmap[k]) ? hmap[c.map(s=>s.toLowerCase()).find(k=>hmap[k])] : null;
@@ -250,7 +338,7 @@ function parseSpotifyId(u){
   return null;
 }
 
-/*** VA（Various Artists）判定 ***/
+/*** ========== VA（Various Artists）判定 ========== ***/
 function isVariousArtistsAlbum(alb){
   if(!alb) return false;
   const primary = (alb.artists && alb.artists[0] && (alb.artists[0].name||"")) || "";
@@ -260,7 +348,7 @@ function isVariousArtistsAlbum(alb){
   return isVAName || isCompNoTarget;
 }
 
-/*** カタログオブジェクト & 正規化 ***/
+/*** ========== カタログ構造 / キャッシュ ========== ***/
 const Catalog = {
   albumIds: new Set(),
   albumById: new Map(),    // id -> {id, name, url, upc, artists, album_type, ...}
@@ -268,8 +356,6 @@ const Catalog = {
   nameToIds: new Map(),
 };
 function norm(s){ return String(s||"").toLowerCase().replace(/[^\p{Letter}\p{Number}]+/gu," ").trim(); }
-
-/*** カタログキャッシュ ***/
 function saveCatalogCache(){
   const obj={
     albumIds:[...Catalog.albumIds],
@@ -294,107 +380,106 @@ function loadCatalogCache(){
 }
 function clearCatalogCache(){ localStorage.removeItem(CATALOG_CACHE_KEY); }
 
-/*** フルカタログ取得（必要時のみ） ***/
+/*** ========== フルカタログ取得（手動） ========== ***/
+let buildingIndex=false;
 async function buildCatalogIndex(){
-  setIndexState("building…");
-  $("#idxSource").textContent="source: live";
-  ilog(`[index] fetch artist albums for ${TARGET_ARTIST_ID}`);
+  if(buildingIndex){ ilog('[index] already building; skip'); return; }
+  buildingIndex=true;
+  try{
+    setIndexState("building…");
+    $("#idxSource").textContent="source: live";
+    ilog(`[index] fetch artist albums for ${TARGET_ARTIST_ID}`);
 
-  let offset=0, got=0, seen=new Set(), consec429=0;
-  while(true){
-    let page;
-    try{
-      page=await api(`/v1/artists/${TARGET_ARTIST_ID}/albums`,{
-        include_groups:"album,single,compilation,appears_on", // 取得広め→後段でVA除外
-        limit:50, offset
-      });
-      consec429=0;
-    }catch(e){
-      if(e && e.code===429){
-        const w=(e.retryAfter||60000);
-        ilog(`[index] 429 wait ${Math.round(w/1000)}s (offset=${offset})`);
-        await sleep(w + jitter(500));
-        consec429++;
-        if(consec429>=3){ ilog(`[index] extra cooldown 30s`); await sleep(30000); consec429=0; }
-        continue;
-      } else { throw e; }
-    }
-    const items=page.items||[];
-    for(const a of items){
-      if(!a || !a.id || seen.has(a.id)) continue;
-      seen.add(a.id);
-      Catalog.albumIds.add(a.id); // hydrate時にVA除外確定
-    }
-    got+=items.length; ilog(`[index] fetched ${got} albums (unique:${Catalog.albumIds.size})`);
-    if(!page.next || !items.length) break;
-    offset+=items.length;
-  }
-
-  // hydrate（/v1/albums?ids）、ここで VA 除外
-  const ids=[...Catalog.albumIds];
-  Catalog.albumIds.clear();
-  const batchSize=Math.min(20, Number($("#albBatch").value||20));
-  for(let i=0;i<ids.length;i+=batchSize){
-    const slice=ids.slice(i,i+batchSize);
-    let resp;
-    try{
-      resp=await api(`/v1/albums`,{ids:slice.join(",")});
-    }catch(e){
-      if(e && e.code===429){
-        const w=(e.retryAfter||60000);
-        ilog(`[index] 429 wait ${Math.round(w/1000)}s (hydrate i=${i})`);
-        await sleep(w + jitter(500));
-        i-=batchSize; continue;
-      } else { throw e; }
-    }
-    for(const alb of (resp.albums||[])){
-      if(!alb || !alb.id) continue;
-      if($("#excludeVA").checked && !ALWAYS_KEEP_ALBUM_IDS.has(alb.id) && isVariousArtistsAlbum(alb)){
-        continue; // VAは完全除外
+    let offset=0, got=0, seen=new Set(), consec429=0;
+    while(true){
+      let page;
+      try{
+        page=await api(`/v1/artists/${TARGET_ARTIST_ID}/albums`,{
+          include_groups:"album,single,compilation,appears_on",
+          limit:50, offset
+        });
+        consec429=0;
+      }catch(e){
+        if(e && e.code===429){
+          const w=(e.retryAfter||60000);
+          ilog(`[index] 429 wait ${Math.round(w/1000)}s (offset=${offset})`);
+          await sleep(w + jitter(500));
+          consec429++;
+          if(consec429>=3){ ilog(`[index] extra cooldown 30s`); await sleep(30000); consec429=0; }
+          continue;
+        } else { throw e; }
       }
-      const upc=digits(alb.external_ids?.upc||"");
-      Catalog.albumIds.add(alb.id);
-      Catalog.albumById.set(alb.id,{
-        id:alb.id, name:alb.name||"",
-        url:alb.external_urls?.spotify||`https://open.spotify.com/album/${alb.id}`,
-        upc, label:alb.label||"", release_date:alb.release_date||"",
-        artists: alb.artists||[], album_type: alb.album_type||""
-      });
-      const nm=norm(alb.name||"");
-      if(upc) Catalog.upcToAlbumId.set(upc, alb.id);
-      if(nm){ if(!Catalog.nameToIds.has(nm)) Catalog.nameToIds.set(nm,[]); Catalog.nameToIds.get(nm).push(alb.id); }
+      const items=page.items||[];
+      for(const a of items){
+        if(!a || !a.id || seen.has(a.id)) continue;
+        seen.add(a.id);
+        Catalog.albumIds.add(a.id);
+      }
+      got+=items.length; ilog(`[index] fetched ${got} albums (unique:${Catalog.albumIds.size})`);
+      if(!page.next || !items.length) break;
+      offset+=items.length;
     }
-    ilog(`[index] albums hydrated: ${Math.min(i+batchSize,ids.length)}/${ids.length}`);
-    await sleep(jitter(Number($("#batchPauseMs").value||1200)));
+
+    // hydrate + VA除外
+    const ids=[...Catalog.albumIds]; Catalog.albumIds.clear();
+    const batchSize=Math.min(20, Number($("#albBatch").value||20));
+    for(let i=0;i<ids.length;i+=batchSize){
+      const slice=ids.slice(i,i+batchSize);
+      let resp;
+      try{
+        resp=await api(`/v1/albums`,{ids:slice.join(",")});
+      }catch(e){
+        if(e && e.code===429){
+          const w=(e.retryAfter||60000);
+          ilog(`[index] 429 wait ${Math.round(w/1000)}s (hydrate i=${i})`);
+          await sleep(w + jitter(500));
+          i-=batchSize; continue;
+        } else { throw e; }
+      }
+      for(const alb of (resp.albums||[])){
+        if(!alb || !alb.id) continue;
+        if($("#excludeVA").checked && !ALWAYS_KEEP_ALBUM_IDS.has(alb.id) && isVariousArtistsAlbum(alb)) continue;
+        const upc=digits(alb.external_ids?.upc||"");
+        Catalog.albumIds.add(alb.id);
+        Catalog.albumById.set(alb.id,{
+          id:alb.id, name:alb.name||"",
+          url:alb.external_urls?.spotify||`https://open.spotify.com/album/${alb.id}`,
+          upc, label:alb.label||"", release_date:alb.release_date||"",
+          artists: alb.artists||[], album_type: alb.album_type||""
+        });
+        const nm=norm(alb.name||"");
+        if(upc) Catalog.upcToAlbumId.set(upc, alb.id);
+        if(nm){ if(!Catalog.nameToIds.has(nm)) Catalog.nameToIds.set(nm,[]); Catalog.nameToIds.get(nm).push(alb.id); }
+      }
+      ilog(`[index] albums hydrated: ${Math.min(i+batchSize,ids.length)}/${ids.length}`);
+      await sleep(jitter(Number($("#batchPauseMs").value||1200)));
+    }
+
+    await hydrateForcedAlbumsFirst(true);
+    ilog(`[index] UPC mapped: ${Catalog.upcToAlbumId.size} (VA:${$("#excludeVA").checked?"OFF除外:ON":"OFF"})`);
+    saveCatalogCache();
+    setIndexState("ready");
+    $("#chipIdx").className="pill ok"; $("#chipIdx").textContent="catalog: ready";
+  }catch(e){
+    ilog(`[index err] ${e.message||e}`); setIndexState("error"); $("#chipIdx").className="pill bad"; $("#chipIdx").textContent="catalog: error";
+  }finally{
+    buildingIndex=false;
   }
-
-  // ALWAYS_KEEP を確実に収載
-  await hydrateForcedAlbumsFirst(/*quiet*/true);
-
-  ilog(`[index] UPC mapped: ${Catalog.upcToAlbumId.size} (VA除外:${$("#excludeVA").checked?"ON":"OFF"})`);
-  saveCatalogCache();
-  setIndexState("ready");
 }
 
-/*** “強制アルバムを先に”収載（ホットフィックス） ***/
+/*** ========== 強制アルバムを先に収載 ========== ***/
 async function hydrateForcedAlbumsFirst(quiet=false){
   const need=[...ALWAYS_KEEP_ALBUM_IDS].filter(id=>!Catalog.albumById.has(id));
   if(!need.length){
-    setIndexState("ready(partial)");
-    $("#idxSource").textContent="source: forced";
-    if(!quiet) ilog(`[index] forced albums already present`);
-    return;
+    setIndexState("ready(partial)"); $("#idxSource").textContent="source: forced"; return;
   }
   for(let i=0;i<need.length;i+=20){
     let resp;
-    try{
-      resp=await api(`/v1/albums`,{ids:need.slice(i,i+20).join(",")});
-    }catch(e){
+    try{ resp=await api(`/v1/albums`,{ids:need.slice(i,i+20).join(",")}); }
+    catch(e){
       if(e && e.code===429){
         const w=(e.retryAfter||60000);
-        ilog(`[index] 429 wait ${Math.round(w/1000)}s (forced)`);
-        await sleep(w + 500);
-        i-=20; continue;
+        ilog(`[index] 429 wait ${Math.round(w/1000)}s (forced)`); await sleep(w+500); i-=20; continue;
       } else { throw e; }
     }
     for(const alb of (resp.albums||[])){
@@ -412,30 +497,22 @@ async function hydrateForcedAlbumsFirst(quiet=false){
       if(upc) Catalog.upcToAlbumId.set(upc, alb.id);
     }
   }
-  setIndexState("ready(partial)");
-  $("#idxSource").textContent="source: forced";
-  if(!quiet) ilog(`[index] forced include albums: ${need.length}`);
+  setIndexState("ready(partial)"); $("#idxSource").textContent="source: forced";
+  $("#chipIdx").className="pill ok"; $("#chipIdx").textContent="catalog: ready(partial)";
 }
 
-/*** インデックス利用（自動は“強制だけ / キャッシュ”、フルは手動） ***/
+/*** ========== インデックス準備（自動は“強制+キャッシュ”） ========== ***/
 async function ensureIndex(){
   if(Catalog.upcToAlbumId.size>0){ setIndexState("ready"); $("#idxSource").textContent="source: live/cache"; return; }
-
-  // ① まず ALWAYS_KEEP を即収載（小規模で429に強い）
-  await hydrateForcedAlbumsFirst();
-
-  // ② キャッシュがあればそれで ready（重い取得はしない）
+  await hydrateForcedAlbumsFirst(true);
   if(loadCatalogCache()){
-    setIndexState("ready");
-    $("#idxSource").textContent="source: cache";
+    setIndexState("ready"); $("#idxSource").textContent="source: cache";
     ilog(`[index] loaded from cache (UPC mapped: ${Catalog.upcToAlbumId.size})`);
-    return;
+    $("#chipIdx").className="pill ok"; $("#chipIdx").textContent="catalog: ready"; return;
   }
-
-  // ③ フルはユーザー操作で（[カタログ再取得]ボタン）
 }
 
-/*** URL→アルバム解決（track→album対応） ***/
+/*** ========== URL→アルバム解決（track→album対応） ========== ***/
 async function urlAlbum(u){
   const p=parseSpotifyId(u); if(!p) return null;
   if(p.type==="album"){ try{ return await api(`/v1/albums/${p.id}`,{});}catch{return null;} }
@@ -448,7 +525,7 @@ async function urlAlbum(u){
   return null;
 }
 
-/*** 収集 ***/
+/*** ========== 収集（任意） ========== ***/
 async function harvestAlbumTracksFull(albumId, sourceKey, albumUrl){
   const alb = Catalog.albumById.get(albumId) || await api(`/v1/albums/${albumId}`, {});
   if($("#excludeVA").checked && !ALWAYS_KEEP_ALBUM_IDS.has(albumId) && isVariousArtistsAlbum(alb)){
@@ -474,19 +551,14 @@ async function harvestAlbumTracksFull(albumId, sourceKey, albumUrl){
       const f=full.find(x=>x && x.id===simp.id);
       if(!f) continue;
       out.push({
-        source_key: sourceKey,
-        album_id: albumId,
+        source_key: sourceKey, album_id: albumId,
         album_url: albumUrl||alb.external_urls?.spotify||`https://open.spotify.com/album/${albumId}`,
-        album_name: (alb.name||alb.album_name||""),
-        album_label: (alb.label||""),
-        album_release_date: (alb.release_date||""),
-        album_upc: digits(alb.external_ids?.upc||""),
+        album_name: (alb.name||alb.album_name||""), album_label: (alb.label||""),
+        album_release_date: (alb.release_date||""), album_upc: digits(alb.external_ids?.upc||""),
         track_id: f.id, track_name: f.name||simp.name,
-        disc_number: f.disc_number||simp.disc_number||"",
-        track_number: f.track_number||simp.track_number||"",
+        disc_number: f.disc_number||simp.disc_number||"", track_number: f.track_number||simp.track_number||"",
         duration_ms: f.duration_ms||"", explicit: f.explicit?"true":"false",
-        isrc: (f.external_ids&&f.external_ids.isrc)||"",
-        artists: (f.artists||[]).map(a=>a.name).join(" & "),
+        isrc: (f.external_ids&&f.external_ids.isrc)||"", artists: (f.artists||[]).map(a=>a.name).join(" & "),
         preview_url: f.preview_url||""
       });
     }
@@ -495,7 +567,7 @@ async function harvestAlbumTracksFull(albumId, sourceKey, albumUrl){
   return out;
 }
 
-/*** 実行状態/チェックポイント ***/
+/*** ========== 実行状態/チェックポイント ========== ***/
 let g={rows:[],cols:{},uniqueKeys:[],rowsByKey:null,results:[],doneKeys:new Set(),running:false,fileName:''};
 let stopSignal=false;
 function loadCheckpoint(){ try{ const cp=JSON.parse(localStorage.getItem(CHECKPOINT_KEY)||"null"); if(!cp) return null; g.doneKeys=new Set(cp.done||[]); g.results=cp.results||[]; return cp; }catch{return null;} }
@@ -514,12 +586,32 @@ function buildRowsByKey(rows, cols){
   }
   return map;
 }
-function refreshAuthStatus(){ $("#authStatus").textContent = tokenStatusText(); }
+function refreshAuthStatus(){
+  const txt=tokenStatusText();
+  $("#authStatus").textContent=txt;
+  $("#tokState").textContent=txt.replace("トークン","token");
+  const hasTok=!!getTokObj();
+  $("#chipTok").textContent=hasTok? "token: ok" : "token: -";
+  $("#chipTok").className="pill "+(hasTok?"ok":"bad");
+  $("#s1").className="k "+(hasTok?"ok":"bad");
+}
 function maybeEnableStart(){ $("#startBtn").disabled = !(g.rows?.length>0 && !!getTokObj()); }
 
-/*** クレンジング ***/
-async function cleanseRows(){
+/*** ========== クレンジング ========== ***/
+async function ensureIndexAndMark(){
   await ensureIndex();
+  $("#indexPill").textContent="ready";
+}
+async function urlMatchesAlbumOrTrack(u){
+  const alb=await urlAlbum(u);
+  if(!alb) return {ok:false, reason:"url_not_in_artist_catalog"};
+  if($("#excludeVA").checked && !ALWAYS_KEEP_ALBUM_IDS.has(alb.id) && isVariousArtistsAlbum(alb)){
+    return {ok:false, reason:"excluded_various_artists"};
+  }
+  return {ok:true, album:alb};
+}
+async function cleanseRows(){
+  await ensureIndexAndMark();
   const rows=g.rows||[]; const cols=g.cols||{};
   const allowUPC=new Set([...Catalog.upcToAlbumId.keys()]);
   const kept=[], dropped=[];
@@ -532,25 +624,13 @@ async function cleanseRows(){
                     || title.toLowerCase().replace(/[^\p{Letter}\p{Number}]+/gu," ").trim();
 
     let keep=false, reason="";
-    // 1) UPC一致（VAはインデックス時点で除外済）
     if(upc && allowUPC.has(upc)){ keep=true; r.__keep_reason="upc_match"; }
-    // 2) URL一致（track→album解決 / VAは不許可）
     else if(url){
-      const alb=await urlAlbum(url);
-      if(alb){
-        if($("#excludeVA").checked && !ALWAYS_KEEP_ALBUM_IDS.has(alb.id) && isVariousArtistsAlbum(alb)){
-          reason="excluded_various_artists";
-        }else{
-          keep=true; r.__keep_reason="url_match";
-        }
-      }else{
-        reason="url_not_in_artist_catalog";
-      }
+      const chk=await urlMatchesAlbumOrTrack(url);
+      if(chk.ok){ keep=true; r.__keep_reason="url_match"; }
+      else{ reason=chk.reason; }
     }
-    // 3) タイトル一致フォールバック（インデックスでVA除外済）
-    else if(nameKey && Catalog.nameToIds.has(nameKey)){
-      keep=true; r.__keep_reason="title_match";
-    }
+    else if(nameKey && Catalog.nameToIds.has(nameKey)){ keep=true; r.__keep_reason="title_match"; }
 
     if(!keep){
       if(!reason){
@@ -564,11 +644,17 @@ async function cleanseRows(){
     }
   }
   $("#cleanStat").textContent=`kept:${kept.length} / dropped:${dropped.length}`;
+  // 内訳チップ
+  const counts={}; dropped.forEach(d=>{ const k=d.drop_reason||"unknown"; counts[k]=(counts[k]||0)+1; });
+  const chips=Object.entries(counts).map(([k,v])=>`<span class="chip">${k}: ${v}</span>`).join("");
+  $("#reasonChips").innerHTML=chips||"<span class='chip'>no drops</span>";
+  $("#statKept").textContent=kept.length; $("#statDrop").textContent=dropped.length;
+  $("#resultStats").style.display="flex";
+
   $("#cleanBtn").disabled = kept.length===0;
   $("#cleanDroppedBtn").disabled = dropped.length===0;
   return {kept,dropped};
 }
-
 let lastClean={kept:[],dropped:[]};
 async function handleClean(){
   try{
@@ -581,10 +667,10 @@ function download(name, csv){
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name; a.click(); URL.revokeObjectURL(a.href);
 }
 
-/*** ラン（収集は任意。クリーナー主体なら未使用でもOK） ***/
+/*** ========== ラン（任意） ========== ***/
 async function run(){
   await ensureIndex();
-  g.running=true; stopSignal=false; $("#pauseBtn").disabled=false; $("#startBtn").disabled=true; $("#resumeBtn").disabled=true;
+  g.running=true; $("#pauseBtn").disabled=false; $("#startBtn").disabled=true; $("#resumeBtn").disabled=true;
   const total=g.uniqueKeys.length; let done=0;
   for(const key of g.uniqueKeys){
     if(g.doneKeys.has(key)){ done++; $("#prog").value=Math.round(done/total*100); continue; }
@@ -597,17 +683,23 @@ async function run(){
   saveCheckpoint(); $("#pauseBtn").disabled=true; g.running=false; log("完了");
 }
 
-/*** 起動 ***/
-window.addEventListener("load", async ()=>{
+/*** ========== 起動時フック ========== ***/
+window.addEventListener("load", ()=>{
+  // トークン表示
   $("#authStatus").textContent = tokenStatusText();
+  refreshAuthStatus();
 
-  $("#clearBtn").onclick=()=>{ localStorage.removeItem("sp_token"); $("#authStatus").textContent = tokenStatusText(); maybeEnableStart(); };
+  // 強制アルバムだけ先に確保（軽量）
+  hydrateForcedAlbumsFirst(true).catch(e=>ilog(`[index forced err] ${e.message||e}`));
+
+  // ボタン
+  $("#clearBtn").onclick=()=>{ localStorage.removeItem("sp_token"); refreshAuthStatus(); maybeEnableStart(); };
   $("#rebuildIdxBtn").onclick=()=>{ clearCatalogCache(); Catalog.albumIds.clear(); Catalog.albumById.clear(); Catalog.upcToAlbumId.clear(); Catalog.nameToIds.clear(); ilog("[index] cache cleared"); setIndexState("idle"); $("#idxSource").textContent="source: -"; buildCatalogIndex().catch(e=>ilog(`[index err] ${e.message||e}`)); };
 
   $("#diagBtn").onclick=async()=>{
-    const t=getTokObj();
-    if(!t){ log("[diag] no token"); return; }
-    log(`[diag] token present scope:${t.scope||"(none)"} exp_in:${Math.max(0,Math.floor((JSON.parse(localStorage.getItem("sp_token")).expires_at-Date.now())/1000))}s`);
+    const t=getTokObj(); if(!t){ log("[diag] no token"); return; }
+    const left=Math.max(0,Math.floor((t.expires_at-Date.now())/1000));
+    log(`[diag] token present scope:${t.scope||"(none)"} exp_in:${left}s`);
     try{ const me=await api("/v1/me", {}); log(`[diag] me.id:${me.id||"-"} country:${me.country||"-"} product:${me.product||"-"}`); }catch(e){ log(`[diag] /me skipped: ${e.message||e}`); }
   };
 
@@ -621,6 +713,9 @@ window.addEventListener("load", async ()=>{
       previewTable(g.rows);
       g.rowsByKey=buildRowsByKey(g.rows,g.cols);
       g.uniqueKeys=[...g.rowsByKey.keys()];
+      $("#csvState").textContent=`${g.rows.length} 行読み込み`;
+      $("#chipCsv").className="pill ok"; $("#chipCsv").textContent="csv: loaded";
+      $("#s2").className="k ok";
       log(`Unique keys: ${g.uniqueKeys.length}`);
       const cp=loadCheckpoint(); if(cp){ log(`resume: ${g.doneKeys.size} processed`); $("#downloadCheckpointBtn").disabled=false; } else { log(`no checkpoint to resume`); }
       maybeEnableStart();
@@ -647,10 +742,30 @@ window.addEventListener("load", async ()=>{
     download(`Spotify未配信や対象外_${g.fileName||'out'}.csv`,csv);
   };
 
-  // 起動時に“強制アルバムだけ”先に収載（軽量・安全）
-  hydrateForcedAlbumsFirst().catch(e=>ilog(`[index forced err] ${e.message||e}`));
-
-  setInterval(()=>{ $("#authStatus").textContent = tokenStatusText(); $("#resumeBtn").disabled = g.running || g.uniqueKeys.length===0; maybeEnableStart(); }, 1000);
+  // 1秒おきに状態更新（トークン残 / 429残）
+  setInterval(()=>{
+    // token
+    const o=getTokObj();
+    if(o){
+      const left=Math.max(0,Math.floor((o.expires_at-Date.now())/1000));
+      $("#tokLeft").textContent=fmtSec(left);
+      $("#tokState").textContent=tokenStatusText();
+      $("#s1").className="k ok";
+      $("#chipTok").className="pill ok"; $("#chipTok").textContent="token: ok";
+    }else{
+      $("#tokLeft").textContent="–"; $("#s1").className="k bad";
+      $("#chipTok").className="pill bad"; $("#chipTok").textContent="token: -";
+    }
+    // 429 banner
+    const leftMs=penaltyUntil-Date.now();
+    if(leftMs>0){
+      $("#penaltyBanner").style.display="flex";
+      $("#penaltyLeft").textContent=Math.ceil(leftMs/1000);
+    }else{
+      $("#penaltyBanner").style.display="none";
+    }
+    $("#vaState").textContent=$("#excludeVA").checked?"ON":"OFF";
+  },1000);
 });
 </script>
 </body>
