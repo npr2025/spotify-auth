@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Spotify Primary Artist Auditor — TDCS / Nipponeer</title>
+<link rel="preconnect" href="https://accounts.spotify.com"/>
+<link rel="preconnect" href="https://api.spotify.com"/>
+<script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+<style>
+  :root{--bg:#0b0b0b;--card:#151515;--muted:#7a7a7a;--fg:#e9e9e9;--accent:#00d672}
+  html,body{height:100%} body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial,'Noto Sans JP',sans-serif;background:var(--bg);color:var(--fg)}
+  .wrap{max-width:1100px;margin:0 auto;padding:1.25rem}
+  .card{background:var(--card);border:1px solid #242424;border-radius:14px;padding:1rem}
+  input,textarea,button{font-size:1rem} input,textarea{width:100%;padding:.6rem;border-radius:10px;border:1px solid #2a2a2a;background:#0f0f0f;color:#fff}
+  button{padding:.6rem 1rem;border-radius:10px;border:1px solid #2a2a2a;background:#0f0f0f;color:#fff;cursor:pointer}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#001a0d;font-weight:600}
+  table{width:100%;border-collapse:collapse} th,td{padding:.5rem;border-bottom:1px solid #2a2a2a}
+  .tiny{font-size:.8rem;color:#bdbdbd}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Spotify Primary Artist Auditor <span class="tiny">PKCE / scope不要</span></h1>
+  <div class="card">
+    <p>Client ID と Redirect URI を入力して <b>Scopesは空</b> のまま「Spotifyに接続」をクリック。</p>
+    <label>Client ID</label><input id="clientId" placeholder="378ef0f44b36499abd10d118ddbddc98">
+    <label>Redirect URI</label><input id="redirectUri" placeholder="https://npr2025.github.io/spotify-auth/callback.html">
+    <label>Scopes（空でOK）</label><input id="scopes" placeholder="">
+    <div style="margin-top:.5rem"><button id="btnConnect" class="primary">Spotifyに接続</button> <button id="btnClear">保存トークン削除</button> <span id="tokStat" class="tiny"></span></div>
+  </div>
+  <div class="card" style="margin-top:1rem">
+    <label>アーティストID</label><input id="artistId" value="55fvQ5I2IZUfcFT2DV02T3">
+    <label>アルバムURL/ID（改行区切り）</label>
+    <textarea id="albumList" rows="6">https://open.spotify.com/album/06Yvg4vlPaVfnAWVwmJX27
+https://open.spotify.com/album/4aeD4BUM5mAA1v1hCp9irx
+https://open.spotify.com/album/4jTT5tjAMFfS58xawRjTsV</textarea>
+    <label>期待プライマリーID（カンマ区切り）</label><input id="expectedIds" value="55fvQ5I2IZUfcFT2DV02T3">
+    <div style="margin-top:.5rem"><button id="btnAuditAlbums" class="primary">上記アルバムのみ監査</button> <button id="btnAuditArtist">アーティスト全アルバムを監査</button></div>
+  </div>
+  <div class="card" style="margin-top:1rem">
+    <h3>結果</h3>
+    <div id="summary" class="tiny"></div>
+    <div style="overflow:auto;max-height:60vh;border:1px solid #2a2a2a;border-radius:10px">
+      <table id="tbl"><thead><tr><th>#</th><th>アルバム</th><th>album_type</th><th>アルバムアーティスト</th><th>総曲数</th><th>要注意</th><th>比率</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+</div>
+<script>
+const qs=new URLSearchParams(location.search); function $(i){return document.getElementById(i)}; function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
+const LS={cfg:'spa_cfg',tok:'spa_tok',ver:'spa_ver'};
+function saveCfg(){const c={clientId:$('clientId').value.trim(),redirectUri:$('redirectUri').value.trim(),scopes:$('scopes').value.trim()};localStorage.setItem(LS.cfg,JSON.stringify(c));return c}
+function loadCfg(){try{const c=JSON.parse(localStorage.getItem(LS.cfg)||'null');if(!c)return; $('clientId').value=c.clientId||''; $('redirectUri').value=c.redirectUri||''; $('scopes').value=c.scopes||'';}catch(_){}}
+function base64url(a){return btoa(String.fromCharCode.apply(null,new Uint8Array(a))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
+async function sha256(s){return await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s))}
+function randHex(n=64){const a=new Uint8Array(n);crypto.getRandomValues(a);return Array.from(a).map(x=>('0'+x.toString(16)).slice(-2)).join('')}
+async function doAuth(){const c=saveCfg(); if(!c.clientId||!c.redirectUri){alert('Client ID/Redirect URI を入力');return} const ver=randHex(64); const chall=base64url(await sha256(ver)); localStorage.setItem(LS.ver, JSON.stringify({ver,ts:Date.now()})); const u=new URL('https://accounts.spotify.com/authorize'); u.searchParams.set('response_type','code'); u.searchParams.set('client_id', c.clientId); u.searchParams.set('redirect_uri', c.redirectUri); u.searchParams.set('code_challenge_method','S256'); u.searchParams.set('code_challenge', chall); if(c.scopes) u.searchParams.set('scope', c.scopes); location.href=u.toString()}
+async function exchangeToken(code){const c=loadCfg()||saveCfg(); const ver=JSON.parse(localStorage.getItem(LS.ver)||'{}').ver||''; const p=new URLSearchParams(); p.set('client_id', $('clientId').value.trim()); p.set('grant_type','authorization_code'); p.set('code', code); p.set('redirect_uri', $('redirectUri').value.trim()); p.set('code_verifier', ver); const r=await fetch('https://accounts.spotify.com/api/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:p.toString()}); if(!r.ok){throw new Error(await r.text())} const tok=await r.json(); tok.obtained_at=Date.now(); localStorage.setItem(LS.tok, JSON.stringify(tok)); history.replaceState({},document.title, location.pathname)}
+function getTok(){try{return JSON.parse(localStorage.getItem(LS.tok)||'null')}catch(_){return null}}
+async function ensureTok(){const t=getTok(); if(!t) throw new Error('未認証です'); if(Date.now()<(t.obtained_at+(t.expires_in-60)*1000)) return t; throw new Error('期限切れ')}
+function setTokStat(){const t=getTok(); if(!t){$('tokStat').textContent='未接続';return} const left=(t.obtained_at+t.expires_in*1000-Date.now())/1000; $('tokStat').textContent=left>0?`トークンOK（残り ${Math.floor(left/60)}:${('0'+Math.floor(left%60)).slice(-2)})`:'期限切れ'}
+setInterval(setTokStat,1000);
+async function api(path, params={}, method='GET'){const tok=await ensureTok(); const u=new URL('https://api.spotify.com/v1'+path); Object.entries(params).forEach(([k,v])=>{if(v!==undefined&&v!==null&&v!=='') u.searchParams.set(k,v)}); const r=await fetch(u.toString(),{method,headers:{Authorization:`Bearer ${tok.access_token}`}}); if(r.status===429){const ra=parseInt(r.headers.get('Retry-After')||'1',10); await sleep((ra+0.05)*1000); return api(path,params,method)} if(!r.ok){throw new Error(await r.text())} return await r.json()}
+function parseId(s){s=(s||'').trim(); if(/^[A-Za-z0-9]{22}$/.test(s)) return s; const m=s.match(/(album|track)\/([A-Za-z0-9]{22})/); return m?m[2]:null}
+async function fetchAllAlbumTracks(id){let items=[],offset=0,next=true; while(next){const res=await api(`/albums/${id}/tracks`,{limit:50,offset}); items=items.concat(res.items||[]); if(res.next){const u=new URL(res.next); offset=parseInt(u.searchParams.get('offset')||'0',10)+50}else next=false} return items}
+function uniq(a){return Array.from(new Set(a))}
+function makeHeur(album, trackRows, expected){const albIds=new Set((album.artists||[]).map(a=>a.id)); const off=trackRows.filter(r=>r.extraPrimaryIds.length>0); const ratio=trackRows.length?off.length/trackRows.length:0; return {off,ratio}}
+async function analyzeAlbum(id, expected){const album=await api(`/albums/${id}`,{}); const tracks=await fetchAllAlbumTracks(id); const albIds=new Set((album.artists||[]).map(a=>a.id)); const rows=tracks.map((t,i)=>{const ids=(t.artists||[]).map(a=>a.id); const names=(t.artists||[]).map(a=>a.name); const extra=ids.filter(x=>!albIds.has(x)&&!expected.has(x)); return {name:t.name,extraPrimaryIds:extra,extraPrimaryNames:extra.map(id=>names[ids.indexOf(id)]).filter(Boolean),no:t.track_number??(i+1)} }); return {album,rows,heur:makeHeur(album,rows,expected)} }
+function addRow(i,res){const tbody=document.querySelector('#tbl tbody'); const a=res.album; const bad=Math.round(res.heur.ratio*100); const url=`https://open.spotify.com/album/${a.id}`; const tr=document.createElement('tr'); tr.innerHTML=`<td>${i}</td><td><a href="${url}" target="_blank" rel="noopener">${a.name}</a></td><td>${a.album_type}</td><td>${(a.artists||[]).map(x=>x.name).join(', ')}</td><td>${a.total_tracks}</td><td>${res.heur.off.length}</td><td>${bad}%</td>`; tbody.appendChild(tr)}
+async function onAuditAlbums(){try{$('summary').textContent='監査中…'; const expected=new Set(($('expectedIds').value||'').split(',').map(s=>s.trim()).filter(Boolean)); const ids=($('albumList').value||'').split(/\r?\n/).map(parseId).filter(Boolean); document.querySelector('#tbl tbody').innerHTML=''; let i=0; for(const id of ids){const r=await analyzeAlbum(id,expected); addRow(++i,r)} $('summary').textContent=i+'件のアルバムを監査しました。'}catch(e){$('summary').textContent='エラー: '+e.message; console.error(e)}}
+async function onAuditArtist(){try{$('summary').textContent='アルバム一覧取得…'; const artistId=$('artistId').value.trim(); let items=[],offset=0,next=true; while(next){const res=await api(`/artists/${artistId}/albums`,{include_groups:'album,single,compilation,appears_on',limit:50,offset}); items=items.concat(res.items||[]); if(res.next){const u=new URL(res.next); offset=parseInt(u.searchParams.get('offset')||'0',10)+50}else next=false} const ids=uniq(items.map(a=>a.id)); $('albumList').value=ids.map(id=>'https://open.spotify.com/album/'+id).join('\n'); await onAuditAlbums()}catch(e){$('summary').textContent='エラー: '+e.message; console.error(e)}}
+$('btnConnect').addEventListener('click', doAuth); $('btnClear').addEventListener('click', ()=>{localStorage.removeItem(LS.tok)}); $('btnAuditAlbums').addEventListener('click', onAuditAlbums); $('btnAuditArtist').addEventListener('click', onAuditArtist);
+(function init(){loadCfg(); const code=qs.get('code'); if(code){$('summary').textContent='Token交換中…'; exchangeToken(code).then(()=>$('summary').textContent='接続完了').catch(e=>$('summary').textContent='交換エラー: '+e.message)} setInterval(setTokStat,1000)})();
+</script>
+</body>
+</html>
