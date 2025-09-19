@@ -12,7 +12,7 @@
 <body>
 <h1>Spotify 認可リダイレクト</h1>
 <div id="msg">処理中…</div>
-<p><a href="./fulltracks_ultra_safe_v2.html">戻る</a></p>
+<p><a href="./fulltracks_ultra_safe_v2.html?v=20250919">戻る</a></p>
 
 <script>
 const CLIENT_ID="378ef0f44b36499abd10d118ddbddc98";
@@ -29,15 +29,17 @@ async function exchange(code,verifier){
 
 (function(){
   const sp=new URLSearchParams(location.search);
-  const code=sp.get("code");const state=sp.get("state");
+  const code=sp.get("code"); const state=sp.get("state");
   const msgEl=document.getElementById("msg");
   if(!code){msgEl.textContent="エラー: codeなし";return;}
   const st=sessionStorage.getItem("sp_state")||localStorage.getItem("sp_state");
   if(state!==st){msgEl.textContent="エラー: state不一致";return;}
   const verifier=sessionStorage.getItem("sp_pkce_verifier")||localStorage.getItem("sp_pkce_verifier");
   if(!verifier){msgEl.textContent="エラー: verifierなし";return;}
+
   exchange(code,verifier).then(tok=>{
-    const expires_at=Date.now()+tok.expires_in*1000-10000;
+    const expires_at=Date.now()+(tok.expires_in||3600)*1000-10000;
+    // scope/refresh_token は無い場合がある → 空文字で扱う
     const saved={
       access_token: tok.access_token,
       refresh_token: tok.refresh_token||"",
@@ -46,9 +48,9 @@ async function exchange(code,verifier){
       expires_at
     };
     localStorage.setItem("sp_token",JSON.stringify(saved));
-    sessionStorage.clear();localStorage.removeItem("sp_pkce_verifier");localStorage.removeItem("sp_state");
+    sessionStorage.clear(); localStorage.removeItem("sp_pkce_verifier"); localStorage.removeItem("sp_state");
     msgEl.innerHTML="<span class=ok>認証成功</span>";
-    setTimeout(()=>location.href="./fulltracks_ultra_safe_v2.html",800);
+    setTimeout(()=>location.href="./fulltracks_ultra_safe_v2.html?v=20250919",800);
   }).catch(e=>{
     msgEl.innerHTML="<span class=bad>交換失敗: "+(e.message||e)+"</span>";
   });
