@@ -26,33 +26,54 @@
   th{background:#f6f6f6;position:sticky;top:0}
   .hint{font-size:12px;color:var(--mut);margin-top:6px}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .langsel{display:flex;align-items:center;gap:8px}
+  select{border:1px solid var(--bd);border-radius:10px;padding:8px 10px;background:#fff}
   @media (max-width:900px){.grid{grid-template-columns:1fr}}
+
+  /* (任意) PDF用の印刷最適化を入れたい場合は以下を解除
+  @media print {
+    .card:first-of-type, .card:nth-of-type(2), .btn, .hint, .topbar { display:none!important; }
+    body { background:#fff; }
+    .wrap { max-width:960px; }
+    table { page-break-inside:avoid; }
+  }
+  */
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Spotify Compilation Auditor — TDCS Deep-Meta (Plus, Fixed)</h1>
+  <div class="topbar">
+    <h1 data-i18n="title">Spotify Compilation Auditor — TDCS Deep-Meta (Plus, Fixed)</h1>
+    <div class="langsel">
+      <label for="lang" style="margin:0" data-i18n="lang_label">Language</label>
+      <select id="lang" aria-label="Language">
+        <option value="en">English</option>
+        <option value="ja">日本語</option>
+      </select>
+    </div>
+  </div>
 
   <!-- Auth -->
   <div class="card">
     <div class="grid">
       <div class="col">
-        <label>Client ID (Spotify Developer)</label>
-        <input id="client_id" type="text" placeholder="例: f5b88dacf6374e0485971c59d0f528bc"/>
+        <label data-i18n="client_id_label">Client ID (Spotify Developer)</label>
+        <input id="client_id" type="text" data-i18n-ph="client_id_ph" placeholder="e.g., f5b88dacf6374e0485971c59d0f528bc"/>
       </div>
       <div class="col">
-        <label>Redirect URI（Developer Dashboardで登録と一致）</label>
-        <input id="redirect_uri" type="text" placeholder="例: https://npr2025.github.io/spotify-auth/spotify_compilation_auditor_plus.html"/>
+        <label data-i18n="redirect_label">Redirect URI (must match exactly in Developer Dashboard)</label>
+        <input id="redirect_uri" type="text" data-i18n-ph="redirect_ph" placeholder="e.g., https://npr2025.github.io/spotify-auth/spotify_compilation_auditor_plus.html"/>
       </div>
     </div>
     <div class="row" style="margin-top:10px">
-      <button id="btn_auth" class="btn">Spotifyに接続（PKCE／スコープなし）</button>
+      <button id="btn_auth" class="btn" data-i18n="btn_auth">Connect to Spotify (PKCE / no scope)</button>
       <span id="tok_status" class="pill mut">access_token: none</span>
-      <button id="btn_clear" class="btn" style="background:#fff;color:#111">保存トークン削除</button>
+      <button id="btn_clear" class="btn" style="background:#fff;color:#111" data-i18n="btn_clear">Clear saved token</button>
     </div>
     <div class="hint">
-      ※ 公開APIのみ使用。scopeは送信しません（＝<span class="mono">album/track GET</span>専用）。<br/>
-      ※ Redirect URI は <b>Developer Dashboardに完全一致で登録</b>してください（末尾の <span class="mono">.html</span> まで）。
+      <span data-i18n="hint_scope">* Uses only public APIs (GET). No scopes requested (album/track GET only).</span><br/>
+      <span data-i18n="hint_redirect">* Redirect URI must exactly match what’s registered in the Developer Dashboard (including the trailing .html).</span>
     </div>
   </div>
 
@@ -60,66 +81,203 @@
   <div class="card">
     <div class="grid">
       <div class="col">
-        <label>アルバムURL/ID（改行区切り）</label>
-        <textarea id="album_input" placeholder="https://open.spotify.com/album/06Yvg4vlPaVfnAWVwmJX27
+        <label data-i18n="albums_label">Album URLs/IDs (one per line)</label>
+        <textarea id="album_input" data-i18n-ph="albums_ph" placeholder="https://open.spotify.com/album/06Yvg4vlPaVfnAWVwmJX27
 https://open.spotify.com/album/4aeD4BUM5mAA1v1hCp9irx"></textarea>
       </div>
       <div class="col">
-        <label>期待アーティストID（“このIDだけがプライマリーであるべき”）※カンマ区切り</label>
+        <label data-i18n="expected_label">Expected primary artist IDs (who should be the only primary) — comma separated</label>
         <input id="expected_ids" type="text" value="55fvQ5I2IZUfcFT2DV02T3"/>
-        <div class="hint">TDCS=55fvQ5I2IZUfcFT2DV02T3（複数あればカンマで追加）。</div>
+        <div class="hint" data-i18n="expected_hint">TDCS = 55fvQ5I2IZUfcFT2DV02T3 (add more with commas if needed).</div>
 
-        <label style="margin-top:10px">比較マーケット（カンマ区切り）</label>
+        <label style="margin-top:10px" data-i18n="markets_label">Markets to compare (comma separated)</label>
         <input id="markets" type="text" value="JP,US,GB,DE"/>
 
         <div class="row" style="margin-top:10px">
           <input id="ignore_djmix" type="checkbox" checked/>
-          <label for="ignore_djmix" style="margin:0">DJミックス表記のトラックを無視</label>
+          <label for="ignore_djmix" style="margin:0" data-i18n="ignore_djmix">Ignore tracks labeled as DJ mix</label>
         </div>
         <div class="row">
           <input id="fetch_isrc" type="checkbox" checked/>
-          <label for="fetch_isrc" style="margin:0">各トラックの ISRC / available_markets 件数も取得（やや遅）</label>
+          <label for="fetch_isrc" style="margin:0" data-i18n="fetch_isrc">Fetch each track’s ISRC / available_markets count (slower)</label>
         </div>
         <div class="row">
           <input id="check_upc_siblings" type="checkbox" checked/>
-          <label for="check_upc_siblings" style="margin:0">UPC同胞（別バージョン）も探索して比較</label>
+          <label for="check_upc_siblings" style="margin:0" data-i18n="check_upc">Search same-UPC siblings (other variants) and compare</label>
         </div>
       </div>
     </div>
     <div class="row" style="margin-top:12px">
-      <button id="btn_run" class="btn" disabled>解析を実行</button>
-      <button id="btn_csv" class="btn" style="background:#fff;color:#111" disabled>CSVをダウンロード</button>
+      <button id="btn_run" class="btn" disabled data-i18n="btn_run">Run audit</button>
+      <button id="btn_csv" class="btn" style="background:#fff;color:#111" disabled data-i18n="btn_csv">Download CSV</button>
     </div>
   </div>
 
   <!-- Results -->
   <div class="card">
-    <div class="row"><div class="pill">結果</div><span id="summary" class="mut"></span></div>
+    <div class="row"><div class="pill" data-i18n="results_pill">Results</div><span id="summary" class="mut"></span></div>
     <div id="results"></div>
   </div>
 </div>
 
 <script>
-/* ===== Utilities ===== */
+/* ========== i18n ========== */
+const I18N = {
+  en: {
+    title: "Spotify Compilation Auditor — TDCS Deep-Meta (Plus, Fixed)",
+    lang_label: "Language",
+    client_id_label: "Client ID (Spotify Developer)",
+    client_id_ph: "e.g., f5b88dacf6374e0485971c59d0f528bc",
+    redirect_label: "Redirect URI (must match exactly in Developer Dashboard)",
+    redirect_ph: "e.g., https://npr2025.github.io/spotify-auth/spotify_compilation_auditor_plus.html",
+    btn_auth: "Connect to Spotify (PKCE / no scope)",
+    btn_clear: "Clear saved token",
+    hint_scope: "* Uses only public APIs (GET). No scopes requested (album/track GET only).",
+    hint_redirect: "* Redirect URI must exactly match what’s registered in the Developer Dashboard (including the trailing .html).",
+    albums_label: "Album URLs/IDs (one per line)",
+    albums_ph: "https://open.spotify.com/album/06Yvg4vlPaVfnAWVwmJX27\nhttps://open.spotify.com/album/4aeD4BUM5mAA1v1hCp9irx",
+    expected_label: "Expected primary artist IDs (who should be the only primary) — comma separated",
+    expected_hint: "TDCS = 55fvQ5I2IZUfcFT2DV02T3 (add more with commas if needed).",
+    markets_label: "Markets to compare (comma separated)",
+    ignore_djmix: "Ignore tracks labeled as DJ mix",
+    fetch_isrc: "Fetch each track’s ISRC / available_markets count (slower)",
+    check_upc: "Search same-UPC siblings (other variants) and compare",
+    btn_run: "Run audit",
+    btn_csv: "Download CSV",
+    results_pill: "Results",
+    token_ok: "access_token: OK",
+    token_none: "access_token: none",
+    running: "Running…",
+    parsed_csv: (n)=> `${n} album(s) parsed. CSV is ready.`,
+    tbl_market: "Market comparison (album-level)",
+    tbl_tracks: "Track details",
+    tbl_siblings: "UPC siblings (same UPC variants)",
+    offenders0: "Offenders: 0",
+    offendersN: (n, f)=> `Offenders: ${n} track(s), first-artist offenders=${f}`,
+    likely_causes: "Likely causes:",
+    album_pill: "Album",
+    hint_line1: (s)=> `type=${s.album_type} / group=${s.album_group} / is_compilation=${s.is_compilation} / tracks=${s.total_tracks}`,
+    hint_line2: (s)=> `Album Artists: ${s.album_artists} (count=${s.album_artists_count})`,
+    hint_line3: (s)=> `Label: ${s.label||"—"} / UPC: ${s.upc||"—"} / Release: ${s.release_date} (${s.release_date_precision})`,
+    hint_line4: (s)=> `Copyrights: ${s.copyrights||"—"}`,
+    hint_line5: (s)=> `Unique track artist IDs (after DJ-mix ignore): ${s.unique_track_artist_ids.join(", ")||"—"}`,
+    hint_line6: (s)=> `Expected IDs: ${s.expected_ids.join(", ")}`,
+    cause_score: (c)=> `<li><b>${c.key}</b> — ${c.detail} <span class="mut">[score:${c.score}]</span></li>`,
+    fetch_error: "(fetch error)",
+    alert_need_input: "Please enter Client ID and Redirect URI.",
+    alert_token_missing_saved: "Could not find saved client_id/redirect_uri. Enter them and hit “Connect to Spotify”.",
+    alert_no_verifier: "code_verifier is missing. Start over by clicking “Connect to Spotify”.",
+    alert_token_fail_steps: (t)=>`Token exchange failed:\n${t}\n\nSteps:\n1) Confirm Redirect URI matches exactly in Developer Dashboard\n2) Confirm client_id is correct\n3) Ensure localStorage isn’t cleared by ITP/3rd-party cookie settings`,
+    alert_run_error: (m)=>`Audit error: ${m}`
+  },
+  ja: {
+    title: "Spotify Compilation Auditor — TDCS Deep-Meta (Plus, Fixed)",
+    lang_label: "言語",
+    client_id_label: "Client ID（Spotify Developer）",
+    client_id_ph: "例: f5b88dacf6374e0485971c59d0f528bc",
+    redirect_label: "Redirect URI（Developer Dashboardで登録と一致）",
+    redirect_ph: "例: https://npr2025.github.io/spotify-auth/spotify_compilation_auditor_plus.html",
+    btn_auth: "Spotifyに接続（PKCE／スコープなし）",
+    btn_clear: "保存トークン削除",
+    hint_scope: "※ 公開APIのみ使用。scopeは送信しません（＝album/track GET専用）。",
+    hint_redirect: "※ Redirect URI は Developer Dashboardに完全一致で登録してください（末尾の .html まで）。",
+    albums_label: "アルバムURL/ID（改行区切り）",
+    albums_ph: "https://open.spotify.com/album/06Yvg4vlPaVfnAWVwmJX27\nhttps://open.spotify.com/album/4aeD4BUM5mAA1v1hCp9irx",
+    expected_label: "期待アーティストID（“このIDだけがプライマリーであるべき”）※カンマ区切り",
+    expected_hint: "TDCS=55fvQ5I2IZUfcFT2DV02T3（複数あればカンマで追加）。",
+    markets_label: "比較マーケット（カンマ区切り）",
+    ignore_djmix: "DJミックス表記のトラックを無視",
+    fetch_isrc: "各トラックの ISRC / available_markets 件数も取得（やや遅）",
+    check_upc: "UPC同胞（別バージョン）も探索して比較",
+    btn_run: "解析を実行",
+    btn_csv: "CSVをダウンロード",
+    results_pill: "結果",
+    token_ok: "access_token: OK",
+    token_none: "access_token: none",
+    running: "解析中…",
+    parsed_csv: (n)=> `${n} 件のアルバムを解析。CSVを出力できます。`,
+    tbl_market: "Market comparison（アルバム単位）",
+    tbl_tracks: "トラック明細",
+    tbl_siblings: "UPC同胞（同一UPCの別バージョン）",
+    offenders0: "Offenders: 0",
+    offendersN: (n, f)=> `Offenders: ${n} track(s), first-artist offenders=${f}`,
+    likely_causes: "Likely causes:",
+    album_pill: "Album",
+    hint_line1: (s)=> `type=${s.album_type} / group=${s.album_group} / is_compilation=${s.is_compilation} / tracks=${s.total_tracks}`,
+    hint_line2: (s)=> `Album Artists: ${s.album_artists} (count=${s.album_artists_count})`,
+    hint_line3: (s)=> `Label: ${s.label||"—"} / UPC: ${s.upc||"—"} / Release: ${s.release_date} (${s.release_date_precision})`,
+    hint_line4: (s)=> `Copyrights: ${s.copyrights||"—"}`,
+    hint_line5: (s)=> `Unique track artist IDs（DJミックス無視後）: ${s.unique_track_artist_ids.join(", ")||"—"}`,
+    hint_line6: (s)=> `Expected IDs: ${s.expected_ids.join(", ")}`,
+    cause_score: (c)=> `<li><b>${c.key}</b> — ${c.detail} <span class="mut">[score:${c.score}]</span></li>`,
+    fetch_error: "(取得エラー)",
+    alert_need_input: "Client ID と Redirect URI を入力してください。",
+    alert_token_missing_saved: "保存していた client_id / redirect_uri を見つけられませんでした。認証前に入力して『Spotifyに接続』を押してください。",
+    alert_no_verifier: "code_verifier がありません。『Spotifyに接続』からやり直してください。",
+    alert_token_fail_steps: (t)=>`Token exchange failed:\n${t}\n\n対処:\n1) Developer Dashboardで Redirect URI が完全一致か確認\n2) client_id が正しいか確認\n3) ブラウザのITP/サードパーティCookie設定で localStorage が消えていないか確認`,
+    alert_run_error: (m)=>`解析でエラー: ${m}`
+  }
+};
+
 const $ = sel => document.querySelector(sel);
 const sleep = ms => new Promise(r=>setTimeout(r, ms));
+
+/* ========== persist & state ========== */
 const storage = {
   get k(){ return 'sp_pkce_auditor_v2_plus_fixed'; },
   load(){ try{ return JSON.parse(localStorage.getItem(this.k)||'{}'); }catch{return{}} },
   save(obj){ localStorage.setItem(this.k, JSON.stringify(obj||{})); }
 };
 const state = Object.assign(
-  {access_token:null,expires_at:0,code_verifier:null,client_id:"",redirect_uri:""},
+  {access_token:null,expires_at:0,code_verifier:null,client_id:"",redirect_uri:"",lang:""},
   storage.load()
 );
+
+/* ========== i18n helpers ========== */
+function getLangFromEnv(){
+  const q = new URLSearchParams(location.search);
+  const qlang = (q.get('lang')||"").toLowerCase();
+  if(qlang==="en" || qlang==="ja") return qlang;
+  if(state.lang==="en" || state.lang==="ja") return state.lang;
+  return "ja"; // default
+}
+function applyI18N(lang){
+  const dict = I18N[lang]||I18N.ja;
+  document.documentElement.lang = lang;
+  // text nodes
+  document.querySelectorAll("[data-i18n]").forEach(el=>{
+    const key = el.getAttribute("data-i18n");
+    const v = dict[key];
+    if(typeof v === "function") return; // dynamic ones handled elsewhere
+    if(typeof v === "string") el.textContent = v;
+  });
+  // placeholders
+  document.querySelectorAll("[data-i18n-ph]").forEach(el=>{
+    const key = el.getAttribute("data-i18n-ph");
+    const v = dict[key];
+    if(typeof v === "string") el.setAttribute("placeholder", v);
+  });
+  // token pill refresh
+  setTokStatus();
+  // set selector value
+  const sel = $("#lang");
+  if(sel) sel.value = lang;
+}
+function t(key){
+  const lang = document.documentElement.lang || "ja";
+  const dict = I18N[lang]||I18N.ja;
+  return dict[key] ?? key;
+}
+
+/* ========== token status UI ========== */
 function setTokStatus(msg){
   const ok = state.access_token && Date.now() < state.expires_at;
-  $("#tok_status").textContent = msg || (ok ? "access_token: OK" : "access_token: none");
+  $("#tok_status").textContent = msg || (ok ? t("token_ok") : t("token_none"));
   $("#tok_status").className = "pill " + (ok?"ok":"mut");
   $("#btn_run").disabled = !ok;
 }
 
-/* ===== PKCE Auth (no scope) ===== */
+/* ========== PKCE Auth (no scope) ========== */
 async function sha256(buf){
   const enc=new TextEncoder().encode(buf);
   const hash=await crypto.subtle.digest('SHA-256', enc);
@@ -132,9 +290,8 @@ function randStr(len=64){
 async function startAuth(){
   const client_id = $("#client_id").value.trim();
   const redirect_uri = $("#redirect_uri").value.trim();
-  if(!client_id || !redirect_uri){ alert("Client ID と Redirect URI を入力してください"); return; }
+  if(!client_id || !redirect_uri){ alert(t("alert_need_input")); return; }
 
-  // 保存（コールバック用に必須）
   state.client_id = client_id;
   state.redirect_uri = redirect_uri;
   storage.save(state);
@@ -150,7 +307,6 @@ async function startAuth(){
   url.searchParams.set("redirect_uri", redirect_uri);
   url.searchParams.set("code_challenge_method","S256");
   url.searchParams.set("code_challenge", code_challenge);
-  // scopeは送らない（公開GETのみ）
   location.assign(url.toString());
 }
 async function handleCallback(){
@@ -161,13 +317,13 @@ async function handleCallback(){
   const redirect_uri = $("#redirect_uri").value.trim() || state.redirect_uri;
 
   if(!client_id || !redirect_uri){
-    setTokStatus("invalid_client: client_id/redirect_uri 未入力 (保存値なし)");
-    alert("保存していた client_id / redirect_uri を見つけられませんでした。認証前に入力して『Spotifyに接続』を押してください。");
+    setTokStatus("invalid_client");
+    alert(t("alert_token_missing_saved"));
     return;
   }
   if(!state.code_verifier){
-    setTokStatus("error: code_verifier がありません");
-    alert("code_verifier が失われました。もう一度『Spotifyに接続』からやり直してください。");
+    setTokStatus("error");
+    alert(t("alert_no_verifier"));
     return;
   }
 
@@ -185,18 +341,16 @@ async function handleCallback(){
       body
     });
     if(!res.ok){
-      const t = await res.text();
+      const ttxt = await res.text();
       setTokStatus("token error");
-      // 代表的な落とし穴のヒント
-      console.error("Token exchange failed:", t);
-      alert(`Token exchange failed:\n${t}\n\n対処:\n1) Developer Dashboardで Redirect URI が完全一致か確認\n2) client_id が正しいか確認\n3) ブラウザのサードパーティCookie/ITPでlocalStorageが消えていないか確認`);
+      console.error("Token exchange failed:", ttxt);
+      alert(I18N[document.documentElement.lang].alert_token_fail_steps(ttxt));
       return;
     }
     const json = await res.json();
     state.access_token = json.access_token;
     state.expires_at = Date.now() + ((json.expires_in||3600)*1000) - 5000;
     storage.save(state);
-    // クエリを消してキレイに
     history.replaceState({}, "", location.pathname);
     setTokStatus();
   }catch(e){
@@ -207,13 +361,12 @@ async function handleCallback(){
 function clearToken(){
   state.access_token = null;
   state.expires_at = 0;
-  // state.client_id / redirect_uri は残す（次回楽にする）
   state.code_verifier = null;
   storage.save(state);
   setTokStatus();
 }
 
-/* ===== Spotify API ===== */
+/* ========== Spotify API helpers ========== */
 async function spGET(path, params={}){
   const qs = new URLSearchParams(params);
   const url = `https://api.spotify.com/v1${path}?${qs.toString()}`;
@@ -245,7 +398,7 @@ function djMixLike(name){
   return n.includes("dj mix") || n.includes("continuous mix") || n.includes("mixed");
 }
 
-/* ===== Fetchers ===== */
+/* ========== Fetchers ========== */
 async function fetchAlbumDeep(album_id, market){
   const album = await spGET(`/albums/${album_id}`, { market, limit:50 });
   let tracks = [];
@@ -288,7 +441,7 @@ async function searchAlbumsByUPC(upc){
   return (js.albums?.items||[]).map(a=>({id:a.id,name:a.name,album_type:a.album_type,artists:a.artists||[],release_date:a.release_date,label:a.label||""}));
 }
 
-/* ===== Analysis / UI（前回版と同等） ===== */
+/* ========== Analysis / UI ========== */
 function analyze({album, tracks}, expectedIDsSet, ignoreDJ){
   const album_is_comp = album.album_type === "compilation" || album.group === "compilation";
   const album_artist_ids = (album.artists||[]).map(a=>a.id).filter(Boolean);
@@ -368,6 +521,41 @@ function analyze({album, tracks}, expectedIDsSet, ignoreDJ){
     offenders: offender_any
   };
 }
+
+function tableHTML(title, rows){
+  if(!rows.length) return "";
+  const cols = Object.keys(rows[0]);
+  return `
+    <h3>${title}</h3>
+    <table>
+      <thead><tr>${cols.map(c=>`<th>${c}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map(r=>`<tr>${cols.map(c=>`<td>${r[c]??""}</td>`).join("")}</tr>`).join("")}</tbody>
+    </table>`;
+}
+
+function renderAlbumBlock(block){
+  const s = block.album_summary;
+  const causes = s.likely_compilation_causes.map(c=>I18N[document.documentElement.lang].cause_score(c)).join("");
+  const head = `
+    <div class="card">
+      <div><span class="pill">${t("album_pill")}</span> <b>${s.album_name}</b> <span class="mono">(${s.album_id})</span></div>
+      <div class="hint">${I18N[document.documentElement.lang].hint_line1(s)}</div>
+      <div class="hint">${I18N[document.documentElement.lang].hint_line2(s)}</div>
+      <div class="hint">${I18N[document.documentElement.lang].hint_line3(s)}</div>
+      <div class="hint">${I18N[document.documentElement.lang].hint_line4(s)}</div>
+      <div class="hint">${I18N[document.documentElement.lang].hint_line5(s)}</div>
+      <div class="hint">${I18N[document.documentElement.lang].hint_line6(s)}</div>
+      <div style="margin-top:8px"><b>${t("likely_causes")}</b><ul>${causes||"<li>—</li>"}</ul></div>
+      ${
+        block.offenders.length
+        ? `<div class="ng" style="margin-top:6px">${I18N[document.documentElement.lang].offendersN(block.offenders.length, s.offender_first_count)}</div>`
+        : `<div class='ok' style='margin-top:6px'>${t("offenders0")}</div>`
+      }
+    </div>`;
+  return head;
+}
+
+/* ========== CSV helpers ========== */
 function toCSV(objs){
   if(!objs.length) return "";
   const headers = Object.keys(objs[0]);
@@ -380,38 +568,12 @@ function toCSV(objs){
   for(const o of objs){ lines.push(headers.map(h=>esc(o[h])).join(",")); }
   return lines.join("\n");
 }
-function tableHTML(title, rows){
-  if(!rows.length) return "";
-  const cols = Object.keys(rows[0]);
-  return `
-    <h3>${title}</h3>
-    <table>
-      <thead><tr>${cols.map(c=>`<th>${c}</th>`).join("")}</tr></thead>
-      <tbody>${rows.map(r=>`<tr>${cols.map(c=>`<td>${r[c]??""}</td>`).join("")}</tr>`).join("")}</tbody>
-    </table>`;
-}
-function renderAlbumBlock(block){
-  const s = block.album_summary;
-  const causeLines = s.likely_compilation_causes.map(c=>`<li><b>${c.key}</b> — ${c.detail} <span class="mut">[score:${c.score}]</span></li>`).join("");
-  return `
-    <div class="card">
-      <div><span class="pill">Album</span> <b>${s.album_name}</b> <span class="mono">(${s.album_id})</span></div>
-      <div class="hint">type=${s.album_type} / group=${s.album_group} / is_compilation=${s.is_compilation} / tracks=${s.total_tracks}</div>
-      <div class="hint">Album Artists: ${s.album_artists} <span class="mut">(count=${s.album_artists_count})</span></div>
-      <div class="hint">Label: <span class="mono">${s.label||"—"}</span> / UPC: <span class="mono">${s.upc||"—"}</span> / Release: ${s.release_date} (${s.release_date_precision})</div>
-      <div class="hint">Copyrights: ${s.copyrights||"—"}</div>
-      <div class="hint">Unique track artist IDs (after DJ-mix ignore): <span class="mono">${s.unique_track_artist_ids.join(", ")||"—"}</span></div>
-      <div class="hint">Expected IDs: <span class="mono">${s.expected_ids.join(", ")}</span></div>
-      <div style="margin-top:8px"><b>Likely causes:</b><ul>${causeLines||"<li>—</li>"}</ul></div>
-      ${block.offenders.length ? `<div class="ng" style="margin-top:6px">Offenders: ${block.offenders.length} track(s), first-artist offenders=${s.offender_first_count}</div>`:"<div class='ok' style='margin-top:6px'>Offenders: 0</div>"}
-    </div>`;
-}
 
-/* ===== Main run ===== */
+/* ========== Main run ========== */
 async function runAudit(){
   $("#btn_run").disabled = true;
   $("#btn_csv").disabled = true;
-  $("#summary").textContent = "解析中…";
+  $("#summary").textContent = t("running");
   $("#results").innerHTML = "";
 
   const markets = $("#markets").value.split(",").map(s=>s.trim()).filter(Boolean);
@@ -450,7 +612,7 @@ async function runAudit(){
             album_artists:(a.artists||[]).map(x=>x.name).join(" / "),
             album_avail_count: Array.isArray(a.available_markets)? a.available_markets.length : "",
           });
-        }catch(_){ marketRows.push({market:m, album_type:"(fetch error)", album_group:"", album_artists:"", album_avail_count:""}); }
+        }catch(_){ marketRows.push({market:m, album_type:t("fetch_error"), album_group:"", album_artists:"", album_avail_count:""}); }
         await sleep(80);
       }
 
@@ -482,11 +644,11 @@ async function runAudit(){
       const container = $("#results");
       container.insertAdjacentHTML("beforeend", renderAlbumBlock(analyzed));
       if(marketRows.length){
-        container.insertAdjacentHTML("beforeend", `<div class="card">${tableHTML("Market comparison (album-level)", marketRows)}</div>`);
+        container.insertAdjacentHTML("beforeend", `<div class="card">${tableHTML(t("tbl_market"), marketRows)}</div>`);
       }
-      container.insertAdjacentHTML("beforeend", `<div class="card">${tableHTML("Track details", analyzed.track_rows)}</div>`);
+      container.insertAdjacentHTML("beforeend", `<div class="card">${tableHTML(t("tbl_tracks"), analyzed.track_rows)}</div>`);
       if(siblingRows.length){
-        container.insertAdjacentHTML("beforeend", `<div class="card">${tableHTML("UPC siblings (same UPC variants)", siblingRows)}</div>`);
+        container.insertAdjacentHTML("beforeend", `<div class="card">${tableHTML(t("tbl_siblings"), siblingRows)}</div>`);
       }
 
       const s = analyzed.album_summary;
@@ -508,7 +670,7 @@ async function runAudit(){
       blocks.push(analyzed);
     }
   }catch(e){
-    alert("解析でエラー: "+e.message);
+    alert(I18N[document.documentElement.lang].alert_run_error(e.message));
   }
 
   const csvA = toCSV(albumCSV);
@@ -523,21 +685,33 @@ async function runAudit(){
   $("#btn_csv").onclick = ()=>{ a1.click(); a2.click(); };
   $("#btn_csv").disabled = false;
 
-  $("#summary").textContent = `${blocks.length} album(s) parsed. CSVを出力できます。`;
+  $("#summary").textContent = I18N[document.documentElement.lang].parsed_csv(blocks.length);
   $("#btn_run").disabled = false;
 }
 
-/* ===== Events ===== */
+/* ========== Events & Init ========== */
 $("#btn_auth").addEventListener("click", startAuth);
 $("#btn_clear").addEventListener("click", clearToken);
 $("#btn_run").addEventListener("click", runAudit);
+$("#lang").addEventListener("change", (e)=>{
+  const lang = e.target.value;
+  state.lang = lang; storage.save(state);
+  applyI18N(lang);
+});
 
 (async function init(){
+  // language
+  const lang = getLangFromEnv();
+  state.lang = lang; storage.save(state);
+  applyI18N(lang);
+
+  // OAuth callback & prefill
   await handleCallback();
-  // 保存値の自動プレフィル
   if(state.client_id) $("#client_id").value = state.client_id;
   if(state.redirect_uri) $("#redirect_uri").value = state.redirect_uri;
   setTokStatus();
+
+  // default inputs
   $("#album_input").value =
 `https://open.spotify.com/album/06Yvg4vlPaVfnAWVwmJX27
 https://open.spotify.com/album/4aeD4BUM5mAA1v1hCp9irx`;
