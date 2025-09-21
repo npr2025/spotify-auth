@@ -211,7 +211,6 @@ const I18N = {
     hdr_pop:"Track popularity", hdr_explicit:"Explicit", hdr_duration:"Duration(ms)", hdr_disc:"Disc# / Track#",
     hdr_dsp_primary:"Other DSP primary (from CSV)", hdr_fix:"Fix suggestions",
     hint_comp:"album_type = compilation", hint_djmix:"Contains ‘DJ mix’ tracks", hint_none:"—",
-    // Fix suggestions (en)
     fix_missing_track:"Missing Spotify track — verify ISRC supply or distribution mapping.",
     fix_not_present:"Remixer not listed on track — request metadata correction (add remixer as artist).",
     fix_not_primary:"Remixer not primary — ask distributor to set the remixer as primary (first artist).",
@@ -219,7 +218,6 @@ const I18N = {
     fix_djmix:"Album contains 'DJ mix' titles — confirm compilation/mix policy for album classification.",
     fix_first_mismatch:"First artist on track differs from expected — check artist priority ordering.",
     fix_dsp_mismatch:"Other DSPs show primary but Spotify does not — align metadata across DSPs.",
-    // Alerts
     alert_need_input:"Please enter Client ID and Redirect URI.",
     alert_token_missing_saved:"Could not find saved client_id/redirect_uri. Enter and connect again.",
     alert_no_verifier:"code_verifier is missing. Start over by clicking “Connect to Spotify”.",
@@ -267,14 +265,17 @@ const I18N = {
     hdr_pop:"人気度", hdr_explicit:"Explicit", hdr_duration:"再生時間(ms)", hdr_disc:"Disc# / Track#",
     hdr_dsp_primary:"他DSPプライマリー（CSV）", hdr_fix:"要修正点",
     hint_comp:"album_type = compilation", hint_djmix:"“DJ mix”系トラックを含む", hint_none:"—",
-    // Fix suggestions (ja)
     fix_missing_track:"Spotifyトラックが紐づかない → ISRC供給・配信マッピングを再確認。",
     fix_not_present:"トラックにリミキサー表記なし → メタデータ修正（アーティスト追加）を依頼。",
     fix_not_primary:"リミキサーが一次でない → 一次（先頭）アーティスト設定を配給に依頼。",
     fix_compilation:"アルバムがcompilation扱い → album分類への変更依頼。",
     fix_djmix:"アルバム内に“DJ mix”表記あり → アルバム分類ポリシーの確認が必要。",
     fix_first_mismatch:"トラック先頭アーティストが期待と不一致 → アーティスト優先順の見直し。",
-    fix_dsp_mismatch:"他DSPで一次だがSpotifyで一次でない → 各DSP間でメタデータ整合を取る。"
+    fix_dsp_mismatch:"他DSPで一次だがSpotifyで一次でない → 各DSP間でメタデータ整合を取る。",
+    alert_need_input:"Client ID と Redirect URI を入力してください。",
+    alert_token_missing_saved:"保存済みの client_id / redirect_uri が見つかりません。再入力して接続してください。",
+    alert_no_verifier:"code_verifier がありません。『Spotifyに接続』からやり直してください。",
+    alert_token_fail_steps:(t)=>`Token exchange failed:\n${t}\n\n対処:\n1) Redirect URI 完全一致\n2) client_id 再確認\n3) localStorage がITP等で消えない設定に`
   }
 };
 const $=q=>document.querySelector(q);
@@ -283,8 +284,8 @@ function T(k){const L=I18N[document.documentElement.lang]||I18N.ja;return L[k]??
 function Tf(key,...args){const L=I18N[document.documentElement.lang]||I18N.ja;const v=L[key];return typeof v==="function"?v(...args):(v??key)}
 
 /* ========= state & storage ========= */
-const storage={k:'catalog_primary_auditor_onebtn_v1',load(){try{return JSON.parse(localStorage.getItem(this.k)||'{}')}catch{return{}}},save(o){localStorage.setItem(this.k,JSON.stringify(o||{}))}};
-const state=Object.assign({access_token:null,expires_at:0,code_verifier:null,client_id:"",redirect_uri:"",lang:"",headers:[],csvFull:[],csv:[],rows:[],max_catalog:249,market:""},storage.load());
+const storage={k:'catalog_primary_auditor_onebtn_v2',load(){try{return JSON.parse(localStorage.getItem(this.k)||'{}')}catch{return{}}},save(o){localStorage.setItem(this.k,JSON.stringify(o||{}))}};
+const state=Object.assign({access_token:null,expires_at:0,code_verifier:null,state_key:null,client_id:"",redirect_uri:"",lang:"",headers:[],csvFull:[],csv:[],rows:[],max_catalog:249,market:""},storage.load());
 
 /* ========= UI helpers ========= */
 function setLang(lang){document.documentElement.lang=lang;$("#lang").value=lang;applyI18N()}
@@ -293,33 +294,59 @@ function logln(s){ const el=$("#logs"); el.textContent += (s+"\n"); el.scrollTop
 function setProg(pct,text){ $("#bar").style.width = Math.max(0,Math.min(100,pct))+"%"; $("#prog_txt").textContent = (text||Math.round(pct)+"%") }
 function setTokStatus(msg){ const ok=state.access_token && Date.now()<state.expires_at; $("#tok_status").textContent=msg||(ok?T("token_ok"):T("token_none")); $("#tok_status").className="pill "+(ok?"ok":"mut"); $("#btn_run").disabled = !ok || !state.csv.length }
 
-/* ========= auth (PKCE, no scope) ========= */
+/* ========= PKCE helpers (triple-save) ========= */
 async function sha256(s){const enc=new TextEncoder().encode(s);const h=await crypto.subtle.digest('SHA-256',enc);return btoa(String.fromCharCode(...new Uint8Array(h))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
 function rstr(n=64){const a=new Uint8Array(n);crypto.getRandomValues(a);return Array.from(a,b=>("0"+(b&255).toString(16)).slice(-2)).join('')}
+function setCookie(k,v){document.cookie=`${encodeURIComponent(k)}=${encodeURIComponent(v)}; path=/; max-age=600; samesite=lax`}
+function getCookie(k){return document.cookie.split('; ').map(x=>x.split('=')).find(([kk])=>decodeURIComponent(kk)===k)?.[1]? decodeURIComponent(document.cookie.split('; ').map(x=>x.split('=')).find(([kk])=>decodeURIComponent(kk)===k)[1]) : null}
+function saveVerifier(ver,key){ try{ localStorage.setItem(`pkce_verifier:${key}`,ver) }catch{} try{ sessionStorage.setItem(`pkce_verifier:${key}`,ver) }catch{} try{ setCookie(`pkce_verifier:${key}`,ver) }catch{} }
+function loadVerifier(key){ let v=null; try{ v=localStorage.getItem(`pkce_verifier:${key}`) }catch{} if(!v){ try{ v=sessionStorage.getItem(`pkce_verifier:${key}`) }catch{} } if(!v){ try{ v=getCookie(`pkce_verifier:${key}`) }catch{} } return v }
+function clearVerifier(key){ try{ localStorage.removeItem(`pkce_verifier:${key}`) }catch{} try{ sessionStorage.removeItem(`pkce_verifier:${key}`) }catch{} try{ setCookie(`pkce_verifier:${key}`,"") }catch{} }
+
+/* ========= auth (PKCE, scopeなし) ========= */
 async function startAuth(){
   const cid=$("#client_id").value.trim(), ru=$("#redirect_uri").value.trim();
   if(!cid||!ru){alert(T("alert_need_input"));return}
-  state.client_id=cid; state.redirect_uri=ru; storage.save(state);
-  state.code_verifier=rstr(64); const chal=await sha256(state.code_verifier);
+  state.client_id=cid; state.redirect_uri=ru;
+  // 1) 先に state_key を作って保存
+  const sk = rstr(12);
+  state.state_key = sk;
+  // 2) code_verifier 生成→三重保存→storage保存
+  const ver=rstr(64); state.code_verifier=ver; saveVerifier(ver, sk);
+  storage.save(state);
+  // 3) code_challenge を作って authorize へ
+  const chal=await sha256(ver);
   const u=new URL("https://accounts.spotify.com/authorize");
   u.searchParams.set("response_type","code"); u.searchParams.set("client_id",cid);
   u.searchParams.set("redirect_uri",ru); u.searchParams.set("code_challenge_method","S256"); u.searchParams.set("code_challenge",chal);
-  const mk=($("#market").value||"").trim(); if(mk) u.searchParams.set("market",mk);
+  // 安全のため state に key を入れる（復元用）
+  u.searchParams.set("state", sk);
   location.assign(u.toString());
 }
 async function handleCallback(){
   const p=new URLSearchParams(location.search); const code=p.get("code"); if(!code) return;
+  // state key を受け取って verifier を復元
+  const sk=p.get("state")||state.state_key;
   const cid=$("#client_id").value.trim()||state.client_id; const ru=$("#redirect_uri").value.trim()||state.redirect_uri;
   if(!cid||!ru){setTokStatus("invalid_client"); alert(T("alert_token_missing_saved")); return}
-  if(!state.code_verifier){setTokStatus("error"); alert(T("alert_no_verifier")); return}
+  let verifier = state.code_verifier || (sk? loadVerifier(sk) : null);
+  if(!verifier){ setTokStatus("error"); alert(T("alert_no_verifier")); return }
   try{
-    const body=new URLSearchParams({grant_type:"authorization_code",code,redirect_uri:ru,client_id:cid,code_verifier:state.code_verifier});
+    const body=new URLSearchParams({grant_type:"authorization_code",code,redirect_uri:ru,client_id:cid,code_verifier:verifier});
     const res=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
     if(!res.ok){const s=await res.text(); setTokStatus("token error"); console.error("Token exchange failed:",s); alert(Tf("alert_token_fail_steps",s)); return}
-    const js=await res.json(); state.access_token=js.access_token; state.expires_at=Date.now()+((js.expires_in||3600)*1000)-5000; history.replaceState({}, "", location.pathname);
+    const js=await res.json();
+    state.access_token=js.access_token; state.expires_at=Date.now()+((js.expires_in||3600)*1000)-5000;
+    // 後片付け
+    if(sk) clearVerifier(sk);
+    state.code_verifier=null; state.state_key=null;
+    storage.save(state);
+    history.replaceState({}, "", location.pathname);
   }catch(e){setTokStatus("token error"); alert(e.message)}
-  storage.save(state); setTokStatus();
+  setTokStatus();
 }
+$("#btn_auth").addEventListener("click", startAuth);
+$("#btn_clear").addEventListener("click", ()=>{state.access_token=null;state.expires_at=0; if(state.state_key) clearVerifier(state.state_key); state.code_verifier=null; storage.save(state); setTokStatus()});
 
 /* ========= Spotify API ========= */
 async function spGET(path, params={}){
@@ -434,7 +461,6 @@ function buildFixes(L, ctx){
   if(ctx.dspPrimary && ctx.spPresent && !ctx.spPrimary) fixes.push(L.fix_dsp_mismatch);
   return fixes.join(" / ") || I18N[document.documentElement.lang].hint_none;
 }
-function link(u){ return u?`https://open.spotify.com/${u}`:"" }
 
 async function runAll(){
   $("#btn_run").disabled=true; setProg(0,T("running")); $("#summary").textContent=T("running"); $("#logs").textContent="";
@@ -545,8 +571,8 @@ async function runAll(){
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a"); a.href=url; a.download=`catalog_primary_audit_${new Date().toISOString().slice(0,10)}.csv`; a.click();
 
-  // PDF print (auto; ifブロックされても手動で印刷可能)
-  setTimeout(()=>{ try{ window.print() }catch(_){ /* ignore */ } }, 300);
+  // PDF print (auto; ブロックされてもOK)
+  setTimeout(()=>{ try{ window.print() }catch(_){ } }, 300);
 
   $("#btn_run").disabled=false;
 }
@@ -639,12 +665,9 @@ function renderResults(tracks, albums){
 
 /* ========= events ========= */
 $("#lang").addEventListener("change",(e)=>{ state.lang=e.target.value; storage.save(state); setLang(state.lang); });
-$("#btn_auth").addEventListener("click", startAuth);
-$("#btn_clear").addEventListener("click", ()=>{state.access_token=null;state.expires_at=0;state.code_verifier=null;storage.save(state);setTokStatus()});
 $("#btn_run").addEventListener("click", runAll);
 $("#max_catalog").addEventListener("change",()=>{ state.max_catalog=parseInt($("#max_catalog").value||"249",10); storage.save(state); $("#filter_pill").textContent=`NPR≤${state.max_catalog}`; if(state.csvFull.length){ const r=applyCatalogFilter(); $("#rowcount").textContent=`${state.csv.length} rows`; $("#summary").textContent = Tf("loaded_filtered", state.csv.length, r.m, r.nAll, r.cut); setTokStatus(); }});
 $("#market").addEventListener("change",()=>{ state.market=$("#market").value; storage.save(state); });
-
 $("#csv_file").addEventListener("change", async(e)=>{
   const f=e.target.files?.[0]; if(!f) return;
   const txt=await f.text();
