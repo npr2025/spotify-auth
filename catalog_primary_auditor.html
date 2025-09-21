@@ -32,14 +32,15 @@
   .small{font-size:12px}
   .toolbar{display:flex;gap:8px;flex-wrap:wrap}
   .hint{font-size:12px;color:var(--mut);margin-top:6px}
-  .tag{display:inline-block;border:1px solid var(--bd);padding:2px 6px;border-radius:6px;font-size:11px;margin-right:4px}
   .tight ul{margin:6px 0;padding-left:18px}
   .tight li{margin:2px 0}
+  .tag{display:inline-block;border:1px solid var(--bd);padding:2px 6px;border-radius:6px;font-size:11px;margin-right:4px}
+
   /* Print/PDF */
   @media print{
     @page{size:A4;margin:10mm}
     body{background:#fff}
-    .card.inputs,.card.auth,.topbar .langsel,.toolbar .csv,.toolbar .authbtns,.hint{display:none!important}
+    .card.auth,.card.inputs,.topbar .langsel,.toolbar .csv,.toolbar .authbtns,.hint{display:none!important}
     .wrap{max-width:none;margin:0 auto;padding:0}
     .card{break-inside:avoid;page-break-inside:avoid;margin:8px 0;padding:12px;border-radius:8px}
     table{font-size:12px}
@@ -92,7 +93,7 @@
       <div>
         <label data-i18n="csv_label">Upload CSV</label>
         <input id="csv_file" type="file" accept=".csv,text/csv"/>
-        <div class="hint" data-i18n="csv_hint">Header required. Minimal columns: ISRC or Spotify Track URL/ID. Optional: Track Name, Remixer Names (comma), Expected Artist IDs, per-DSP primary flags.</div>
+        <div class="hint" data-i18n="csv_hint">Header required. Minimal columns: ISRC or Spotify Track URL/ID. Optional: Track Name, Remixer Names (comma), Expected Artist IDs, per-DSP primary flags, per-DSP availability flags, per-DSP links.</div>
       </div>
       <div>
         <label data-i18n="global_expected">Expected primary artist IDs (global, comma)</label>
@@ -133,6 +134,16 @@
           <select id="map_dsp_primary" multiple size="4"></select>
         </div>
       </div>
+      <div class="row" style="margin-top:8px">
+        <div style="flex:1 1 220px">
+          <label data-i18n="map_dsp_avail">Map: Other DSP availability flags (multi-select)</label>
+          <select id="map_dsp_avail" multiple size="4"></select>
+        </div>
+        <div style="flex:1 1 220px">
+          <label data-i18n="map_dsp_links">Map: Other DSP link columns (multi-select)</label>
+          <select id="map_dsp_links" multiple size="4"></select>
+        </div>
+      </div>
     </div>
 
     <div class="row" style="margin-top:12px">
@@ -167,7 +178,7 @@ const I18N = {
     hint_scope:"* Uses only public GET APIs. No scopes requested.",
     hint_redirect:"* Redirect URI must match exactly (including the .html).",
     csv_label:"Upload CSV",
-    csv_hint:"Header required. Minimal columns: ISRC or Spotify Track URL/ID. Optional: Track Name, Remixer Names (comma), Expected Artist IDs, per-DSP primary flags.",
+    csv_hint:"Header required. Minimal columns: ISRC or Spotify Track URL/ID. Optional: Track Name, Remixer Names (comma), Expected Artist IDs, per-DSP primary flags, per-DSP availability flags, per-DSP links.",
     global_expected:"Expected primary artist IDs (global, comma)",
     map_isrc:"Map: ISRC column",
     map_track:"Map: Track Name column (optional)",
@@ -176,6 +187,8 @@ const I18N = {
     map_sp_track:"Map: Spotify Track URL/ID (optional)",
     map_sp_album:"Map: Spotify Album URL/ID (optional)",
     map_dsp_primary:"Map: Other DSP primary flags (multi-select)",
+    map_dsp_avail:"Map: Other DSP availability flags (multi-select)",
+    map_dsp_links:"Map: Other DSP link columns (multi-select)",
     btn_fill_sp:"Fill missing Spotify links via ISRC",
     btn_audit:"Run primary audit",
     btn_csv:"Download CSV",
@@ -186,7 +199,6 @@ const I18N = {
     running:"Running…",
     filled:"Filled {n} rows with Spotify links.",
     audited:"Audited {n} rows.",
-    album_pill:"Album",
     tbl_tracks:"Track audit",
     tbl_albums:"Album hints",
     hdr_isrc:"ISRC",
@@ -198,12 +210,11 @@ const I18N = {
     hdr_sp_primary:"Spotify: Remixer is PRIMARY",
     hdr_sp_present:"Spotify: Remixer present",
     hdr_sp_first_id:"Spotify: First artist ID",
-    hdr_dsp_primary:"Other DSP primary flags",
+    hdr_sp_missing:"Spotify: Not found",
+    hdr_dsp_primary:"Other DSP: primary flags",
+    hdr_dsp_avail:"Other DSP: availability flags",
+    hdr_dsp_links:"Other DSP: links",
     cause_title:"Likely causes",
-    cause_supply:"Supply-side compilation flag",
-    cause_first_ext:"External ID as first (primary) track artist",
-    cause_nonfirst_ext:"External IDs on tracks (non-first)",
-    cause_multi_album:"Multiple album-level artists",
     hint_comp:"album_type=compilation",
     hint_djmix:"Contains ‘DJ mix’ tracks",
     hint_none:"—",
@@ -225,7 +236,7 @@ const I18N = {
     hint_scope:"※ 公開GETのみ使用。scopeは不要。",
     hint_redirect:"※ Redirect URI は .html まで完全一致。",
     csv_label:"CSVをアップロード",
-    csv_hint:"ヘッダー必須。最低限：ISRC か Spotify Track URL/ID。任意：トラック名／リミキサー名（カンマ）／期待Artist ID／各DSPプライマリーフラグ列。",
+    csv_hint:"ヘッダー必須。最低限：ISRC か Spotify Track URL/ID。任意：トラック名／リミキサー名（カンマ）／期待Artist ID／各DSPプライマリーフラグ／各DSP配信有無フラグ／各DSPリンク列。",
     global_expected:"期待プライマリーArtist ID（全体、カンマ）",
     map_isrc:"マップ：ISRC列",
     map_track:"マップ：トラック名列（任意）",
@@ -234,6 +245,8 @@ const I18N = {
     map_sp_track:"マップ：SpotifyトラックURL/ID（任意）",
     map_sp_album:"マップ：SpotifyアルバムURL/ID（任意）",
     map_dsp_primary:"マップ：他DSPプライマリーフラグ列（複数選択）",
+    map_dsp_avail:"マップ：他DSP配信有無フラグ列（複数選択）",
+    map_dsp_links:"マップ：他DSPリンク列（複数選択）",
     btn_fill_sp:"不足SpotifyリンクをISRCから補完",
     btn_audit:"プライマリー監査を実行",
     btn_csv:"CSVをダウンロード",
@@ -244,7 +257,6 @@ const I18N = {
     running:"解析中…",
     filled:"{n} 行のSpotifyリンクを補完しました。",
     audited:"{n} 行を監査しました。",
-    album_pill:"Album",
     tbl_tracks:"トラック監査",
     tbl_albums:"アルバムヒント",
     hdr_isrc:"ISRC",
@@ -256,19 +268,19 @@ const I18N = {
     hdr_sp_primary:"Spotify：リミキサーが一次",
     hdr_sp_present:"Spotify：リミキサー含有",
     hdr_sp_first_id:"Spotify：先頭Artist ID",
-    hdr_dsp_primary:"他DSPプライマリー列",
+    hdr_sp_missing:"Spotify：未配信/未検出",
+    hdr_dsp_primary:"他DSP：プライマリー列",
+    hdr_dsp_avail:"他DSP：配信有無列",
+    hdr_dsp_links:"他DSP：リンク列",
     cause_title:"Likely causes",
-    cause_supply:"Supply-side compilation flag",
-    cause_first_ext:"External ID as first (primary) track artist",
-    cause_nonfirst_ext:"External IDs on tracks (non-first)",
-    cause_multi_album:"Multiple album-level artists",
     hint_comp:"album_type=compilation",
     hint_djmix:"“DJ mix”系トラックを含む",
     hint_none:"—",
     alert_need_input:"Client ID と Redirect URI を入力してください。",
     alert_token_missing_saved:"保存済みの client_id / redirect_uri が見つかりません。再入力して接続してください。",
     alert_no_verifier:"code_verifier がありません。『Spotifyに接続』からやり直してください。",
-    alert_token_fail_steps:(t)=>`Token exchange failed:\n${t}\n\n対処:\n1) Redirect URI 完全一致\n2) client_id 再確認\n3) localStorage がITP等で消えない設定に`
+    alert_token_fail_steps:(t)=>`Token exchange failed:\n${t}\n\n対処:\n1) Redirect URI 完全一致\n2) client_id 再確認\n3) localStorage がITP等で消えない設定に`,
+    fetch_error:"(取得エラー)"
   }
 };
 const $=q=>document.querySelector(q);
@@ -276,8 +288,8 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function t(k){const L=I18N[document.documentElement.lang]||I18N.ja;return L[k]??k}
 
 /* ========= state & storage ========= */
-const storage={k:'catalog_primary_auditor_v1',load(){try{return JSON.parse(localStorage.getItem(this.k)||'{}')}catch{return{}}},save(o){localStorage.setItem(this.k,JSON.stringify(o||{}))}};
-const state=Object.assign({access_token:null,expires_at:0,code_verifier:null,client_id:"",redirect_uri:"",lang:"",csv:[],headers:[],maps:{},rowsAug:[]},storage.load());
+const storage={k:'catalog_primary_auditor_v2',load(){try{return JSON.parse(localStorage.getItem(this.k)||'{}')}catch{return{}}},save(o){localStorage.setItem(this.k,JSON.stringify(o||{}))}};
+const state=Object.assign({access_token:null,expires_at:0,code_verifier:null,client_id:"",redirect_uri:"",lang:"",csv:[],headers:[],rowsAug:[]},storage.load());
 function setLang(lang){document.documentElement.lang=lang;$("#lang").value=lang;applyI18N()}
 function applyI18N(){
   const L=I18N[document.documentElement.lang]||I18N.ja;
@@ -337,7 +349,6 @@ async function getAlbum(album_id){ return spGET(`/albums/${album_id}`,{}) }
 
 /* ========= CSV parse / build ========= */
 function parseCSV(txt){
-  // very small CSV parser (handles quotes & commas/newlines)
   const rows=[]; let i=0, cur=[], val="", q=false;
   while(i<txt.length){
     const c=txt[i++];
@@ -348,12 +359,11 @@ function parseCSV(txt){
       if(c==='\"'){ q=true }
       else if(c===','){ cur.push(val); val="" }
       else if(c==='\n'){ cur.push(val); rows.push(cur); cur=[]; val="" }
-      else if(c==='\r'){ /* ignore */ }
+      else if(c==='\r'){ }
       else { val+=c }
     }
   }
   cur.push(val); rows.push(cur);
-  // trim trailing empty last row
   if(rows.length && rows[rows.length-1].every(x=>x==="")) rows.pop();
   return rows;
 }
@@ -367,18 +377,23 @@ function toCSV(arr){
 }
 
 /* ========= UI: mapping ========= */
+function fillSelect(elId, headers, multi=false){
+  const el=$("#"+elId); el.innerHTML="";
+  if(!multi){ const o0=document.createElement("option"); o0.value=""; o0.textContent="—"; el.appendChild(o0); }
+  headers.forEach(h=>{const o=document.createElement("option"); o.value=h; o.textContent=h; el.appendChild(o)});
+}
 function fillMapSelects(headers){
-  const ids=["map_isrc","map_track","map_remixers","map_expected","map_sp_track","map_sp_album","map_dsp_primary"];
-  ids.forEach(id=>{
-    const el=$("#"+id); el.innerHTML="";
-    if(id==="map_dsp_primary"){ headers.forEach(h=>{const o=document.createElement("option"); o.value=h; o.textContent=h; el.appendChild(o)}); }
-    else{
-      const o0=document.createElement("option"); o0.value=""; o0.textContent="—"; $("#"+id).appendChild(o0);
-      headers.forEach(h=>{const o=document.createElement("option"); o.value=h; o.textContent=h; $("#"+id).appendChild(o)});
-    }
-  });
+  fillSelect("map_isrc",headers);
+  fillSelect("map_track",headers);
+  fillSelect("map_remixers",headers);
+  fillSelect("map_expected",headers);
+  fillSelect("map_sp_track",headers);
+  fillSelect("map_sp_album",headers);
+  fillSelect("map_dsp_primary",headers,true);
+  fillSelect("map_dsp_avail",headers,true);
+  fillSelect("map_dsp_links",headers,true);
   // heuristics
-  const setIf=(id, names)=>{ for(const n of names){ const idx=headers.find(h=>h.toLowerCase().includes(n)); if(idx){ $("#"+id).value=idx; return } } };
+  const setIf=(id, names)=>{ for(const n of names){ const h=headers.find(x=>x.toLowerCase().includes(n)); if(h){ $("#"+id).value=h; return } } };
   setIf("map_isrc",["isrc"]);
   setIf("map_track",["track","title","name"]);
   setIf("map_remixers",["remix","remixer","remixers"]);
@@ -386,22 +401,32 @@ function fillMapSelects(headers){
   setIf("map_sp_track",["spotify_track","sp_track","track_url"]);
   setIf("map_sp_album",["spotify_album","sp_album","album_url"]);
 }
+function getMultiSelected(id){
+  return [...$("#"+id).selectedOptions].map(o=>o.value);
+}
 function getMapped(row){
-  const get=(key)=>{const col=$("#"+key).value; if(!col) return ""; const idx=state.headers.indexOf(col); return row[idx]??""};
-  const getMulti=(key)=>{const col=$("#"+key).value; if(!col) return []; const idx=state.headers.indexOf(col); const v=row[idx]??""; return String(v).split(",").map(s=>s.trim()).filter(Boolean)};
-  const getDSPFlags=()=>{const sel=[...$("#map_dsp_primary").selectedOptions].map(o=>o.value); const out={}; for(const c of sel){ const idx=state.headers.indexOf(c); const v=(row[idx]??"").toString().toLowerCase().trim(); out[c]=["true","1","yes","y"].includes(v) } return out }
+  const idxOf=(col)=> state.headers.indexOf(col);
+  const get=(key)=>{const col=$("#"+key).value; if(!col) return ""; const idx=idxOf(col); return row[idx]??""};
+  const getMulti=(key)=>{const col=$("#"+key).value; if(!col) return []; const idx=idxOf(col); const v=row[idx]??""; return String(v).split(",").map(s=>s.trim()).filter(Boolean)};
+  const getFlags=(cols)=>{const out={}; for(const c of cols){ const i=idxOf(c); const v=(row[i]??"").toString().toLowerCase().trim(); out[c]=["true","1","yes","y"].includes(v) } return out }
+  const getLinks=(cols)=>{const out={}; for(const c of cols){ const i=idxOf(c); const v=(row[i]??"").toString().trim(); if(v) out[c]=v } return out }
+  const dspPrimaryCols = getMultiSelected("map_dsp_primary");
+  const dspAvailCols = getMultiSelected("map_dsp_avail");
+  const dspLinkCols  = getMultiSelected("map_dsp_links");
   return {
     isrc: get("map_isrc"),
     track_name: get("map_track"),
     remixers: getMulti("map_remixers"),
-    expected_ids: (function(){ // row-level expected IDs or global
+    expected_ids: (function(){
       const rowIDs = getMulti("map_expected");
       const globalIDs = ($("#global_expected_ids").value||"").split(",").map(s=>s.trim()).filter(Boolean);
       return rowIDs.length? rowIDs : globalIDs;
     })(),
     sp_track_input: get("map_sp_track"),
     sp_album_input: get("map_sp_album"),
-    dsp_flags: getDSPFlags()
+    dsp_primary_flags: getFlags(dspPrimaryCols),
+    dsp_avail_flags: getFlags(dspAvailCols),
+    dsp_links: getLinks(dspLinkCols)
   };
 }
 
@@ -414,7 +439,7 @@ async function fillSpotifyLinks(){
     const m=getMapped(row);
     let trackId=extractIdFromUrl(m.sp_track_input,"track");
     let albumId=extractIdFromUrl(m.sp_album_input,"album");
-    let trackURL=m.sp_track_input, albumURL=m.sp_album_input;
+    let trackURL=m.sp_track_input||"", albumURL=m.sp_album_input||"";
     let firstArtistId="", gotName="";
     if(!trackId && m.isrc){
       try{
@@ -435,66 +460,83 @@ async function fillSpotifyLinks(){
 async function audit(){
   $("#summary").textContent=t("running");
   const outTracks=[];
-  const albumHintsMap=new Map(); // albumId -> {comp:boolean, djmix:boolean, artistsCount:int}
-  for(const r of state.rowsAug.length?state.rowsAug:state.csv.map(row=>({row, map:getMapped(row)}))){
-    let trackId=r.trackId||extractIdFromUrl(r.map.sp_track_input,"track");
-    let albumId=r.albumId||extractIdFromUrl(r.map.sp_album_input,"album");
+  const albumHintsMap=new Map();
+
+  const source = state.rowsAug.length? state.rowsAug : state.csv.map(row=>({row, map:getMapped(row)}));
+
+  for(const r of source){
+    let trackId=r.trackId||extractIdFromUrl(r.map?.sp_track_input,"track");
+    let albumId=r.albumId||extractIdFromUrl(r.map?.sp_album_input,"album");
     let firstArtistId=r.firstArtistId||"";
-    let trackName=r.map.track_name||r.gotName||"";
-    // If trackId still missing but ISRC exists, try search
-    if(!trackId && r.map.isrc){
+    let trackName=(r.map?.track_name)||r.gotName||"";
+    const expectedSet=new Set((r.map?.expected_ids)||[]);
+    const remixNames=((r.map?.remixers)||[]).map(x=>x.toLowerCase());
+
+    // If missing, try ISRC search once
+    let spNotFound=false;
+    if(!trackId && r.map?.isrc){
       try{
         const hit=await searchByISRC(r.map.isrc);
         if(hit){ trackId=hit.track_id; albumId=albumId||hit.album_id; trackName=trackName||hit.track_name; firstArtistId=firstArtistId||hit.first_artist_id; }
-      }catch(_){}
+        else { spNotFound=true; }
+      }catch(_){ spNotFound=true; }
       await sleep(60);
     }
-    // fetch track for reliable primary/present check
+    if(!trackId && !(r.map?.isrc)){ spNotFound=true; }
+
+    // Track details to evaluate primary/present
     let spPresent=false, spPrimary=false, spFirst="";
     if(trackId){
       try{
         const tj=await getTrack(trackId);
         spFirst = tj.artists?.[0]?.id||"";
         const allIDs = (tj.artists||[]).map(a=>a.id).filter(Boolean);
-        // expected IDs (strict) OR remixers by name (fallback)
-        const expectedSet=new Set(r.map.expected_ids);
-        const remixNames=r.map.remixers.map(x=>x.toLowerCase());
         const presentByID = [...expectedSet].some(id=>allIDs.includes(id));
         const presentByName = remixNames.length? (tj.artists||[]).some(a=>remixNames.includes((a.name||"").toLowerCase())) : false;
         spPresent = presentByID || presentByName;
         spPrimary = spPresent && (expectedSet.size? expectedSet.has(spFirst) : (tj.artists||[]).length && remixNames.includes((tj.artists[0].name||"").toLowerCase()));
         trackName = trackName || tj.name || "";
         albumId = albumId || tj.album?.id || "";
-      }catch(_){ /* ignore */ }
+        spNotFound = false; // found via ID
+      }catch(_){ /* keep spNotFound as is */ }
       await sleep(60);
     }
-    // album hints (once per album)
+
+    // Album hints (once per album)
     if(albumId && !albumHintsMap.has(albumId)){
       try{
         const aj=await getAlbum(albumId);
         const isComp = aj.album_type==="compilation" || aj.group==="compilation";
-        const aArtists = (aj.artists||[]).map(a=>a.name);
-        // dj-mix present?
         let hasDJ=false;
-        const firstPage = aj.tracks?.items||[];
-        for(const it of firstPage){ if(isDJmixName(it.name)){ hasDJ=true; break } }
-        albumHintsMap.set(albumId,{isComp, hasDJ, artistsCount:aArtists.length, albumName:aj.name, albumURL:`https://open.spotify.com/album/${aj.id}`});
-      }catch(_){ albumHintsMap.set(albumId,{isComp:false, hasDJ:false, artistsCount:0, albumName:"", albumURL:""}) }
+        for(const it of (aj.tracks?.items||[])){ if(isDJmixName(it.name)){ hasDJ=true; break } }
+        albumHintsMap.set(albumId,{isComp, hasDJ, albumName:aj.name, albumURL:`https://open.spotify.com/album/${aj.id}`});
+      }catch(_){ albumHintsMap.set(albumId,{isComp:false, hasDJ:false, albumName:"", albumURL:""}) }
       await sleep(60);
     }
-    // other DSP flags (from CSV)
-    const dspFlags = r.map.dsp_flags||{};
+
+    // Other DSP (from CSV only)
+    const dspPrimaryCols = r.map?.dsp_primary_flags||{};
+    const dspAvailCols   = r.map?.dsp_avail_flags||{};
+    const dspLinks       = r.map?.dsp_links||{};
+
+    const dspPrimaryStr = Object.keys(dspPrimaryCols).filter(k=>dspPrimaryCols[k]).join(", ");
+    const dspAvailStr   = Object.keys(dspAvailCols).filter(k=>dspAvailCols[k]).join(", ");
+    const dspLinksStr   = Object.keys(dspLinks).map(k=>`${k}:${dspLinks[k]}`).join(" | ");
+
     outTracks.push({
-      isrc: r.map.isrc||"",
+      isrc: r.map?.isrc||"",
       track: trackName||"",
       spotify_track: trackId?`https://open.spotify.com/track/${trackId}`:(r.trackURL||""),
       spotify_album: albumId?`https://open.spotify.com/album/${albumId}`:(r.albumURL||""),
-      remixers: (r.map.remixers||[]).join(", "),
-      expected_ids: (r.map.expected_ids||[]).join(", "),
+      remixers: ((r.map?.remixers)||[]).join(", "),
+      expected_ids: ((r.map?.expected_ids)||[]).join(", "),
       sp_primary: spPrimary ? "YES" : (spPresent?"NO":"—"),
       sp_present: spPresent ? "YES" : "NO",
       sp_first_id: spFirst||"",
-      dsp_primary_cols: Object.keys(dspFlags).filter(k=>dspFlags[k]).join(", ")
+      sp_missing: spNotFound ? "YES" : "NO",
+      dsp_primary_cols: dspPrimaryStr || "—",
+      dsp_avail_cols: dspAvailStr   || "—",
+      dsp_links_cols: dspLinksStr   || "—"
     });
   }
 
@@ -519,7 +561,6 @@ async function audit(){
 function linkOrDash(u){ return u?`<a href="${u}" target="_blank" rel="noopener">${u}</a>`:"—" }
 function renderResults(tracks, albums){
   const res=$("#results"); res.innerHTML="";
-  // tracks
   if(tracks && tracks.length){
     const tbl = `
     <div class="card">
@@ -534,7 +575,10 @@ function renderResults(tracks, albums){
         <th>${t("hdr_sp_primary")}</th>
         <th>${t("hdr_sp_present")}</th>
         <th>${t("hdr_sp_first_id")}</th>
+        <th>${t("hdr_sp_missing")}</th>
         <th>${t("hdr_dsp_primary")}</th>
+        <th>${t("hdr_dsp_avail")}</th>
+        <th>${t("hdr_dsp_links")}</th>
       </tr></thead>
       <tbody>
         ${tracks.map(r=>`<tr>
@@ -547,13 +591,15 @@ function renderResults(tracks, albums){
           <td class="${r.sp_primary==='YES'?'ok':(r.sp_primary==='NO'?'ng':'')}">${r.sp_primary}</td>
           <td class="${r.sp_present==='YES'?'ok':'ng'}">${r.sp_present}</td>
           <td class="mono small">${r.sp_first_id||"—"}</td>
-          <td class="small">${r.dsp_primary_cols||"—"}</td>
+          <td class="${r.sp_missing==='YES'?'ng':''}">${r.sp_missing}</td>
+          <td class="small">${r.dsp_primary_cols}</td>
+          <td class="small">${r.dsp_avail_cols}</td>
+          <td class="small">${r.dsp_links_cols}</td>
         </tr>`).join("")}
       </tbody></table>
     </div>`;
     res.insertAdjacentHTML("beforeend", tbl);
   }
-  // albums
   if(albums && albums.length){
     const tbl = `
     <div class="card">
