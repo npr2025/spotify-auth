@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Catalog Link & Primary Auditor — Lightweight</title>
+<link rel="preconnect" href="https://accounts.spotify.com"/>
+<style>
+  :root{--bd:#e5e7eb;--fg:#111;--mut:#555;--ok:#0a7a2f;--ng:#b00020;--bg:#fafafa}
+  html,body{background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial,"Noto Sans JP",sans-serif}
+  .wrap{max-width:1100px;margin:28px auto;padding:0 16px}
+  h1{font-size:22px;margin:0 0 12px}
+  .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .langsel{display:flex;align-items:center;gap:8px}
+  select{border:1px solid var(--bd);border-radius:10px;padding:8px 10px;background:#fff}
+  .card{background:#fff;border:1px solid var(--bd);border-radius:12px;padding:16px;margin:12px 0}
+  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media (max-width:900px){.grid{grid-template-columns:1fr}}
+  label{font-size:12px;color:var(--mut);display:block;margin-bottom:6px}
+  input[type=text],input[type=file],textarea,select{width:100%;border:1px solid var(--bd);border-radius:10px;padding:10px;font-size:14px;background:#fff}
+  textarea{min-height:84px;resize:vertical}
+  .btn{padding:.65rem 1rem;border:1px solid #111;background:#111;color:#fff;border-radius:10px;cursor:pointer}
+  .btn[disabled]{opacity:.5;cursor:not-allowed}
+  .btn.light{background:#fff;color:#111}
+  .pill{display:inline-block;border:1px solid var(--bd);padding:.25rem .6rem;border-radius:999px;font-size:12px;margin-right:6px}
+  .mut{color:var(--mut)} .mono{font-family:ui-monospace,Consolas,Menlo,Monaco,monospace}
+  .ok{color:var(--ok)} .ng{color:var(--ng)}
+  table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
+  th,td{border-bottom:1px solid var(--bd);text-align:left;padding:8px 6px;vertical-align:top}
+  th{background:#f6f6f6;position:sticky;top:0}
+  .small{font-size:12px}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap}
+  .hint{font-size:12px;color:var(--mut);margin-top:6px}
+  .tag{display:inline-block;border:1px solid var(--bd);padding:2px 6px;border-radius:6px;font-size:11px;margin-right:4px}
+  .tight ul{margin:6px 0;padding-left:18px}
+  .tight li{margin:2px 0}
+  /* Print/PDF */
+  @media print{
+    @page{size:A4;margin:10mm}
+    body{background:#fff}
+    .card.inputs,.card.auth,.topbar .langsel,.toolbar .csv,.toolbar .authbtns,.hint{display:none!important}
+    .wrap{max-width:none;margin:0 auto;padding:0}
+    .card{break-inside:avoid;page-break-inside:avoid;margin:8px 0;padding:12px;border-radius:8px}
+    table{font-size:12px}
+    th,td{padding:6px 4px}
+    h1{font-size:18px;margin:0 0 6px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <h1 data-i18n="title">Catalog Link & Primary Auditor — Lightweight</h1>
+    <div class="langsel">
+      <label for="lang" class="small" data-i18n="lang_label">Language</label>
+      <select id="lang" aria-label="Language">
+        <option value="en">English</option>
+        <option value="ja" selected>日本語</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Auth -->
+  <div class="card auth">
+    <div class="grid">
+      <div>
+        <label data-i18n="client_id_label">Client ID (Spotify Developer)</label>
+        <input id="client_id" type="text" data-i18n-ph="client_id_ph" placeholder="e.g., f5b88dacf6374e0485971c59d0f528bc"/>
+      </div>
+      <div>
+        <label data-i18n="redirect_label">Redirect URI (register exactly in Developer Dashboard)</label>
+        <input id="redirect_uri" type="text" data-i18n-ph="redirect_ph" placeholder="e.g., https://npr2025.github.io/spotify-auth/catalog_primary_auditor.html"/>
+      </div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div class="toolbar authbtns">
+        <button id="btn_auth" class="btn" data-i18n="btn_auth">Connect to Spotify (PKCE / no scope)</button>
+        <button id="btn_clear" class="btn light" data-i18n="btn_clear">Clear saved token</button>
+      </div>
+      <span id="tok_status" class="pill mut">access_token: none</span>
+    </div>
+    <div class="hint">
+      <span data-i18n="hint_scope">* Uses only public GET APIs. No scopes requested.</span><br/>
+      <span data-i18n="hint_redirect">* Redirect URI must match exactly (including the .html file name).</span>
+    </div>
+  </div>
+
+  <!-- CSV & Mapping -->
+  <div class="card inputs">
+    <div class="grid">
+      <div>
+        <label data-i18n="csv_label">Upload CSV</label>
+        <input id="csv_file" type="file" accept=".csv,text/csv"/>
+        <div class="hint" data-i18n="csv_hint">Header required. Minimal columns: ISRC or Spotify Track URL/ID. Optional: Track Name, Remixer Names (comma), Expected Artist IDs, per-DSP primary flags.</div>
+      </div>
+      <div>
+        <label data-i18n="global_expected">Expected primary artist IDs (global, comma)</label>
+        <input id="global_expected_ids" type="text" placeholder="55fvQ5I2IZUfcFT2DV02T3"/>
+      </div>
+    </div>
+
+    <div style="margin-top:10px">
+      <div class="row">
+        <div style="flex:1 1 220px">
+          <label data-i18n="map_isrc">Map: ISRC column</label>
+          <select id="map_isrc"></select>
+        </div>
+        <div style="flex:1 1 220px">
+          <label data-i18n="map_track">Map: Track Name column (optional)</label>
+          <select id="map_track"></select>
+        </div>
+        <div style="flex:1 1 220px">
+          <label data-i18n="map_remixers">Map: Remixer Names column (comma)</label>
+          <select id="map_remixers"></select>
+        </div>
+        <div style="flex:1 1 220px">
+          <label data-i18n="map_expected">Map: Expected Artist IDs column (optional, comma)</label>
+          <select id="map_expected"></select>
+        </div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <div style="flex:1 1 220px">
+          <label data-i18n="map_sp_track">Map: Spotify Track URL/ID (optional)</label>
+          <select id="map_sp_track"></select>
+        </div>
+        <div style="flex:1 1 220px">
+          <label data-i18n="map_sp_album">Map: Spotify Album URL/ID (optional)</label>
+          <select id="map_sp_album"></select>
+        </div>
+        <div style="flex:1 1 220px">
+          <label data-i18n="map_dsp_primary">Map: Other DSP primary flags (multi-select)</label>
+          <select id="map_dsp_primary" multiple size="4"></select>
+        </div>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:12px">
+      <div class="toolbar">
+        <button id="btn_fill_spotify" class="btn" disabled data-i18n="btn_fill_sp">Fill missing Spotify links via ISRC</button>
+        <button id="btn_audit" class="btn" disabled data-i18n="btn_audit">Run primary audit</button>
+        <button id="btn_csv" class="btn light csv" disabled data-i18n="btn_csv">Download CSV</button>
+        <button id="btn_pdf" class="btn light" data-i18n="btn_pdf">Download PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div class="card">
+    <div class="row"><div class="pill" data-i18n="results_pill">Results</div><span id="summary" class="mut"></span></div>
+    <div id="results"></div>
+  </div>
+</div>
+
+<script>
+/* ========= i18n ========= */
+const I18N = {
+  en:{
+    title:"Catalog Link & Primary Auditor — Lightweight",
+    lang_label:"Language",
+    client_id_label:"Client ID (Spotify Developer)",
+    client_id_ph:"e.g., f5b88dacf6374e0485971c59d0f528bc",
+    redirect_label:"Redirect URI (register exactly in Developer Dashboard)",
+    redirect_ph:"e.g., https://npr2025.github.io/spotify-auth/catalog_primary_auditor.html",
+    btn_auth:"Connect to Spotify (PKCE / no scope)",
+    btn_clear:"Clear saved token",
+    hint_scope:"* Uses only public GET APIs. No scopes requested.",
+    hint_redirect:"* Redirect URI must match exactly (including the .html).",
+    csv_label:"Upload CSV",
+    csv_hint:"Header required. Minimal columns: ISRC or Spotify Track URL/ID. Optional: Track Name, Remixer Names (comma), Expected Artist IDs, per-DSP primary flags.",
+    global_expected:"Expected primary artist IDs (global, comma)",
+    map_isrc:"Map: ISRC column",
+    map_track:"Map: Track Name column (optional)",
+    map_remixers:"Map: Remixer Names column (comma)",
+    map_expected:"Map: Expected Artist IDs column (optional, comma)",
+    map_sp_track:"Map: Spotify Track URL/ID (optional)",
+    map_sp_album:"Map: Spotify Album URL/ID (optional)",
+    map_dsp_primary:"Map: Other DSP primary flags (multi-select)",
+    btn_fill_sp:"Fill missing Spotify links via ISRC",
+    btn_audit:"Run primary audit",
+    btn_csv:"Download CSV",
+    btn_pdf:"Download PDF",
+    results_pill:"Results",
+    token_ok:"access_token: OK",
+    token_none:"access_token: none",
+    running:"Running…",
+    filled:"Filled {n} rows with Spotify links.",
+    audited:"Audited {n} rows.",
+    album_pill:"Album",
+    tbl_tracks:"Track audit",
+    tbl_albums:"Album hints",
+    hdr_isrc:"ISRC",
+    hdr_track:"Track",
+    hdr_sp_track:"Spotify Track",
+    hdr_sp_album:"Spotify Album",
+    hdr_remixers:"Remixers",
+    hdr_expected:"Expected IDs",
+    hdr_sp_primary:"Spotify: Remixer is PRIMARY",
+    hdr_sp_present:"Spotify: Remixer present",
+    hdr_sp_first_id:"Spotify: First artist ID",
+    hdr_dsp_primary:"Other DSP primary flags",
+    cause_title:"Likely causes",
+    cause_supply:"Supply-side compilation flag",
+    cause_first_ext:"External ID as first (primary) track artist",
+    cause_nonfirst_ext:"External IDs on tracks (non-first)",
+    cause_multi_album:"Multiple album-level artists",
+    hint_comp:"album_type=compilation",
+    hint_djmix:"Contains ‘DJ mix’ tracks",
+    hint_none:"—",
+    alert_need_input:"Please enter Client ID and Redirect URI.",
+    alert_token_missing_saved:"Could not find saved client_id/redirect_uri. Enter and connect again.",
+    alert_no_verifier:"code_verifier is missing. Start over by clicking “Connect to Spotify”.",
+    alert_token_fail_steps:(t)=>`Token exchange failed:\n${t}\n\nSteps:\n1) Check Redirect URI exact match\n2) Check client_id\n3) Ensure localStorage isn't cleared by ITP/3rd-party cookie settings`,
+    fetch_error:"(fetch error)"
+  },
+  ja:{
+    title:"Catalog Link & Primary Auditor — Lightweight",
+    lang_label:"言語",
+    client_id_label:"Client ID（Spotify Developer）",
+    client_id_ph:"例: f5b88dacf6374e0485971c59d0f528bc",
+    redirect_label:"Redirect URI（Developer Dashboardに完全一致で登録）",
+    redirect_ph:"例: https://npr2025.github.io/spotify-auth/catalog_primary_auditor.html",
+    btn_auth:"Spotifyに接続（PKCE／スコープなし）",
+    btn_clear:"保存トークン削除",
+    hint_scope:"※ 公開GETのみ使用。scopeは不要。",
+    hint_redirect:"※ Redirect URI は .html まで完全一致。",
+    csv_label:"CSVをアップロード",
+    csv_hint:"ヘッダー必須。最低限：ISRC か Spotify Track URL/ID。任意：トラック名／リミキサー名（カンマ）／期待Artist ID／各DSPプライマリーフラグ列。",
+    global_expected:"期待プライマリーArtist ID（全体、カンマ）",
+    map_isrc:"マップ：ISRC列",
+    map_track:"マップ：トラック名列（任意）",
+    map_remixers:"マップ：リミキサー名列（カンマ）",
+    map_expected:"マップ：期待Artist ID列（任意／カンマ）",
+    map_sp_track:"マップ：SpotifyトラックURL/ID（任意）",
+    map_sp_album:"マップ：SpotifyアルバムURL/ID（任意）",
+    map_dsp_primary:"マップ：他DSPプライマリーフラグ列（複数選択）",
+    btn_fill_sp:"不足SpotifyリンクをISRCから補完",
+    btn_audit:"プライマリー監査を実行",
+    btn_csv:"CSVをダウンロード",
+    btn_pdf:"PDFをダウンロード",
+    results_pill:"結果",
+    token_ok:"access_token: OK",
+    token_none:"access_token: none",
+    running:"解析中…",
+    filled:"{n} 行のSpotifyリンクを補完しました。",
+    audited:"{n} 行を監査しました。",
+    album_pill:"Album",
+    tbl_tracks:"トラック監査",
+    tbl_albums:"アルバムヒント",
+    hdr_isrc:"ISRC",
+    hdr_track:"Track",
+    hdr_sp_track:"Spotify Track",
+    hdr_sp_album:"Spotify Album",
+    hdr_remixers:"Remixers",
+    hdr_expected:"Expected IDs",
+    hdr_sp_primary:"Spotify：リミキサーが一次",
+    hdr_sp_present:"Spotify：リミキサー含有",
+    hdr_sp_first_id:"Spotify：先頭Artist ID",
+    hdr_dsp_primary:"他DSPプライマリー列",
+    cause_title:"Likely causes",
+    cause_supply:"Supply-side compilation flag",
+    cause_first_ext:"External ID as first (primary) track artist",
+    cause_nonfirst_ext:"External IDs on tracks (non-first)",
+    cause_multi_album:"Multiple album-level artists",
+    hint_comp:"album_type=compilation",
+    hint_djmix:"“DJ mix”系トラックを含む",
+    hint_none:"—",
+    alert_need_input:"Client ID と Redirect URI を入力してください。",
+    alert_token_missing_saved:"保存済みの client_id / redirect_uri が見つかりません。再入力して接続してください。",
+    alert_no_verifier:"code_verifier がありません。『Spotifyに接続』からやり直してください。",
+    alert_token_fail_steps:(t)=>`Token exchange failed:\n${t}\n\n対処:\n1) Redirect URI 完全一致\n2) client_id 再確認\n3) localStorage がITP等で消えない設定に`
+  }
+};
+const $=q=>document.querySelector(q);
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function t(k){const L=I18N[document.documentElement.lang]||I18N.ja;return L[k]??k}
+
+/* ========= state & storage ========= */
+const storage={k:'catalog_primary_auditor_v1',load(){try{return JSON.parse(localStorage.getItem(this.k)||'{}')}catch{return{}}},save(o){localStorage.setItem(this.k,JSON.stringify(o||{}))}};
+const state=Object.assign({access_token:null,expires_at:0,code_verifier:null,client_id:"",redirect_uri:"",lang:"",csv:[],headers:[],maps:{},rowsAug:[]},storage.load());
+function setLang(lang){document.documentElement.lang=lang;$("#lang").value=lang;applyI18N()}
+function applyI18N(){
+  const L=I18N[document.documentElement.lang]||I18N.ja;
+  document.querySelectorAll("[data-i18n]").forEach(el=>{const k=el.getAttribute("data-i18n"); const v=L[k]; if(typeof v==="string") el.textContent=v;});
+  document.querySelectorAll("[data-i18n-ph]").forEach(el=>{const k=el.getAttribute("data-i18n-ph"); const v=L[k]; if(typeof v==="string") el.setAttribute("placeholder",v);});
+  setTokStatus();
+}
+
+/* ========= auth (PKCE, no scope) ========= */
+async function sha256(s){const enc=new TextEncoder().encode(s);const h=await crypto.subtle.digest('SHA-256',enc);return btoa(String.fromCharCode(...new Uint8Array(h))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
+function rstr(n=64){const a=new Uint8Array(n);crypto.getRandomValues(a);return Array.from(a,b=>("0"+(b&255).toString(16)).slice(-2)).join('')}
+function setTokStatus(msg){const ok=state.access_token && Date.now()<state.expires_at;$("#tok_status").textContent=msg||(ok?t("token_ok"):t("token_none"));$("#tok_status").className="pill "+(ok?"ok":"mut");$("#btn_fill_spotify").disabled=!ok||!state.csv.length;$("#btn_audit").disabled=!ok||!state.csv.length;}
+async function startAuth(){
+  const cid=$("#client_id").value.trim(), ru=$("#redirect_uri").value.trim();
+  if(!cid||!ru){alert(t("alert_need_input"));return}
+  state.client_id=cid; state.redirect_uri=ru; storage.save(state);
+  const ver=rstr(64); const chal=await sha256(ver); state.code_verifier=ver; storage.save(state);
+  const u=new URL("https://accounts.spotify.com/authorize");
+  u.searchParams.set("response_type","code"); u.searchParams.set("client_id",cid);
+  u.searchParams.set("redirect_uri",ru); u.searchParams.set("code_challenge_method","S256"); u.searchParams.set("code_challenge",chal);
+  location.assign(u.toString());
+}
+async function handleCallback(){
+  const p=new URLSearchParams(location.search); const code=p.get("code"); if(!code) return;
+  const cid=$("#client_id").value.trim()||state.client_id; const ru=$("#redirect_uri").value.trim()||state.redirect_uri;
+  if(!cid||!ru){setTokStatus("invalid_client"); alert(t("alert_token_missing_saved")); return}
+  if(!state.code_verifier){setTokStatus("error"); alert(t("alert_no_verifier")); return}
+  try{
+    const body=new URLSearchParams({grant_type:"authorization_code",code,redirect_uri:ru,client_id:cid,code_verifier:state.code_verifier});
+    const res=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
+    if(!res.ok){const s=await res.text(); setTokStatus("token error"); console.error("Token exchange failed:",s); alert(I18N[document.documentElement.lang].alert_token_fail_steps(s)); return}
+    const js=await res.json(); state.access_token=js.access_token; state.expires_at=Date.now()+((js.expires_in||3600)*1000)-5000; storage.save(state);
+    history.replaceState({}, "", location.pathname); setTokStatus();
+  }catch(e){setTokStatus("token error"); alert(e.message)}
+}
+function clearToken(){state.access_token=null; state.expires_at=0; state.code_verifier=null; storage.save(state); setTokStatus()}
+
+/* ========= Spotify helpers ========= */
+async function spGET(path, params={}){
+  const qs=new URLSearchParams(params); const url=`https://api.spotify.com/v1${path}?${qs.toString()}`;
+  for(;;){
+    const r=await fetch(url,{headers:{Authorization:`Bearer ${state.access_token}`}});
+    if(r.status===429){const retry=parseInt(r.headers.get("Retry-After")||"1",10); await sleep((retry+0.2)*1000); continue}
+    if(!r.ok){throw new Error(`[HTTP ${r.status}] ${await r.text()}`)}
+    return r.json();
+  }
+}
+function extractIdFromUrl(s,kind){if(!s) return ""; const m=String(s).match(new RegExp(`${kind}/([A-Za-z0-9]{22})`)); return m?m[1]:(/^[A-Za-z0-9]{22}$/.test(String(s))?String(s):"")}
+function isDJmixName(n){const x=(n||"").toLowerCase(); return x.includes("dj mix")||x.includes("continuous mix")||x.includes("mixed")}
+async function searchByISRC(isrc){
+  const js=await spGET(`/search`,{q:`isrc:${isrc}`,type:"track",limit:1});
+  const t=js.tracks?.items?.[0]; if(!t) return null;
+  return { track_id:t.id, album_id:t.album?.id||"", track_url:`https://open.spotify.com/track/${t.id}`, album_url:t.album?.id?`https://open.spotify.com/album/${t.album.id}`:"", first_artist_id:t.artists?.[0]?.id||"", track_name:t.name||"" };
+}
+async function getTrack(track_id){ return spGET(`/tracks/${track_id}`,{}) }
+async function getAlbum(album_id){ return spGET(`/albums/${album_id}`,{}) }
+
+/* ========= CSV parse / build ========= */
+function parseCSV(txt){
+  // very small CSV parser (handles quotes & commas/newlines)
+  const rows=[]; let i=0, cur=[], val="", q=false;
+  while(i<txt.length){
+    const c=txt[i++];
+    if(q){
+      if(c==='\"'){ if(txt[i]==='\"'){val+='\"'; i++;} else { q=false; } }
+      else { val+=c; }
+    }else{
+      if(c==='\"'){ q=true }
+      else if(c===','){ cur.push(val); val="" }
+      else if(c==='\n'){ cur.push(val); rows.push(cur); cur=[]; val="" }
+      else if(c==='\r'){ /* ignore */ }
+      else { val+=c }
+    }
+  }
+  cur.push(val); rows.push(cur);
+  // trim trailing empty last row
+  if(rows.length && rows[rows.length-1].every(x=>x==="")) rows.pop();
+  return rows;
+}
+function toCSV(arr){
+  const esc=s=>{if(s==null) return ""; const v=String(s).replace(/"/g,'""'); return /[",\n]/.test(v)?`"${v}"`:v}
+  if(!arr.length) return "";
+  const cols=Object.keys(arr[0]);
+  const lines=[cols.join(",")];
+  for(const r of arr){ lines.push(cols.map(c=>esc(r[c])).join(",")) }
+  return lines.join("\n");
+}
+
+/* ========= UI: mapping ========= */
+function fillMapSelects(headers){
+  const ids=["map_isrc","map_track","map_remixers","map_expected","map_sp_track","map_sp_album","map_dsp_primary"];
+  ids.forEach(id=>{
+    const el=$("#"+id); el.innerHTML="";
+    if(id==="map_dsp_primary"){ headers.forEach(h=>{const o=document.createElement("option"); o.value=h; o.textContent=h; el.appendChild(o)}); }
+    else{
+      const o0=document.createElement("option"); o0.value=""; o0.textContent="—"; $("#"+id).appendChild(o0);
+      headers.forEach(h=>{const o=document.createElement("option"); o.value=h; o.textContent=h; $("#"+id).appendChild(o)});
+    }
+  });
+  // heuristics
+  const setIf=(id, names)=>{ for(const n of names){ const idx=headers.find(h=>h.toLowerCase().includes(n)); if(idx){ $("#"+id).value=idx; return } } };
+  setIf("map_isrc",["isrc"]);
+  setIf("map_track",["track","title","name"]);
+  setIf("map_remixers",["remix","remixer","remixers"]);
+  setIf("map_expected",["expected","primary_id","artist_id"]);
+  setIf("map_sp_track",["spotify_track","sp_track","track_url"]);
+  setIf("map_sp_album",["spotify_album","sp_album","album_url"]);
+}
+function getMapped(row){
+  const get=(key)=>{const col=$("#"+key).value; if(!col) return ""; const idx=state.headers.indexOf(col); return row[idx]??""};
+  const getMulti=(key)=>{const col=$("#"+key).value; if(!col) return []; const idx=state.headers.indexOf(col); const v=row[idx]??""; return String(v).split(",").map(s=>s.trim()).filter(Boolean)};
+  const getDSPFlags=()=>{const sel=[...$("#map_dsp_primary").selectedOptions].map(o=>o.value); const out={}; for(const c of sel){ const idx=state.headers.indexOf(c); const v=(row[idx]??"").toString().toLowerCase().trim(); out[c]=["true","1","yes","y"].includes(v) } return out }
+  return {
+    isrc: get("map_isrc"),
+    track_name: get("map_track"),
+    remixers: getMulti("map_remixers"),
+    expected_ids: (function(){ // row-level expected IDs or global
+      const rowIDs = getMulti("map_expected");
+      const globalIDs = ($("#global_expected_ids").value||"").split(",").map(s=>s.trim()).filter(Boolean);
+      return rowIDs.length? rowIDs : globalIDs;
+    })(),
+    sp_track_input: get("map_sp_track"),
+    sp_album_input: get("map_sp_album"),
+    dsp_flags: getDSPFlags()
+  };
+}
+
+/* ========= Core: fill Spotify links via ISRC ========= */
+async function fillSpotifyLinks(){
+  $("#summary").textContent = t("running");
+  let filled=0;
+  const rowsAug=[];
+  for(const row of state.csv){
+    const m=getMapped(row);
+    let trackId=extractIdFromUrl(m.sp_track_input,"track");
+    let albumId=extractIdFromUrl(m.sp_album_input,"album");
+    let trackURL=m.sp_track_input, albumURL=m.sp_album_input;
+    let firstArtistId="", gotName="";
+    if(!trackId && m.isrc){
+      try{
+        const hit=await searchByISRC(m.isrc);
+        if(hit){ trackId=hit.track_id; albumId=hit.album_id; trackURL=hit.track_url; albumURL=hit.album_url; firstArtistId=hit.first_artist_id; gotName=hit.track_name; filled++; }
+        await sleep(80);
+      }catch(_){}
+    }
+    rowsAug.push({row, map:m, trackId, albumId, trackURL, albumURL, firstArtistId, gotName});
+  }
+  state.rowsAug=rowsAug; storage.save(state);
+  $("#summary").textContent=(t("filled").replace("{n}",filled));
+  $("#btn_audit").disabled = !state.rowsAug.length || !state.access_token;
+  renderResults([],[]); // clear
+}
+
+/* ========= Core: audit ========= */
+async function audit(){
+  $("#summary").textContent=t("running");
+  const outTracks=[];
+  const albumHintsMap=new Map(); // albumId -> {comp:boolean, djmix:boolean, artistsCount:int}
+  for(const r of state.rowsAug.length?state.rowsAug:state.csv.map(row=>({row, map:getMapped(row)}))){
+    let trackId=r.trackId||extractIdFromUrl(r.map.sp_track_input,"track");
+    let albumId=r.albumId||extractIdFromUrl(r.map.sp_album_input,"album");
+    let firstArtistId=r.firstArtistId||"";
+    let trackName=r.map.track_name||r.gotName||"";
+    // If trackId still missing but ISRC exists, try search
+    if(!trackId && r.map.isrc){
+      try{
+        const hit=await searchByISRC(r.map.isrc);
+        if(hit){ trackId=hit.track_id; albumId=albumId||hit.album_id; trackName=trackName||hit.track_name; firstArtistId=firstArtistId||hit.first_artist_id; }
+      }catch(_){}
+      await sleep(60);
+    }
+    // fetch track for reliable primary/present check
+    let spPresent=false, spPrimary=false, spFirst="";
+    if(trackId){
+      try{
+        const tj=await getTrack(trackId);
+        spFirst = tj.artists?.[0]?.id||"";
+        const allIDs = (tj.artists||[]).map(a=>a.id).filter(Boolean);
+        // expected IDs (strict) OR remixers by name (fallback)
+        const expectedSet=new Set(r.map.expected_ids);
+        const remixNames=r.map.remixers.map(x=>x.toLowerCase());
+        const presentByID = [...expectedSet].some(id=>allIDs.includes(id));
+        const presentByName = remixNames.length? (tj.artists||[]).some(a=>remixNames.includes((a.name||"").toLowerCase())) : false;
+        spPresent = presentByID || presentByName;
+        spPrimary = spPresent && (expectedSet.size? expectedSet.has(spFirst) : (tj.artists||[]).length && remixNames.includes((tj.artists[0].name||"").toLowerCase()));
+        trackName = trackName || tj.name || "";
+        albumId = albumId || tj.album?.id || "";
+      }catch(_){ /* ignore */ }
+      await sleep(60);
+    }
+    // album hints (once per album)
+    if(albumId && !albumHintsMap.has(albumId)){
+      try{
+        const aj=await getAlbum(albumId);
+        const isComp = aj.album_type==="compilation" || aj.group==="compilation";
+        const aArtists = (aj.artists||[]).map(a=>a.name);
+        // dj-mix present?
+        let hasDJ=false;
+        const firstPage = aj.tracks?.items||[];
+        for(const it of firstPage){ if(isDJmixName(it.name)){ hasDJ=true; break } }
+        albumHintsMap.set(albumId,{isComp, hasDJ, artistsCount:aArtists.length, albumName:aj.name, albumURL:`https://open.spotify.com/album/${aj.id}`});
+      }catch(_){ albumHintsMap.set(albumId,{isComp:false, hasDJ:false, artistsCount:0, albumName:"", albumURL:""}) }
+      await sleep(60);
+    }
+    // other DSP flags (from CSV)
+    const dspFlags = r.map.dsp_flags||{};
+    outTracks.push({
+      isrc: r.map.isrc||"",
+      track: trackName||"",
+      spotify_track: trackId?`https://open.spotify.com/track/${trackId}`:(r.trackURL||""),
+      spotify_album: albumId?`https://open.spotify.com/album/${albumId}`:(r.albumURL||""),
+      remixers: (r.map.remixers||[]).join(", "),
+      expected_ids: (r.map.expected_ids||[]).join(", "),
+      sp_primary: spPrimary ? "YES" : (spPresent?"NO":"—"),
+      sp_present: spPresent ? "YES" : "NO",
+      sp_first_id: spFirst||"",
+      dsp_primary_cols: Object.keys(dspFlags).filter(k=>dspFlags[k]).join(", ")
+    });
+  }
+
+  // album hints table
+  const albumHints=[];
+  for(const [aid,h] of albumHintsMap.entries()){
+    const tags=[];
+    if(h.isComp) tags.push(t("hint_comp"));
+    if(h.hasDJ) tags.push(t("hint_djmix"));
+    albumHints.push({album:h.albumName||aid, spotify_album:h.albumURL||"", hints: tags.length?tags.join(" / "):t("hint_none")});
+  }
+
+  state.auditTracks = outTracks;
+  state.auditAlbums = albumHints;
+  storage.save(state);
+  $("#summary").textContent=t("audited").replace("{n}", outTracks.length);
+  renderResults(outTracks, albumHints);
+  $("#btn_csv").disabled=false;
+}
+
+/* ========= Render ========= */
+function linkOrDash(u){ return u?`<a href="${u}" target="_blank" rel="noopener">${u}</a>`:"—" }
+function renderResults(tracks, albums){
+  const res=$("#results"); res.innerHTML="";
+  // tracks
+  if(tracks && tracks.length){
+    const tbl = `
+    <div class="card">
+      <h3>${t("tbl_tracks")}</h3>
+      <table><thead><tr>
+        <th>${t("hdr_isrc")}</th>
+        <th>${t("hdr_track")}</th>
+        <th>${t("hdr_sp_track")}</th>
+        <th>${t("hdr_sp_album")}</th>
+        <th>${t("hdr_remixers")}</th>
+        <th>${t("hdr_expected")}</th>
+        <th>${t("hdr_sp_primary")}</th>
+        <th>${t("hdr_sp_present")}</th>
+        <th>${t("hdr_sp_first_id")}</th>
+        <th>${t("hdr_dsp_primary")}</th>
+      </tr></thead>
+      <tbody>
+        ${tracks.map(r=>`<tr>
+          <td class="mono">${r.isrc||"—"}</td>
+          <td>${r.track||"—"}</td>
+          <td class="small mono">${linkOrDash(r.spotify_track)}</td>
+          <td class="small mono">${linkOrDash(r.spotify_album)}</td>
+          <td>${r.remixers||"—"}</td>
+          <td class="small mono">${r.expected_ids||"—"}</td>
+          <td class="${r.sp_primary==='YES'?'ok':(r.sp_primary==='NO'?'ng':'')}">${r.sp_primary}</td>
+          <td class="${r.sp_present==='YES'?'ok':'ng'}">${r.sp_present}</td>
+          <td class="mono small">${r.sp_first_id||"—"}</td>
+          <td class="small">${r.dsp_primary_cols||"—"}</td>
+        </tr>`).join("")}
+      </tbody></table>
+    </div>`;
+    res.insertAdjacentHTML("beforeend", tbl);
+  }
+  // albums
+  if(albums && albums.length){
+    const tbl = `
+    <div class="card">
+      <h3>${t("tbl_albums")}</h3>
+      <table><thead><tr>
+        <th>${t("hdr_sp_album")}</th>
+        <th>${t("cause_title")}</th>
+      </tr></thead>
+      <tbody>
+        ${albums.map(a=>`<tr>
+          <td class="small mono">${linkOrDash(a.spotify_album)}</td>
+          <td>${a.hints}</td>
+        </tr>`).join("")}
+      </tbody></table>
+    </div>`;
+    res.insertAdjacentHTML("beforeend", tbl);
+  }
+}
+
+/* ========= CSV Download / PDF ========= */
+$("#btn_csv").addEventListener("click", ()=>{
+  const rows = state.auditTracks||[];
+  if(!rows.length) return;
+  const csv = toCSV(rows);
+  const blob = new Blob([csv],{type:"text/csv;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href=url; a.download="catalog_primary_audit.csv"; a.click();
+});
+$("#btn_pdf").addEventListener("click", ()=>{ window.print(); });
+
+/* ========= Events ========= */
+$("#lang").addEventListener("change",(e)=>{ state.lang=e.target.value; storage.save(state); setLang(state.lang); });
+$("#btn_auth").addEventListener("click", startAuth);
+$("#btn_clear").addEventListener("click", clearToken);
+$("#btn_fill_spotify").addEventListener("click", fillSpotifyLinks);
+$("#btn_audit").addEventListener("click", audit);
+$("#csv_file").addEventListener("change", async(e)=>{
+  const f=e.target.files?.[0]; if(!f) return;
+  const txt=await f.text();
+  const rows=parseCSV(txt);
+  if(!rows.length) return;
+  state.headers = rows[0];
+  state.csv = rows.slice(1);
+  storage.save(state);
+  fillMapSelects(state.headers);
+  $("#btn_fill_spotify").disabled = !state.access_token;
+  $("#btn_audit").disabled = !state.access_token;
+  $("#summary").textContent = `${state.csv.length} row(s) loaded.`;
+});
+
+/* ========= init ========= */
+(async function init(){
+  const q=new URLSearchParams(location.search); const qlang=(q.get("lang")||"").toLowerCase();
+  state.lang = (qlang==="en"||qlang==="ja")? qlang : (state.lang||"ja"); storage.save(state); setLang(state.lang);
+  await handleCallback();
+  if(state.client_id) $("#client_id").value=state.client_id;
+  if(state.redirect_uri) $("#redirect_uri").value=state.redirect_uri;
+  setTokStatus();
+})();
+</script>
+</body>
+</html>
