@@ -3,55 +3,53 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Spotify CSV Auditor — Availability & URLs (i18n + CSV/PDF + Realtime)</title>
+<title>Spotify CSV Auditor — A–E Filler (TDCS, Grouped Markets, i18n + CSV/PDF)</title>
 <link rel="preconnect" href="https://accounts.spotify.com"/>
 <!-- deps -->
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <style>
-  :root{--bd:#e5e7eb;--fg:#111;--mut:#555;--ok:#0a7a2f;--ng:#b00020;--bg:#fafafa;--ac:#111;--warn:#a15e00}
+  :root{
+    --bd:#e5e7eb;--fg:#111;--mut:#555;--ok:#0a7a2f;--ng:#b00020;--bg:#fafafa;--ink:#111;
+    --accent:#111;--chip:#f6f6f6
+  }
   html,body{background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial,"Noto Sans JP",sans-serif}
-  .wrap{max-width:1120px;margin:28px auto;padding:0 16px}
-  h1{font-size:22px;margin:0 0 12px}
+  .wrap{max-width:1200px;margin:28px auto;padding:0 16px}
+  h1{font-size:22px;margin:0 0 10px}
+  .topbar{display:flex;justify-content:space-between;align-items:center;gap:12px}
   .card{background:#fff;border:1px solid var(--bd);border-radius:12px;padding:16px;margin:12px 0}
   .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
-  label{font-size:12px;color:var(--mut);display:block;margin-bottom:6px}
-  input[type=text],input[type=file],select,textarea{width:100%;border:1px solid var(--bd);border-radius:10px;padding:10px;font-size:14px;background:#fff}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media (max-width:960px){.grid{grid-template-columns:1fr}}
+  label{font-size:12px;color:var(--mut);display:block;margin:0 0 6px}
+  input[type=text],select,textarea{width:100%;border:1px solid var(--bd);border-radius:10px;padding:10px;font-size:14px;background:#fff}
   textarea{min-height:100px;resize:vertical}
-  .col{flex:1 1 260px}
-  .btn{padding:.65rem 1rem;border:1px solid var(--ac);background:var(--ac);color:#fff;border-radius:10px;cursor:pointer}
+  input[type=file]{border:1px dashed var(--bd);background:#fff;padding:12px;border-radius:10px;width:100%}
+  .btn{padding:.65rem 1rem;border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:10px;cursor:pointer}
   .btn[disabled]{opacity:.5;cursor:not-allowed}
-  .ghost{background:#fff;color:var(--ac)}
-  .pill{display:inline-block;border:1px solid var(--bd);padding:.25rem .6rem;border-radius:999px;font-size:12px;margin-right:6px}
+  .btn-ghost{background:#fff;color:#111;border:1px solid var(--bd)}
+  .pill{display:inline-block;border:1px solid var(--bd);padding:.25rem .6rem;border-radius:999px;font-size:12px;margin-right:6px;background:var(--chip)}
   .mut{color:var(--mut)} .mono{font-family:ui-monospace,Consolas,Menlo,Monaco,monospace}
-  .ok{color:var(--ok)} .ng{color:var(--ng)} .warn{color:var(--warn)}
+  .ok{color:var(--ok)} .ng{color:var(--ng)}
   table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
   th,td{border-bottom:1px solid var(--bd);text-align:left;padding:8px 6px;vertical-align:top}
-  th{background:#f6f6f6;position:sticky;top:0}
-  .hint{font-size:12px;color:var(--mut);margin-top:6px}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  @media (max-width:980px){.grid{grid-template-columns:1fr}}
-  .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
-  .right{display:flex;gap:10px;align-items:center}
-
-  /* ---- realtime status UI ---- */
-  progress{width:100%;height:10px}
-  .log{font-size:12px;background:#0b102015;color:#222;border:1px solid var(--bd);border-radius:8px;padding:8px;max-height:200px;overflow:auto;white-space:pre-wrap}
-  .status-badge{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid var(--bd);font-size:12px}
-  .pulse{animation:pulse 1.2s ease-in-out infinite}
-  @keyframes pulse{0%{opacity:.45}50%{opacity:1}100%{opacity:.45}}
-
-  /* sticky footer actions for long runs */
-  .dock{position:sticky;bottom:0;background:#fff;border:1px solid var(--bd);border-radius:10px;padding:10px;display:flex;gap:10px;justify-content:flex-end}
+  th{background:#f6f6f6;position:sticky;top:0;z-index:1}
+  .prog{height:10px;background:#eee;border-radius:999px;overflow:hidden}
+  .bar{height:100%;width:0;background:#111;transition:width .25s}
+  .log{max-height:280px;overflow:auto;border:1px solid var(--bd);border-radius:10px;padding:8px;background:#fff}
+  .log .line{font-family:ui-monospace,Consolas,Menlo,Monaco,monospace;font-size:12px;padding:2px 0;border-bottom:1px dashed #f0f0f0}
+  .tag{display:inline-block;padding:.1rem .5rem;border:1px solid var(--bd);border-radius:6px;font-size:11px;background:#fff;margin-right:6px}
+  .badge{display:inline-block;padding:.1rem .5rem;border-radius:6px;font-size:11px}
+  .badge.ok{background:#eaf6ee;color:#166534}
+  .badge.ng{background:#fdeaea;color:#991b1b}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="topbar">
-    <h1 id="title">Spotify CSV Auditor — Availability & URLs</h1>
-    <div class="right">
-      <span id="tok_status" class="pill mut">access_token: none</span>
+    <h1 id="title">Spotify CSV Auditor — A–E Filler（TDCS, 固定4マーケット, i18n+CSV/PDF）</h1>
+    <div class="row">
       <label class="mut" style="margin:0">
         <span id="lang_label" class="mut" style="font-size:12px;margin-right:6px">Language</span>
         <select id="lang_sel" style="width:auto">
@@ -65,249 +63,233 @@
   <!-- Auth -->
   <div class="card">
     <div class="grid">
-      <div class="col">
+      <div>
         <label id="lbl_client">Client ID（Spotify Developer）</label>
         <input id="client_id" type="text" placeholder="e.g., f5b88dacf6374e0485971c59d0f528bc"/>
       </div>
-      <div class="col">
+      <div>
         <label id="lbl_redirect">Redirect URI（Developer Dashboardで完全一致）</label>
-        <input id="redirect_uri" type="text" placeholder="https://npr2025.github.io/spotify-auth/spotify_csv_auditor.html"/>
+        <input id="redirect_uri" type="text" placeholder="https://npr2025.github.io/spotify-auth/csv_auditor.html"/>
       </div>
     </div>
     <div class="row" style="margin-top:10px">
       <button id="btn_auth" class="btn">Spotifyに接続（PKCE／スコープなし）</button>
-      <button id="btn_clear" class="btn ghost">保存トークン削除</button>
+      <span id="tok_status" class="pill mut">access_token: none</span>
+      <button id="btn_clear" class="btn btn-ghost">保存トークン削除</button>
     </div>
-    <div id="hint_auth" class="hint">
-      ※ 公開APIのみ（scope送信なし＝<span class="mono">search/album/track GET</span>）。<br/>
-      ※ Redirect URI は <b>完全一致</b>で登録（末尾の <span class="mono">.html</span> まで）。
+    <div id="hint_auth" class="mut" style="font-size:12px;margin-top:6px">
+      ※ scope送信なし＝公開エンドポイント（search/album/track GET）のみ使用。<br/>
+      ※ Redirect URI は <b>Developer Dashboardに完全一致</b>で登録（末尾の <span class="mono">.html</span> まで）。<br/>
+      ※ <span class="mono">code_verifier</span> は localStorage に保存して <span class="mono">alert_no_verifier</span> を回避。
     </div>
   </div>
 
-  <!-- CSV Load & Mapping -->
+  <!-- CSV Input & Mapping -->
   <div class="card">
-    <div class="grid">
-      <div class="col">
-        <label id="lbl_csv">CSVファイル（入力）</label>
-        <input id="csv_file" type="file" accept=".csv"/>
-        <div class="hint" id="hint_csv">ヘッダー付きCSV推奨。英字/日本語混在OK。</div>
+    <div class="row" style="justify-content:space-between">
+      <div>
+        <span class="pill">CSV</span>
+        <span class="mut" id="csv_hint">アルバム一覧CSVを読み込み → 入力順のまま処理（CSVに無いタイトルは一切追加しない）</span>
       </div>
-      <div class="col">
-        <label id="lbl_mapping">列マッピング（検索優先順：ISRC → UPC → タイトル/アーティスト）</label>
-        <div class="row">
-          <div class="col">
-            <label id="lbl_col_isrc">ISRC 列</label>
-            <select id="col_isrc"></select>
-          </div>
-          <div class="col">
-            <label id="lbl_col_upc">UPC 列</label>
-            <select id="col_upc"></select>
-          </div>
-        </div>
-        <div class="row">
-          <div class="col">
-            <label id="lbl_col_artist">Artist 列</label>
-            <select id="col_artist"></select>
-          </div>
-          <div class="col">
-            <label id="lbl_col_track">Track 列</label>
-            <select id="col_track"></select>
-          </div>
-        </div>
-        <div class="row">
-          <div class="col">
-            <label id="lbl_col_album">Album 列（任意）</label>
-            <select id="col_album"></select>
-          </div>
-          <div class="col">
-            <label id="lbl_limit">最大件数（テスト用）</label>
-            <input id="limit_rows" type="text" value="0" placeholder="0=全件"/>
-          </div>
-        </div>
+      <div class="row">
+        <input id="ignore_djmix" type="checkbox" checked>
+        <label for="ignore_djmix" id="lbl_ignore_dj" style="margin:0">DJミックス表記の曲は無視</label>
+      </div>
+    </div>
+    <div class="grid" style="margin-top:8px">
+      <div>
+        <label id="lbl_csv">CSVファイルを選択</label>
+        <input id="csv_file" type="file" accept=".csv,text/csv"/>
+      </div>
+      <div>
+        <label id="lbl_expected">期待アーティストID（PrimaryであるべきID／カンマ区切り）</label>
+        <input id="expected_ids" type="text" value="55fvQ5I2IZUfcFT2DV02T3"/>
+      </div>
+    </div>
+    <div class="grid" style="margin-top:8px">
+      <div>
+        <label id="lbl_map_album">アルバムタイトル列（必須）</label>
+        <select id="sel_album_col"></select>
+      </div>
+      <div>
+        <label id="lbl_map_track">トラックタイトル列（任意／該当無しなら未選択）</label>
+        <select id="sel_track_col"><option value="">—</option></select>
       </div>
     </div>
     <div class="row" style="margin-top:12px">
-      <button id="btn_parse" class="btn" style="background:#444">CSVを読み込む</button>
       <button id="btn_run" class="btn" disabled>解析を実行</button>
-      <button id="btn_download_results" class="btn ghost" disabled>結果CSVをダウンロード</button>
-      <button id="btn_download_albums" class="btn ghost" disabled>Spotify Album URL 一覧CSV</button>
-      <button id="btn_pdf" class="btn ghost" disabled>PDFをダウンロード</button>
+      <button id="btn_csv_out" class="btn btn-ghost" disabled>結果CSVをダウンロード</button>
+      <button id="btn_urls" class="btn btn-ghost" disabled>アルバムURL一覧（改行区切り）</button>
+      <button id="btn_pdf" class="btn btn-ghost" disabled>PDFをダウンロード</button>
     </div>
-    <div id="hint_map" class="hint">※ ISRC/UPC があれば高精度。無い場合は <span class="mono">artist:"…" track:"…"</span> などのテキスト検索に自動フォールバックします。</div>
-  </div>
-
-  <!-- Realtime Status -->
-  <div class="card" id="status_card">
-    <div class="row" style="align-items:flex-end;gap:12px">
-      <div id="status_badge" class="status-badge pulse">解析中…</div>
-      <div id="summary" class="mut"></div>
-      <div style="margin-left:auto" class="mut"><span id="rate"></span></div>
+    <div class="row" style="margin-top:10px">
+      <div class="prog" style="flex:1"><div class="bar" id="bar"></div></div>
+      <span class="mut mono" id="prog_txt">0%</span>
     </div>
-    <progress id="prog" max="100" value="0"></progress>
-    <div id="log" class="log" style="margin-top:8px"></div>
+    <div class="log" id="log" style="margin-top:8px"></div>
   </div>
 
   <!-- Results -->
   <div class="card" id="results_card">
-    <div class="row">
-      <div class="pill" id="pill_results">結果</div>
-      <span class="mut" id="res_hint" style="margin-left:8px">各行の状態がリアルタイムで更新されます。</span>
-    </div>
+    <div class="row"><div class="pill" id="pill_results">結果</div><span id="summary" class="mut"></span></div>
     <div id="results"></div>
-    <div class="dock">
-      <button id="btn_download_results2" class="btn ghost" disabled>結果CSV</button>
-      <button id="btn_download_albums2" class="btn ghost" disabled>Album URLs</button>
-      <button id="btn_pdf2" class="btn ghost" disabled>PDF</button>
+  </div>
+
+  <div class="card">
+    <div class="pill" id="pill_markets">Markets: 固定4グループ</div>
+    <div class="mut" id="hint_markets" style="font-size:12px;margin-top:6px">
+      • United States, Canada ／ • United Kingdom, Ireland ／ • European Union（UK/IE除外）／ • Worldwide（Europe＋US＋CA除外）
     </div>
   </div>
 </div>
 
 <script>
-/* ---------- i18n ---------- */
+/* ===================== i18n ===================== */
 const i18n = {
   en:{
-    title:"Spotify CSV Auditor — Availability & URLs",
+    title:"Spotify CSV Auditor — A–E Filler (TDCS, Grouped Markets, i18n + CSV/PDF)",
     lang_label:"Language",
     client:"Client ID (Spotify Developer)",
-    redirect:"Redirect URI (must exactly match)",
+    redirect:"Redirect URI (must exactly match in Developer Dashboard)",
     auth_btn:"Connect to Spotify (PKCE / no scope)",
     clear_btn:"Clear saved token",
-    hint_auth:`* Public endpoints only (no scope).<br/>* Redirect URI must include the trailing <span class="mono">.html</span>.`,
-
-    csv_label:"CSV file (input)",
-    csv_hint:"Header row recommended. Mixed languages OK.",
-    mapping:"Column mapping (priority: ISRC → UPC → Title/Artist)",
-    col_isrc:"ISRC column", col_upc:"UPC column",
-    col_artist:"Artist column", col_track:"Track column", col_album:"Album column (optional)",
-    limit:"Max rows (0 = all)",
-
-    load_csv:"Load CSV", run:"Run analysis",
-    dl_results:"Download Results CSV",
-    dl_albums:"Album URLs CSV (newline only)",
-    dl_pdf:"Download PDF",
+    csv_hint:"Load an album list CSV → processed strictly in the CSV's order (absolutely no titles added beyond CSV).",
+    csv_label:"Choose CSV file",
+    expected:"Expected artist IDs (should be the only primaries) — comma-separated",
+    map_album:"Album title column (required)",
+    map_track:"Track title column (optional)",
+    ignore_dj:"Ignore tracks with DJ-mix notation",
+    run:"Run analysis",
+    csv_out:"Download results CSV",
+    urls_out:"Album URLs (newline list)",
+    pdf:"Download PDF",
     results:"Results",
-
-    parsing:"Processing…",
-    parsed:(n)=>`${n} row(s) parsed.`,
-    token_none:"access_token: none", token_ok:"access_token: OK",
-
-    headers:["State","A_SourceIndex","B_SpotifyAvailable","C_SpotifyAlbumURL","D_SpotifyTrackURL","E_PrimaryOnAllDSPs","QueryType","MatchedAlbumName","MatchedTrackName","MatchedArtists"],
-    out_headers:["A_SourceIndex","B_SpotifyAvailable","C_SpotifyAlbumURL","D_SpotifyTrackURL","E_PrimaryOnAllDSPs","QueryType","MatchedAlbumName","MatchedTrackName","MatchedArtists"],
-
-    yes:"YES", no:"NO",
-    st_queue:"QUEUED", st_run:"RUNNING", st_ok:"DONE", st_ng:"NOT FOUND", st_err:"ERROR",
-    log_start:(i)=>`[${i}] RUN`,
-    log_ok:(i)=>`[${i}] OK`,
-    log_ng:(i)=>`[${i}] NotFound`,
-    log_err:(i,m)=>`[${i}] ERROR: ${m}`,
-    rate:(ok,total)=>`found ${ok}/${total}`
+    token_none:"access_token: none",
+    token_ok:"access_token: OK",
+    parsing:"Parsing…",
+    parsed:(n)=>`${n} row(s) processed. You can export CSV/URLs/PDF.`,
+    tbl_core:"A–E output (per CSV row, in order)",
+    tbl_market:"Grouped market availability (per album)",
+    offenders0:"Primary on Spotify (min): YES",
+    offendersN:(n)=>`Primary on Spotify (min): NO — offenders=${n}`,
+    cols:{
+      A:"Album title",
+      B:"Spotify Available",
+      C:"Spotify Album URL",
+      D:"Spotify Track URL",
+      E:"Primary on All DSPs (min)"
+    },
+    markets_cols:["US/CA","UK/IE","EU (ex UK/IE)","World (ex EU/US/CA)"],
+    status:{
+      reading:"[CSV] loaded: {n} row(s).",
+      searching:'[{i}/{n}] search album: "{t}"',
+      found:'[{i}/{n}] found album: {name} — {id}',
+      notfound:'[{i}/{n}] NOT FOUND',
+      tracks:'[{i}/{n}] fetch tracks: {count} items',
+      matchedTrack:'[{i}/{n}] matched track: {name}',
+      exportReady:"[OK] export buttons enabled."
+    }
   },
   ja:{
-    title:"Spotify CSV Auditor — Availability & URLs",
+    title:"Spotify CSV Auditor — A–E Filler（TDCS／固定4マーケット／i18n＋CSV/PDF）",
     lang_label:"表示言語",
     client:"Client ID（Spotify Developer）",
-    redirect:"Redirect URI（完全一致）",
+    redirect:"Redirect URI（Developer Dashboardで完全一致）",
     auth_btn:"Spotifyに接続（PKCE／スコープなし）",
     clear_btn:"保存トークン削除",
-    hint_auth:"※ 公開エンドポイントのみ（scopeなし）。<br/>※ Redirect URI は末尾 <span class='mono'>.html</span> まで完全一致。",
-
-    csv_label:"CSVファイル（入力）",
-    csv_hint:"ヘッダー付き推奨（多言語OK）。",
-    mapping:"列マッピング（優先：ISRC → UPC → タイトル/アーティスト）",
-    col_isrc:"ISRC 列", col_upc:"UPC 列",
-    col_artist:"Artist 列", col_track:"Track 列", col_album:"Album 列（任意）",
-    limit:"最大件数（0=全件）",
-
-    load_csv:"CSVを読み込む", run:"解析を実行",
-    dl_results:"結果CSVをダウンロード",
-    dl_albums:"Spotify Album URL 一覧（改行のみ）",
-    dl_pdf:"PDFをダウンロード",
+    csv_hint:"アルバム一覧CSVを読み込み → CSVの行順のまま処理（CSVに無いタイトルは一切追加しない）",
+    csv_label:"CSVファイルを選択",
+    expected:"期待アーティストID（プライマリーであるべきID）※カンマ区切り",
+    map_album:"アルバムタイトル列（必須）",
+    map_track:"トラックタイトル列（任意）",
+    ignore_dj:"DJミックス表記の曲は無視",
+    run:"解析を実行",
+    csv_out:"結果CSVをダウンロード",
+    urls_out:"アルバムURL一覧（改行区切り）",
+    pdf:"PDFをダウンロード",
     results:"結果",
-
+    token_none:"access_token: none",
+    token_ok:"access_token: OK",
     parsing:"解析中…",
-    parsed:(n)=>`${n} 行を読み込みました。`,
-    token_none:"access_token: none", token_ok:"access_token: OK",
-
-    headers:["状態","A_SourceIndex","B_SpotifyAvailable","C_SpotifyAlbumURL","D_SpotifyTrackURL","E_PrimaryOnAllDSPs","QueryType","MatchedAlbumName","MatchedTrackName","MatchedArtists"],
-    out_headers:["A_SourceIndex","B_SpotifyAvailable","C_SpotifyAlbumURL","D_SpotifyTrackURL","E_PrimaryOnAllDSPs","QueryType","MatchedAlbumName","MatchedTrackName","MatchedArtists"],
-
-    yes:"YES", no:"NO",
-    st_queue:"待機中", st_run:"実行中", st_ok:"完了", st_ng:"未検出", st_err:"エラー",
-    log_start:(i)=>`[${i}] 実行開始`,
-    log_ok:(i)=>`[${i}] 検出OK`,
-    log_ng:(i)=>`[${i}] 見つからず`,
-    log_err:(i,m)=>`[${i}] エラー: ${m}`,
-    rate:(ok,total)=>`検出 ${ok}/${total}`
+    parsed:(n)=>`${n} 行を解析完了。CSV／URL一覧／PDFを出力できます。`,
+    tbl_core:"A–E 出力（CSV行順）",
+    tbl_market:"グループ化マーケット（アルバム別）",
+    offenders0:"Primary on Spotify（最小判定）: YES",
+    offendersN:(n)=>`Primary on Spotify（最小判定）: NO — offenders=${n}`,
+    cols:{
+      A:"Album title",
+      B:"Spotify Available",
+      C:"Spotify Album URL",
+      D:"Spotify Track URL",
+      E:"Primary on All DSPs（最小）"
+    },
+    markets_cols:["US/CA","UK/IE","EU（UK/IE除外）","World（EU/US/CA除外）"],
+    status:{
+      reading:"[CSV] 読み込み: {n} 行",
+      searching:'[{i}/{n}] 検索: 「{t}」',
+      found:'[{i}/{n}] ヒット: {name} — {id}',
+      notfound:'[{i}/{n}] 見つからず',
+      tracks:'[{i}/{n}] トラック取得: {count} 件',
+      matchedTrack:'[{i}/{n}] マッチ: {name}',
+      exportReady:"[OK] エクスポート準備完了"
+    }
   }
 };
-
-/* ---------- state & helpers ---------- */
 const storage = {
-  get k(){ return 'spotify_csv_auditor_i18n_rt_v2'; },
-  load(){ try{ return JSON.parse(localStorage.getItem(this.k)||'{}'); }catch{return{}} },
+  get k(){ return 'sp_csv_auditor_tdcs_v1'; },
+  load(){ try{return JSON.parse(localStorage.getItem(this.k)||'{}')}catch{return{}} },
   save(obj){ localStorage.setItem(this.k, JSON.stringify(obj||{})); }
 };
 const state = Object.assign(
   {lang:'ja',access_token:null,expires_at:0,code_verifier:null,client_id:"",redirect_uri:""},
   storage.load()
 );
-const $ = s => document.querySelector(s);
-const sleep = ms => new Promise(r=>setTimeout(r, ms));
-
-let inputRows = []; // parsed CSV rows (objects)
-let headers = [];   // CSV headers
-let results = [];   // output objects per row
-let albumUrlList = []; // collected album URLs (unique)
-let okCount = 0;
-
-/* ---------- i18n apply ---------- */
-function L(){ return i18n[state.lang]||i18n.ja; }
+const $ = sel => document.querySelector(sel);
+function t(){ return i18n[state.lang]||i18n.ja; }
 function applyLang(){
-  document.title = L().title;
-  $("#title").textContent = L().title;
-  $("#lang_label").textContent = L().lang_label;
-  $("#lbl_client").textContent = L().client;
-  $("#lbl_redirect").textContent = L().redirect;
-  $("#btn_auth").textContent = L().auth_btn;
-  $("#btn_clear").textContent = L().clear_btn;
-  $("#hint_auth").innerHTML = L().hint_auth;
-
-  $("#lbl_csv").textContent = L().csv_label;
-  $("#hint_csv").textContent = L().csv_hint;
-  $("#lbl_mapping").textContent = L().mapping;
-  $("#lbl_col_isrc").textContent = L().col_isrc;
-  $("#lbl_col_upc").textContent = L().col_upc;
-  $("#lbl_col_artist").textContent = L().col_artist;
-  $("#lbl_col_track").textContent = L().col_track;
-  $("#lbl_col_album").textContent = L().col_album;
-  $("#lbl_limit").textContent = L().limit;
-
-  $("#btn_parse").textContent = L().load_csv;
-  $("#btn_run").textContent = L().run;
-  $("#btn_download_results").textContent = L().dl_results;
-  $("#btn_download_albums").textContent = L().dl_albums;
-  $("#btn_pdf").textContent = L().dl_pdf;
-  $("#pill_results").textContent = L().results;
-  $("#res_hint").textContent = "各行の状態がリアルタイムで更新されます。";
-
-  // status card text
-  $("#status_badge").textContent = L().parsing;
+  const L = t();
+  document.title = L.title;
+  $("#title").textContent = L.title;
+  $("#lang_label").textContent = L.lang_label;
+  $("#lbl_client").textContent = L.client;
+  $("#lbl_redirect").textContent = L.redirect;
+  $("#btn_auth").textContent = L.auth_btn;
+  $("#btn_clear").textContent = L.clear_btn;
+  $("#csv_hint").textContent = L.csv_hint;
+  $("#lbl_csv").textContent = L.csv_label;
+  $("#lbl_expected").textContent = L.expected;
+  $("#lbl_map_album").textContent = L.map_album;
+  $("#lbl_map_track").textContent = L.map_track;
+  $("#lbl_ignore_dj").textContent = L.ignore_dj;
+  $("#btn_run").textContent = L.run;
+  $("#btn_csv_out").textContent = L.csv_out;
+  $("#btn_urls").textContent = L.urls_out;
+  $("#btn_pdf").textContent = L.pdf;
+  $("#pill_results").textContent = L.results;
+  $("#pill_markets").textContent = "Markets: 固定4グループ";
+  $("#hint_markets").innerHTML = state.lang==='ja'
+    ? "• United States, Canada ／ • United Kingdom, Ireland ／ • European Union（UK/IE除外）／ • Worldwide（Europe＋US＋CA除外）"
+    : "• United States, Canada / • United Kingdom, Ireland / • European Union (excl. UK & Ireland) / • Worldwide (excl. Europe, US, Canada)";
   setTokStatus();
 }
-
-/* ---------- Spotify PKCE (no scope) ---------- */
-async function sha256(buf){ const enc=new TextEncoder().encode(buf); const hash=await crypto.subtle.digest('SHA-256', enc); return btoa(String.fromCharCode(...new Uint8Array(hash))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
-function randStr(len=64){ const arr=new Uint8Array(len); crypto.getRandomValues(arr); return Array.from(arr).map(b=>("0"+(b&0xff).toString(16)).slice(-2)).join(''); }
 function saveState(){ storage.save({lang:state.lang,access_token:state.access_token,expires_at:state.expires_at,code_verifier:state.code_verifier,client_id:state.client_id,redirect_uri:state.redirect_uri}); }
 function setTokStatus(msg){
-  const ok = state.access_token && Date.now() < state.expires_at;
-  $("#tok_status").textContent = msg || (ok ? L().token_ok : L().token_none);
+  const ok = state.access_token && Date.now()<state.expires_at;
+  $("#tok_status").textContent = msg || (ok ? t().token_ok : t().token_none);
   $("#tok_status").className = "pill " + (ok?"ok":"mut");
-  $("#btn_run").disabled = !ok || inputRows.length===0;
+  $("#btn_run").disabled = !ok || !loadedCSV.rows.length || !loadedCSV.albumCol;
 }
+
+/* ===================== PKCE (no scope) ===================== */
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+async function sha256(buf){
+  const enc = new TextEncoder().encode(buf);
+  const hash = await crypto.subtle.digest('SHA-256', enc);
+  return btoa(String.fromCharCode(...new Uint8Array(hash))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+function randStr(len=64){ const a=new Uint8Array(len); crypto.getRandomValues(a); return Array.from(a).map(b=>("0"+(b&255).toString(16)).slice(-2)).join(''); }
 async function startAuth(){
-  const client_id = $("#client_id").value.trim();
-  const redirect_uri = $("#redirect_uri").value.trim();
+  const client_id = $("#client_id").value.trim(); const redirect_uri = $("#redirect_uri").value.trim();
   if(!client_id || !redirect_uri){ alert(state.lang==='en'?"Enter Client ID & Redirect URI":"Client ID と Redirect URI を入力してください"); return; }
   state.client_id = client_id; state.redirect_uri = redirect_uri; saveState();
   const code_verifier = randStr(64);
@@ -326,332 +308,335 @@ async function handleCallback(){
   const code = params.get("code"); if(!code) return;
   const client_id = $("#client_id").value.trim() || state.client_id;
   const redirect_uri = $("#redirect_uri").value.trim() || state.redirect_uri;
-  if(!client_id || !redirect_uri){ setTokStatus("invalid_client"); alert(state.lang==='en'?"Missing client_id/redirect_uri":"client_id / redirect_uri が見つかりません"); return; }
-  if(!state.code_verifier){ setTokStatus("error: no verifier"); alert(state.lang==='en'?"Missing code_verifier. Start again.":"code_verifier が失われました。再実行してください。"); return; }
+  if(!client_id || !redirect_uri){ setTokStatus("invalid_client"); alert(state.lang==='en'?"Missing client_id/redirect_uri. Re-auth.":"client_id / redirect_uri が未保存です。再認可してください。"); return; }
+  if(!state.code_verifier){ setTokStatus("error: no verifier"); alert(state.lang==='en'?"Missing code_verifier. Start auth again.":"code_verifier が失われました。接続からやり直してください。"); return; }
   try{
     const body = new URLSearchParams({grant_type:"authorization_code",code,redirect_uri,client_id,code_verifier:state.code_verifier});
     const res = await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
-    if(!res.ok){ const t=await res.text(); setTokStatus("token error"); alert((state.lang==='en'?"Token exchange failed:\n":"トークン交換失敗:\n")+t); return; }
-    const js = await res.json();
-    state.access_token = js.access_token;
-    state.expires_at = Date.now()+((js.expires_in||3600)*1000)-5000;
+    if(!res.ok){ const ttxt = await res.text(); setTokStatus("token error"); console.error(ttxt); alert((state.lang==='en'?"Token exchange failed:\n":"トークン交換失敗:\n")+ttxt); return; }
+    const json = await res.json();
+    state.access_token = json.access_token; state.expires_at = Date.now() + ((json.expires_in||3600)*1000) - 5000;
     saveState(); history.replaceState({}, "", location.pathname); setTokStatus();
   }catch(e){ setTokStatus("token error"); alert(e.message); }
 }
 function clearToken(){ state.access_token=null; state.expires_at=0; state.code_verifier=null; saveState(); setTokStatus(); }
-
 async function spGET(path, params={}){
   const qs = new URLSearchParams(params); const url = `https://api.spotify.com/v1${path}?${qs.toString()}`;
   for(;;){
-    const res = await fetch(url, { headers:{ Authorization:`Bearer ${state.access_token}` }});
+    const res = await fetch(url,{headers:{Authorization:`Bearer ${state.access_token}`}});
     if(res.status===429){ const retry=parseInt(res.headers.get("Retry-After")||"1",10); await sleep((retry+0.2)*1000); continue; }
-    if(!res.ok){ const t=await res.text(); throw new Error(`[HTTP ${res.status}] ${t}`); }
+    if(!res.ok){ const txt=await res.text(); throw new Error(`[HTTP ${res.status}] ${txt}`); }
     return res.json();
   }
 }
 
-/* ---------- CSV load & mapping ---------- */
-function fillHeaderSelects(){
-  const selects = ["col_isrc","col_upc","col_artist","col_track","col_album"].map(id=>$("#"+id));
-  for(const sel of selects){ sel.innerHTML = `<option value="">(none)</option>` + headers.map(h=>`<option>${h}</option>`).join(""); }
+/* ===================== CSV load / mapping ===================== */
+const loadedCSV = { headers:[], rows:[], albumCol:"", trackCol:"" };
+function logLine(s){ const el=document.createElement("div"); el.className="line"; el.textContent=s; $("#log").appendChild(el); el.scrollIntoView(false); }
+function setProgress(i,n){ const pct = n? Math.floor(i*100/n) : 0; $("#bar").style.width = pct+"%"; $("#prog_txt").textContent = pct+"%"; }
+
+$("#csv_file").addEventListener("change",(e)=>{
+  const file = e.target.files?.[0]; if(!file) return;
+  Papa.parse(file,{header:true,skipEmptyLines:true,complete:(rs)=>{
+    loadedCSV.headers = rs.meta.fields||[];
+    loadedCSV.rows = rs.data||[];
+    // mapping guesses
+    const heads = loadedCSV.headers.map(h=>h.trim());
+    const find = (...cands)=> heads.find(h=>cands.map(x=>x.toLowerCase()).includes(h.toLowerCase())) || "";
+    loadedCSV.albumCol = find("Album title","album","title","Album","アルバム","アルバム名");
+    loadedCSV.trackCol = find("Track title","track","曲名","トラック");
+    // populate selects
+    const selA = $("#sel_album_col"); selA.innerHTML="";
+    heads.forEach(h=>{ const o=document.createElement("option"); o.value=h; o.textContent=h; selA.appendChild(o); });
+    if(loadedCSV.albumCol) selA.value = loadedCSV.albumCol;
+    const selT = $("#sel_track_col"); selT.innerHTML="<option value=''>—</option>";
+    heads.forEach(h=>{ const o=document.createElement("option"); o.value=h; o.textContent=h; selT.appendChild(o); });
+    if(loadedCSV.trackCol) selT.value = loadedCSV.trackCol;
+    logLine((t().status.reading||"").replace("{n}", String(loadedCSV.rows.length)));
+    setTokStatus();
+  }});
+});
+$("#sel_album_col").addEventListener("change",(e)=>{ loadedCSV.albumCol = e.target.value; setTokStatus(); });
+$("#sel_track_col").addEventListener("change",(e)=>{ loadedCSV.trackCol = e.target.value; });
+
+/* ===================== Helpers ===================== */
+function normalizeName(s){
+  return (s||"").toLowerCase()
+    .replace(/\s+/g,' ').replace(/\s*[-–—]\s*/g,'-')
+    .replace(/\((?:remaster|remix|edit|version|mix|radio|extended)[^)]*\)/g,'')
+    .replace(/\[(?:remaster|remix|edit|version|mix|radio|extended)[^\]]*\]/g,'')
+    .trim();
 }
-function parseCSVFile(file){
-  return new Promise((resolve,reject)=>{
-    Papa.parse(file, {
-      header:true, skipEmptyLines:true, encoding:"UTF-8",
-      complete: res => resolve(res),
-      error: err => reject(err)
-    });
-  });
+function djMixLike(name){ const n=(name||"").toLowerCase(); return n.includes("dj mix")||n.includes("continuous mix")||n.includes("mixed"); }
+
+/* ===== Markets (fixed groups) ===== */
+const EU27_NO_UK_IE = new Set(["AT","BE","BG","HR","CY","CZ","DK","EE","FI","FR","DE","GR","HU","IT","LV","LT","LU","MT","NL","PL","PT","RO","SK","SI","ES","SE"]);
+const EUROPE_WIDE = new Set([...EU27_NO_UK_IE,"IE","GB","NO","IS","CH","AL","BA","ME","MK","RS","UA","MD","BY","XK","LI"]);
+const ALL_MARKETS = new Set([
+  "AD","AE","AL","AM","AO","AR","AT","AU","AZ","BA","BB","BD","BE","BF","BG","BH","BI","BJ","BN","BO","BR","BS","BT","BW","BY","BZ",
+  "CA","CD","CG","CH","CI","CL","CM","CO","CR","CV","CW","CY","CZ",
+  "DE","DJ","DK","DM","DO","DZ","EC","EE","EG","ES","ET",
+  "FI","FJ","FM","FR","GA","GB","GD","GE","GH","GM","GN","GQ","GR","GT","GW","GY",
+  "HK","HN","HR","HT","HU","ID","IE","IL","IN","IQ","IS","IT","JM","JO","JP","KE","KG","KH","KI","KM","KN","KR","KW","KZ",
+  "LA","LB","LC","LI","LK","LR","LS","LT","LU","LV","LY","MA","MC","MD","ME","MG","MH","MK","ML","MN","MO","MR","MT","MU","MV","MW","MX","MY","MZ",
+  "NA","NE","NG","NI","NL","NO","NP","NR","NZ",
+  "OM","PA","PE","PG","PH","PK","PL","PS","PT","PW","PY",
+  "QA","RO","RS","RU","RW","SA","SB","SC","SE","SG","SI","SK","SL","SM","SN","SR","ST","SV","SZ",
+  "TD","TG","TH","TJ","TL","TN","TO","TR","TT","TV","TW","TZ",
+  "UA","UG","US","UY","UZ","VC","VE","VN","VU",
+  "WS","XK","ZA","ZM","ZW"
+]);
+const GROUPS = [
+  { key:"US_CA", label:"US/CA", codes:new Set(["US","CA"]) },
+  { key:"UK_IE", label:"UK/IE", codes:new Set(["GB","IE"]) },
+  { key:"EU_EX_UK_IE", label:"EU (ex UK/IE)", codes:new Set([...EU27_NO_UK_IE]) },
+  { key:"WORLD_EX_EU_US_CA", label:"World (ex EU/US/CA)", codes:(()=>{ const ex=new Set([...EUROPE_WIDE,"US","CA"]); return new Set([...ALL_MARKETS].filter(c=>!ex.has(c))); })() }
+];
+function groupFlags(avSet){
+  const flags = {};
+  for(const g of GROUPS){
+    let hits=0; for(const c of g.codes){ if(avSet.has(c)) hits++; }
+    flags[g.key] = hits>0 ? "Y" : "N";
+  }
+  return flags;
 }
 
-/* ---------- Search Strategy ---------- */
-async function searchByISRC(isrc){
-  if(!isrc) return null;
-  const js = await spGET("/search",{ q:`isrc:${isrc}`, type:"track", limit:1 });
-  const t = js.tracks?.items?.[0]; if(!t) return null;
-  const album = t.album;
-  return {
-    queryType:"ISRC",
-    albumUrl: album?.external_urls?.spotify || "",
-    trackUrl: t?.external_urls?.spotify || "",
-    albumName: album?.name || "",
-    trackName: t?.name || "",
-    artists: (t.artists||album?.artists||[]).map(a=>a.name).join(" / "),
-    primaryArtists: (album?.artists||t.artists||[]).map(a=>a.name).join(" / ")
-  };
-}
-async function searchByUPC(upc){
-  if(!upc) return null;
-  const js = await spGET("/search",{ q:`upc:${upc}`, type:"album", limit:1 });
-  const a = js.albums?.items?.[0]; if(!a) return null;
-  return {
-    queryType:"UPC",
-    albumUrl: a?.external_urls?.spotify || "",
-    trackUrl: "",
-    albumName: a?.name || "",
-    trackName: "",
-    artists: (a.artists||[]).map(x=>x.name).join(" / "),
-    primaryArtists: (a.artists||[]).map(x=>x.name).join(" / ")
-  };
-}
-async function searchByText(artist,track,album){
-  let t=null, a=null;
-  if(track){
-    const q = `track:"${track}"` + (artist?` artist:"${artist}"`:"");
-    const js = await spGET("/search",{ q, type:"track", limit:1 });
-    t = js.tracks?.items?.[0] || null;
-    a = t?.album || null;
+/* ===================== Main run ===================== */
+let OUT_ROWS = []; // core A–E
+let OUT_MARKETS = []; // per album markets
+let OUT_URL_LIST = []; // album url list
+
+async function run(){
+  $("#results").innerHTML = "";
+  OUT_ROWS = []; OUT_MARKETS = []; OUT_URL_LIST = [];
+  $("#btn_csv_out").disabled = true; $("#btn_urls").disabled = true; $("#btn_pdf").disabled = true;
+  $("#summary").textContent = t().parsing;
+  $("#log").innerHTML = "";
+  setProgress(0,1);
+
+  const primaryMarket = "US";
+  const expectedIDs = new Set($("#expected_ids").value.split(",").map(s=>s.trim()).filter(Boolean));
+  const ignoreDJ = $("#ignore_djmix").checked;
+  const rows = loadedCSV.rows;
+  const albumCol = loadedCSV.albumCol; const trackCol = loadedCSV.trackCol||"";
+  const total = rows.length;
+
+  // Table containers
+  const coreTable = document.createElement("div");
+  const M = t();
+  coreTable.innerHTML = `
+    <h3>${M.tbl_core}</h3>
+    <table id="tbl_core"><thead><tr>
+      <th>${M.cols.A}</th><th>${M.cols.B}</th><th>${M.cols.C}</th><th>${M.cols.D}</th><th>${M.cols.E}</th>
+      <th>${M.markets_cols[0]}</th><th>${M.markets_cols[1]}</th><th>${M.markets_cols[2]}</th><th>${M.markets_cols[3]}</th>
+    </tr></thead><tbody></tbody></table>`;
+  $("#results").appendChild(coreTable);
+
+  const marketTable = document.createElement("div");
+  marketTable.innerHTML = `<h3>${M.tbl_market}</h3><table id="tbl_market"><thead><tr>
+    <th>Album</th><th>Album ID</th>
+    <th>${M.markets_cols[0]}</th><th>${M.markets_cols[1]}</th><th>${M.markets_cols[2]}</th><th>${M.markets_cols[3]}</th>
+    <th>Status</th>
+  </tr></thead><tbody></tbody></table>`;
+  $("#results").appendChild(marketTable);
+
+  const tbodyCore = $("#tbl_core tbody");
+  const tbodyMarket = $("#tbl_market tbody");
+
+  const addRow = (cells)=>`<tr>${cells.map(c=>`<td>${c}</td>`).join("")}</tr>`;
+
+  for(let i=0;i<total;i++){
+    setProgress(i,total);
+    const albumTitle = String(rows[i][albumCol]||"").trim();
+    const trackTitle = trackCol ? String(rows[i][trackCol]||"").trim() : "";
+
+    // skip empty lines safely
+    if(!albumTitle){ logLine(`[${i+1}/${total}] (empty album title) — skip`); continue; }
+
+    logLine((M.status.searching||"").replace("{i}",String(i+1)).replace("{n}",String(total)).replace("{t}",albumTitle));
+
+    // 1) search album by title (strict to CSV only; do not add others)
+    let album=null, albumId="", albumName="", albumURL="", available="NO", trackURL="";
+    let avSet = new Set();
+    try{
+      const res = await spGET(`/search`, { q: `album:"${albumTitle}"`, type:"album", limit:5, market: primaryMarket });
+      const items = (res.albums?.items)||[];
+      // pick best by name normalization
+      const targetNorm = normalizeName(albumTitle);
+      let best=null;
+      for(const a of items){
+        if(normalizeName(a.name)===targetNorm){ best=a; break; }
+        if(!best) best=a;
+      }
+      if(best){
+        album = await spGET(`/albums/${best.id}`, { market: primaryMarket, limit:1 });
+        albumId = album.id; albumName = album.name;
+        albumURL = `https://open.spotify.com/album/${albumId}`;
+        available = "YES";
+        avSet = new Set(album.available_markets||[]);
+        logLine((M.status.found||"").replace("{i}",String(i+1)).replace("{n}",String(total)).replace("{name}",albumName).replace("{id}",albumId));
+      }else{
+        logLine((M.status.notfound||"").replace("{i}",String(i+1)).replace("{n}",String(total)));
+      }
+    }catch(e){
+      logLine(`[ERR ${i+1}/${total}] search ${e.message}`);
+    }
+
+    // 2) if found and track title provided → find matching track in album
+    let offendersCount = 0;
+    if(album){
+      try{
+        // gather tracks
+        let tracks = [];
+        let next = album.tracks;
+        while(next){
+          tracks.push(...(next.items||[]));
+          if(next.next){
+            const u = new URL(next.next); const params = Object.fromEntries(u.searchParams.entries());
+            next = await spGET(`/albums/${albumId}/tracks`, params);
+          }else next=null;
+        }
+        logLine((M.status.tracks||"").replace("{i}",String(i+1)).replace("{n}",String(total)).replace("{count}",String(tracks.length)));
+        // track match
+        if(trackTitle){
+          const normTarget = normalizeName(trackTitle);
+          let hit = tracks.find(t=> normalizeName(t.name)===normTarget );
+          if(!hit){
+            // fallback: includes
+            hit = tracks.find(t=> normalizeName(t.name).includes(normTarget.slice(0,Math.max(3, Math.floor(normTarget.length*0.6)))) );
+          }
+          if(hit){
+            trackURL = `https://open.spotify.com/track/${hit.id}`;
+            logLine((M.status.matchedTrack||"").replace("{i}",String(i+1)).replace("{n}",String(total)).replace("{name}",hit.name));
+          }
+        }
+
+        // offender (Primary) minimal check on Spotify: first-artist must be expectedIDs
+        const tracksFull = tracks;
+        for(const t of tracksFull){
+          if(ignoreDJ && djMixLike(t.name)) continue;
+          const firstId = (t.artists?.[0]?.id)||"";
+          if(firstId && !expectedIDs.has(firstId)) offendersCount++;
+        }
+      }catch(e){
+        logLine(`[ERR ${i+1}/${total}] album/track fetch ${e.message}`);
+      }
+    }
+
+    const primMin = offendersCount>0 ? `<span class="badge ng">${M.offendersN(offendersCount)}</span>` : `<span class="badge ok">${M.offenders0}</span>`;
+
+    // group flags
+    const flags = groupFlags(avSet);
+    const fUS = flags.US_CA||"N", fUK = flags.UK_IE||"N", fEU = flags.EU_EX_UK_IE||"N", fWW = flags.WORLD_EX_EU_US_CA||"N";
+
+    // A–E row (respect CSV order; NEVER add extra)
+    const coreObj = {
+      A: albumTitle,
+      B: available,
+      C: albumURL,
+      D: trackURL,
+      E: offendersCount>0 ? "NO" : (available==="YES" ? "YES" : "")
+    };
+    OUT_ROWS.push(Object.assign({}, coreObj, {US_CA:fUS,UK_IE:fUK,EU_EX_UK_IE:fEU,WORLD_EX_EU_US_CA:fWW}));
+
+    // tables
+    tbodyCore.insertAdjacentHTML("beforeend", addRow([
+      esc(albumTitle),
+      available==="YES" ? `<span class="badge ok">YES</span>` : `<span class="badge ng">NO</span>`,
+      albumURL ? `<a href="${albumURL}" target="_blank">${albumURL}</a>` : "",
+      trackURL ? `<a href="${trackURL}" target="_blank">${trackURL}</a>` : "",
+      primMin,
+      fUS, fUK, fEU, fWW
+    ]));
+
+    if(album){
+      OUT_MARKETS.push({album:albumName,id:albumId,US_CA:fUS,UK_IE:fUK,EU_EX_UK_IE:fEU,WORLD_EX_EU_US_CA:fWW,status:offendersCount>0?"NG":"OK"});
+      tbodyMarket.insertAdjacentHTML("beforeend", addRow([
+        esc(albumName), `<span class="mono">${albumId}</span>`, fUS, fUK, fEU, fWW,
+        offendersCount>0?`<span class="badge ng">NG</span>`:`<span class="badge ok">OK</span>`
+      ]));
+      OUT_URL_LIST.push(albumURL);
+    }
+
+    await sleep(80); // smooth UI
   }
-  if(!t && album){
-    const q2 = `album:"${album}"` + (artist?` artist:"${artist}"`:"");
-    const js2 = await spGET("/search",{ q:q2, type:"album", limit:1 });
-    a = js2.albums?.items?.[0] || a;
-  }
-  if(!t && !a && artist){
-    const q3 = `artist:"${artist}"`;
-    const js3 = await spGET("/search",{ q:q3, type:"album", limit:1 });
-    a = js3.albums?.items?.[0] || null;
-  }
-  if(!t && !a) return null;
-  return {
-    queryType:"TEXT",
-    albumUrl: a?.external_urls?.spotify || "",
-    trackUrl: t?.external_urls?.spotify || "",
-    albumName: a?.name || "",
-    trackName: t?.name || "",
-    artists: (t?.artists||a?.artists||[]).map(x=>x.name).join(" / "),
-    primaryArtists: (a?.artists||t?.artists||[]).map(x=>x.name).join(" / ")
-  };
+
+  setProgress(total,total);
+  $("#summary").textContent = t().parsed(OUT_ROWS.length);
+  $("#btn_csv_out").disabled = OUT_ROWS.length===0;
+  $("#btn_urls").disabled = OUT_URL_LIST.length===0;
+  $("#btn_pdf").disabled = false;
+  logLine(t().status.exportReady||"[OK] export ready");
 }
 
-/* ---------- Table helpers (Realtime) ---------- */
-function buildTableSkeleton(n){
-  const cols = L().headers;
-  const thead = `<thead><tr>${cols.map(c=>`<th>${c}</th>`).join("")}</tr></thead>`;
-  const rows = Array.from({length:n}, (_,i)=>`<tr id="r${i+1}">
-    <td class="state"><span class="status-badge">${L().st_queue}</span></td>
-    <td>${i+1}</td>
-    <td></td><td></td><td></td><td></td>
-    <td></td><td></td><td></td><td></td>
-  </tr>`).join("");
-  $("#results").innerHTML = `<table id="tbl"><tbody></tbody></table>`;
-  const tb = $("#tbl").createTBody();
-  const th = $("#tbl").createTHead();
-  th.innerHTML = thead;
-  tb.innerHTML = rows;
-}
-function setRowState(i, kind){
-  const tr = document.getElementById(`r${i}`);
-  if(!tr) return;
-  const badge = tr.querySelector(".state .status-badge");
-  if(!badge) return;
-  badge.classList.remove("pulse","ok","ng","warn");
-  if(kind==='run'){ badge.textContent = L().st_run; badge.classList.add("pulse"); }
-  else if(kind==='ok'){ badge.textContent = L().st_ok; badge.classList.add("ok"); }
-  else if(kind==='ng'){ badge.textContent = L().st_ng; badge.classList.add("ng"); }
-  else if(kind==='err'){ badge.textContent = L().st_err; badge.classList.add("warn"); }
-  else { badge.textContent = L().st_queue; }
-}
-function fillRow(i, out){
-  const tr = document.getElementById(`r${i}`);
-  if(!tr) return;
-  const tds = tr.querySelectorAll("td");
-  // columns: State | A | B | C | D | E | QueryType | Album | Track | Artists
-  tds[2].textContent = out.B_SpotifyAvailable || "";
-  tds[3].innerHTML  = out.C_SpotifyAlbumURL ? `<a href="${out.C_SpotifyAlbumURL}" target="_blank" rel="noopener">${out.C_SpotifyAlbumURL}</a>` : "";
-  tds[4].innerHTML  = out.D_SpotifyTrackURL ? `<a href="${out.D_SpotifyTrackURL}" target="_blank" rel="noopener">${out.D_SpotifyTrackURL}</a>` : "";
-  tds[5].textContent = out.E_PrimaryOnAllDSPs || "";
-  tds[6].textContent = out.QueryType || "";
-  tds[7].textContent = out.MatchedAlbumName || "";
-  tds[8].textContent = out.MatchedTrackName || "";
-  tds[9].textContent = out.MatchedArtists || "";
-}
+// HTML esc
+function esc(s){ return String(s||"").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m])); }
 
-/* ---------- misc helpers ---------- */
-function toCSV(data, headers){
-  const cols = headers?.length ? headers : Object.keys(data[0]||{});
-  const esc = v => {
+/* ===================== Exports ===================== */
+function toCSV(objs, headers){
+  if(!objs.length) return "";
+  const cols = headers && headers.length ? headers : Object.keys(objs[0]);
+  const escv = v => {
     if(v==null) return "";
     const s = String(v).replace(/"/g,'""');
     return /[",\n]/.test(s) ? `"${s}"` : s;
   };
-  const lines = [];
-  if(headers){ lines.push(cols.join(",")); }
-  for(const row of data){ lines.push(cols.map(h=>esc(row[h]??"")).join(",")); }
+  const lines = [cols.join(",")];
+  for(const o of objs){ lines.push(cols.map(h=>escv(o[h])).join(",")); }
   return lines.join("\n");
 }
-function logln(s){
-  const el=$("#log"); el.textContent += s+"\n"; el.scrollTop = el.scrollHeight;
+function dl(data, name, mime){
+  const blob = new Blob([data],{type:mime||"text/plain;charset=utf-8"});
+  const url = URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=name; a.click();
 }
-
-/* ---------- Run ---------- */
-async function runAnalysis(){
-  const Lx = L();
-  $("#btn_run").disabled = true;
-  $("#btn_download_results").disabled = true;
-  $("#btn_download_albums").disabled = true;
-  $("#btn_pdf").disabled = true;
-  $("#btn_download_results2").disabled = true;
-  $("#btn_download_albums2").disabled = true;
-  $("#btn_pdf2").disabled = true;
-
-  $("#status_badge").classList.add("pulse");
-  $("#status_badge").textContent = Lx.parsing;
-  $("#summary").textContent = "";
-  $("#rate").textContent = "";
-  $("#log").textContent = "";
-  $("#prog").value = 0;
-
-  const col_isrc = $("#col_isrc").value;
-  const col_upc = $("#col_upc").value;
-  const col_artist = $("#col_artist").value;
-  const col_track = $("#col_track").value;
-  const col_album = $("#col_album").value;
-  const lim = parseInt($("#limit_rows").value||"0",10);
-
-  const rows = lim>0 ? inputRows.slice(0,lim) : inputRows.slice();
-  results = []; albumUrlList = []; okCount = 0;
-
-  // テーブル骨組み（行ごとにステータス更新）
-  buildTableSkeleton(rows.length);
-
-  for(let idx=1; idx<=rows.length; idx++){
-    const row = rows[idx-1];
-    const isrc  = (col_isrc  && row[col_isrc]  || "").toString().trim();
-    const upc   = (col_upc   && row[col_upc]   || "").toString().trim();
-    const artist= (col_artist&& row[col_artist]|| "").toString().trim();
-    const track = (col_track && row[col_track] || "").toString().trim();
-    const album = (col_album && row[col_album] || "").toString().trim();
-
-    setRowState(idx,'run');
-    logln(Lx.log_start(idx));
-
-    let found=null, errMsg=null;
-    try{
-      if(isrc){ found = await searchByISRC(isrc); }
-      if(!found && upc){ found = await searchByUPC(upc); }
-      if(!found){ found = await searchByText(artist, track, album); }
-    }catch(e){ errMsg = e.message||String(e); }
-
-    const available = !!found && (!!found.albumUrl || !!found.trackUrl);
-    const out = {
-      A_SourceIndex: idx,
-      B_SpotifyAvailable: available ? Lx.yes : Lx.no,
-      C_SpotifyAlbumURL: found?.albumUrl || "",
-      D_SpotifyTrackURL: found?.trackUrl || "",
-      // メモ: このCSV版の E は "Primary on All DSPs" の文字列置き場（簡易）。厳密判定は別ツールで対応。
-      E_PrimaryOnAllDSPs: found?.primaryArtists || "",
-      QueryType: found?.queryType || "",
-      MatchedAlbumName: found?.albumName || "",
-      MatchedTrackName: found?.trackName || "",
-      MatchedArtists: found?.artists || ""
-    };
-    results.push(out);
-    fillRow(idx, out);
-
-    if(available){
-      okCount++;
-      setRowState(idx,'ok');
-      logln(Lx.log_ok(idx));
-      if(found?.albumUrl) albumUrlList.push(found.albumUrl);
-    }else if(errMsg){
-      setRowState(idx,'err');
-      logln(Lx.log_err(idx, errMsg));
-    }else{
-      setRowState(idx,'ng');
-      logln(Lx.log_ng(idx));
-    }
-
-    // 進捗UI
-    const pct = Math.round(100*idx/rows.length);
-    $("#prog").value = pct;
-    $("#summary").textContent = `${idx}/${rows.length}`;
-    $("#rate").textContent = Lx.rate(okCount, rows.length);
-
-    // 軽いスロットリング（429対策）
-    await sleep(80);
+$("#btn_csv_out").addEventListener("click", ()=>{
+  // Core A–E + groups, in CSV order
+  const L = t();
+  const headers = [
+    L.cols.A, L.cols.B, L.cols.C, L.cols.D, L.cols.E,
+    "US_CA","UK_IE","EU_EX_UK_IE","WORLD_EX_EU_US_CA"
+  ];
+  const remap = OUT_ROWS.map(r=>({
+    [L.cols.A]: r.A, [L.cols.B]: r.B, [L.cols.C]: r.C, [L.cols.D]: r.D, [L.cols.E]: r.E,
+    "US_CA": r.US_CA, "UK_IE": r.UK_IE, "EU_EX_UK_IE": r.EU_EX_UK_IE, "WORLD_EX_EU_US_CA": r.WORLD_EX_EU_US_CA
+  }));
+  const csv = toCSV(remap, headers);
+  dl(csv, "spotify_csv_audit_A-E.csv", "text/csv;charset=utf-8");
+});
+$("#btn_urls").addEventListener("click", ()=>{
+  const uniq = Array.from(new Set(OUT_URL_LIST.filter(Boolean)));
+  dl(uniq.join("\n"), "spotify_album_urls.txt", "text/plain;charset=utf-8");
+});
+$("#btn_pdf").addEventListener("click", async ()=>{
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({unit:"pt", format:"a4"});
+  const a4w = 595.28, margin = 24;
+  const node = document.querySelector("#results_card");
+  const canvas = await html2canvas(node,{scale:2, backgroundColor:"#ffffff", useCORS:true});
+  const imgW = a4w - margin*2;
+  const imgH = canvas.height * (imgW / canvas.width);
+  let y = 0, page = 0;
+  while (y < canvas.height){
+    const pageCanvas = document.createElement("canvas");
+    pageCanvas.width = canvas.width;
+    const sliceH = Math.min(canvas.height - y, Math.floor(canvas.width * (842 - margin*2) / imgW));
+    pageCanvas.height = sliceH;
+    const ctx = pageCanvas.getContext("2d");
+    ctx.drawImage(canvas, 0, y, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+    const imgData = pageCanvas.toDataURL("image/jpeg", 0.92);
+    if(page>0) pdf.addPage();
+    pdf.addImage(imgData, "JPEG", margin, margin, imgW, (sliceH * imgW / canvas.width));
+    y += sliceH; page++;
   }
+  pdf.save("spotify_csv_audit.pdf");
+});
 
-  // ダウンロード（結果CSV）
-  const csv = toCSV(results, Lx.out_headers);
-  const dlResults = ()=>{
-    const blob = new Blob([csv],{type:"text/csv;charset=utf-8"});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "spotify_results.csv"; a.click();
-  };
-  $("#btn_download_results").onclick = dlResults;
-  $("#btn_download_results2").onclick = dlResults;
-  $("#btn_download_results").disabled = false;
-  $("#btn_download_results2").disabled = false;
-
-  // アルバムURL一覧（改行のみ）
-  const uniqAlbums = Array.from(new Set(albumUrlList));
-  const dlAlbums = ()=>{
-    const text = uniqAlbums.join("\n");
-    const blob = new Blob([text],{type:"text/csv;charset=utf-8"});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "spotify_album_urls.csv"; a.click();
-  };
-  $("#btn_download_albums").onclick = dlAlbums;
-  $("#btn_download_albums2").onclick = dlAlbums;
-  $("#btn_download_albums").disabled = false;
-  $("#btn_download_albums2").disabled = false;
-
-  // PDF
-  const dlPDF = async ()=>{
-    const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF({unit:"pt", format:"a4"});
-    const a4w = 595.28, a4h = 841.89, margin = 24;
-    const node = document.querySelector("#results_card");
-    const canvas = await html2canvas(node, {scale:2, backgroundColor:"#ffffff", useCORS:true});
-    const imgW = a4w - margin*2;
-    const pageH = a4h - margin*2;
-    let y=0, page=0;
-    while(y < canvas.height){
-      const h = Math.min(canvas.height - y, pageH * (canvas.width / imgW));
-      const pageCanvas = document.createElement("canvas");
-      pageCanvas.width = canvas.width; pageCanvas.height = h;
-      pageCanvas.getContext("2d").drawImage(canvas, 0, y, canvas.width, h, 0, 0, canvas.width, h);
-      const img = pageCanvas.toDataURL("image/jpeg", .92);
-      if(page>0) pdf.addPage();
-      pdf.addImage(img, "JPEG", margin, margin, imgW, (h * imgW / canvas.width));
-      y += h; page++;
-    }
-    pdf.save("spotify_csv_audit.pdf");
-  };
-  $("#btn_pdf").onclick = dlPDF;
-  $("#btn_pdf2").onclick = dlPDF;
-  $("#btn_pdf").disabled = false;
-  $("#btn_pdf2").disabled = false;
-
-  // 終了表示
-  $("#status_badge").classList.remove("pulse");
-  $("#status_badge").textContent = "DONE";
-  $("#btn_run").disabled = false;
-}
-
-/* ---------- Events ---------- */
-$("#lang_sel").addEventListener("change", e=>{ state.lang=e.target.value; storage.save(state); applyLang(); });
+/* ===================== Events / init ===================== */
 $("#btn_auth").addEventListener("click", startAuth);
 $("#btn_clear").addEventListener("click", clearToken);
+$("#btn_run").addEventListener("click", run);
+$("#lang_sel").addEventListener("change",(e)=>{ state.lang=e.target.value; saveState(); applyLang(); });
 
-$("#btn_parse").addEventListener("click", async ()=>{
-  const f = $("#csv_file").files?.[0];
-  if(!f){ alert(state.lang==='en'?"Choose a CSV file.":"CSVファイルを選択してください。"); return; }
-  const parsed = await parseCSVFile(f);
-  inputRows = parsed.data||[];
-  headers = parsed.meta?.fields||Object.keys(inputRows[0]||{});
-  // マッピング候補を描画
-  fillHeaderSelects();
-  $("#summary").textContent = L().parsed(inputRows.length);
-  setTokStatus();
-  // 直後に空テーブルを描いておく（行ごと状態が見える）
-  buildTableSkeleton((parseInt($("#limit_rows").value||"0",10) || inputRows.length));
-});
-$("#btn_run").addEventListener("click", runAnalysis);
-
-/* ---------- init ---------- */
 (async function init(){
   $("#lang_sel").value = state.lang || 'ja';
   applyLang();
