@@ -3,8 +3,10 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Spotify Compilation Auditor — TDCS Deep-Meta (Plus, Fixed, Grouped Markets)</title>
+<title>Spotify Compilation Auditor — TDCS Deep-Meta (Plus, Grouped Markets, i18n+PDF)</title>
 <link rel="preconnect" href="https://accounts.spotify.com"/>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <style>
   :root{--bd:#e5e7eb;--fg:#111;--mut:#555;--ok:#0a7a2f;--ng:#b00020;--bg:#fafafa}
   html,body{background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial,"Noto Sans JP",sans-serif}
@@ -13,7 +15,7 @@
   .card{background:#fff;border:1px solid var(--bd);border-radius:12px;padding:16px;margin:12px 0}
   .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
   label{font-size:12px;color:var(--mut);display:block;margin-bottom:6px}
-  input[type=text],textarea{width:100%;border:1px solid var(--bd);border-radius:10px;padding:10px;font-size:14px;background:#fff}
+  input[type=text],textarea,select{width:100%;border:1px solid var(--bd);border-radius:10px;padding:10px;font-size:14px;background:#fff}
   textarea{min-height:100px;resize:vertical}
   .col{flex:1 1 260px}
   .btn{padding:.65rem 1rem;border:1px solid #111;background:#111;color:#fff;border-radius:10px;cursor:pointer}
@@ -27,22 +29,35 @@
   .hint{font-size:12px;color:var(--mut);margin-top:6px}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   @media (max-width:900px){.grid{grid-template-columns:1fr}}
+  .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+  .right{display:flex;gap:10px;align-items:center}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Spotify Compilation Auditor — TDCS Deep-Meta (Plus, Grouped Markets)</h1>
+  <div class="topbar">
+    <h1 id="title">Spotify Compilation Auditor — TDCS Deep-Meta (Plus, Grouped Markets)</h1>
+    <div class="right">
+      <label class="mut" style="margin:0">
+        <span id="lang_label" class="mut" style="font-size:12px;margin-right:6px">Language</span>
+        <select id="lang_sel" style="width:auto">
+          <option value="ja">日本語</option>
+          <option value="en">English</option>
+        </select>
+      </label>
+    </div>
+  </div>
 
   <!-- Auth -->
   <div class="card">
     <div class="grid">
       <div class="col">
-        <label>Client ID (Spotify Developer)</label>
-        <input id="client_id" type="text" placeholder="例: f5b88dacf6374e0485971c59d0f528bc"/>
+        <label id="lbl_client">Client ID (Spotify Developer)</label>
+        <input id="client_id" type="text" placeholder="e.g., f5b88dacf6374e0485971c59d0f528bc"/>
       </div>
       <div class="col">
-        <label>Redirect URI（Developer Dashboardで登録と一致）</label>
-        <input id="redirect_uri" type="text" placeholder="例: https://npr2025.github.io/spotify-auth/spotify_compilation_auditor_plus.html"/>
+        <label id="lbl_redirect">Redirect URI（Developer Dashboardで登録と一致）</label>
+        <input id="redirect_uri" type="text" placeholder="https://npr2025.github.io/spotify-auth/spotify_compilation_auditor_plus.html"/>
       </div>
     </div>
     <div class="row" style="margin-top:10px">
@@ -50,7 +65,7 @@
       <span id="tok_status" class="pill mut">access_token: none</span>
       <button id="btn_clear" class="btn" style="background:#fff;color:#111">保存トークン削除</button>
     </div>
-    <div class="hint">
+    <div id="hint_auth" class="hint">
       ※ 公開APIのみ使用（scope送信なし＝<span class="mono">album/track GET</span>専用）。<br/>
       ※ Redirect URI は <b>Developer Dashboardに完全一致で登録</b>してください（末尾の <span class="mono">.html</span> まで）。
     </div>
@@ -60,19 +75,19 @@
   <div class="card">
     <div class="grid">
       <div class="col">
-        <label>アルバムURL/ID（改行区切り）</label>
+        <label id="lbl_album_input">アルバムURL/ID（改行区切り）</label>
         <textarea id="album_input" placeholder="https://open.spotify.com/album/06Yvg4vlPaVfnAWVwmJX27
 https://open.spotify.com/album/4aeD4BUM5mAA1v1hCp9irx"></textarea>
       </div>
       <div class="col">
-        <label>期待アーティストID（“このIDだけがプライマリーであるべき”）※カンマ区切り</label>
+        <label id="lbl_expected">期待アーティストID（“このIDだけがプライマリーであるべき”）※カンマ区切り</label>
         <input id="expected_ids" type="text" value="55fvQ5I2IZUfcFT2DV02T3"/>
-        <div class="hint">TDCS=55fvQ5I2IZUfcFT2DV02T3（複数あればカンマで追加）。</div>
+        <div id="hint_expected" class="hint">TDCS=55fvQ5I2IZUfcFT2DV02T3（複数あればカンマで追加）。</div>
 
         <!-- 固定リージョン案内 -->
         <div style="margin-top:10px">
-          <div class="pill">Markets: 固定4グループ</div>
-          <div class="hint">
+          <div class="pill" id="pill_markets">Markets: 固定4グループ</div>
+          <div class="hint" id="hint_markets">
             • United States, Canada<br/>
             • United Kingdom, Ireland<br/>
             • European Union（UK/IE除外）<br/>
@@ -82,47 +97,145 @@ https://open.spotify.com/album/4aeD4BUM5mAA1v1hCp9irx"></textarea>
 
         <div class="row" style="margin-top:10px">
           <input id="ignore_djmix" type="checkbox" checked/>
-          <label for="ignore_djmix" style="margin:0">DJミックス表記のトラックを無視</label>
+          <label for="ignore_djmix" id="lbl_ignore_dj" style="margin:0">DJミックス表記のトラックを無視</label>
         </div>
         <div class="row">
           <input id="fetch_isrc" type="checkbox" checked/>
-          <label for="fetch_isrc" style="margin:0">各トラックの ISRC / available_markets 件数も取得（やや遅）</label>
+          <label for="fetch_isrc" id="lbl_isrc" style="margin:0">各トラックの ISRC / available_markets 件数も取得（やや遅）</label>
         </div>
         <div class="row">
           <input id="check_upc_siblings" type="checkbox" checked/>
-          <label for="check_upc_siblings" style="margin:0">UPC同胞（別バージョン）も探索して比較</label>
+          <label for="check_upc_siblings" id="lbl_upc" style="margin:0">UPC同胞（別バージョン）も探索して比較</label>
         </div>
       </div>
     </div>
     <div class="row" style="margin-top:12px">
       <button id="btn_run" class="btn" disabled>解析を実行</button>
       <button id="btn_csv" class="btn" style="background:#fff;color:#111" disabled>CSVをダウンロード</button>
+      <button id="btn_pdf" class="btn" style="background:#fff;color:#111" disabled>PDFをダウンロード</button>
     </div>
   </div>
 
   <!-- Results -->
-  <div class="card">
-    <div class="row"><div class="pill">結果</div><span id="summary" class="mut"></span></div>
+  <div class="card" id="results_card">
+    <div class="row"><div class="pill" id="pill_results">結果</div><span id="summary" class="mut"></span></div>
     <div id="results"></div>
   </div>
 </div>
 
 <script>
-/* ===== Utilities ===== */
-const $ = sel => document.querySelector(sel);
-const sleep = ms => new Promise(r=>setTimeout(r, ms));
+/* ===== i18n ===== */
+const i18n = {
+  en:{
+    title:"Spotify Compilation Auditor — TDCS Deep-Meta (Plus, Grouped Markets)",
+    lang_label:"Language",
+    client:"Client ID (Spotify Developer)",
+    redirect:"Redirect URI (must exactly match in Developer Dashboard)",
+    auth_btn:"Connect to Spotify (PKCE / no scope)",
+    clear_btn:"Clear saved token",
+    hint_auth:`* Uses only public API (no scope = album/track GET only).<br/>* Your Redirect URI must be registered in the Developer Dashboard (including the trailing <span class="mono">.html</span>).`,
+    album_input:"Album URLs/IDs (one per line)",
+    expected:"Expected artist IDs (only these should be primary) — comma-separated",
+    expected_hint:"TDCS = 55fvQ5I2IZUfcFT2DV02T3 (add more with commas).",
+    markets_pill:"Markets: 4 fixed groups",
+    markets_hint:`• United States, Canada<br/>• United Kingdom, Ireland<br/>• European Union (excluding UK & Ireland)<br/>• Worldwide (excluding Europe, US, Canada)`,
+    ignore_dj:"Ignore tracks with DJ-mix notation",
+    get_isrc:"Fetch each track's ISRC / available_markets count (slower)",
+    upc_sib:"Search UPC siblings (other variants) and compare",
+    run:"Run analysis",
+    csv:"Download CSV",
+    pdf:"Download PDF",
+    results:"Results",
+    token_none:"access_token: none",
+    token_ok:"access_token: OK",
+    parsing:`Parsing…`,
+    parsed:(n)=>`${n} album(s) parsed. You can download CSV/PDF.`,
+    tbl_market:"Market comparison (grouped)",
+    tbl_tracks:"Track details",
+    tbl_upc:"UPC siblings (same UPC variants)",
+    album_lbl:"Album",
+    likely_causes:"Likely causes:",
+    offenders0:"Offenders: 0",
+    offendersN:(n,first)=>`Offenders: ${n} track(s), first-artist offenders=${first}`,
+    // CSV headers
+    csvA_headers:["album_id","album_name","album_type","album_group","is_compilation","album_artists","album_artists_count","label","upc","release_date","copyrights","total_tracks","unique_track_artist_ids","expected_ids","offender_first_count","likely_causes"],
+    csvT_headers:["album_id","album_name","track_name","track_id","first_artist_name","first_artist_id","artist_names_all","artist_ids_all","primary_ok","ignored_djmix","offender_ids","isrc","track_avail_count"]
+  },
+  ja:{
+    title:"Spotify Compilation Auditor — TDCS Deep-Meta（Plus／グループ化マーケット）",
+    lang_label:"表示言語",
+    client:"Client ID（Spotify Developer）",
+    redirect:"Redirect URI（Developer Dashboardで完全一致）",
+    auth_btn:"Spotifyに接続（PKCE／スコープなし）",
+    clear_btn:"保存トークン削除",
+    hint_auth:"※ 公開APIのみ使用（scope送信なし＝<span class='mono'>album/track GET</span>専用）。<br/>※ Redirect URI は <b>Developer Dashboardに完全一致で登録</b>してください（末尾の <span class='mono'>.html</span> まで）。",
+    album_input:"アルバムURL/ID（改行区切り）",
+    expected:"期待アーティストID（“このIDだけがプライマリーであるべき”）※カンマ区切り",
+    expected_hint:"TDCS=55fvQ5I2IZUfcFT2DV02T3（複数あればカンマで追加）。",
+    markets_pill:"Markets: 固定4グループ",
+    markets_hint:"• United States, Canada<br/>• United Kingdom, Ireland<br/>• European Union（UK/IE除外）<br/>• Worldwide（Europe＋US＋CA除外）",
+    ignore_dj:"DJミックス表記のトラックを無視",
+    get_isrc:"各トラックの ISRC / available_markets 件数も取得（やや遅）",
+    upc_sib:"UPC同胞（別バージョン）も探索して比較",
+    run:"解析を実行",
+    csv:"CSVをダウンロード",
+    pdf:"PDFをダウンロード",
+    results:"結果",
+    token_none:"access_token: none",
+    token_ok:"access_token: OK",
+    parsing:"解析中…",
+    parsed:(n)=>`${n} 件のアルバムを解析完了。CSV/PDFを出力できます。`,
+    tbl_market:"Market comparison（grouped）",
+    tbl_tracks:"Track details",
+    tbl_upc:"UPC siblings（same UPC variants）",
+    album_lbl:"Album",
+    likely_causes:"Likely causes:",
+    offenders0:"Offenders: 0",
+    offendersN:(n,first)=>`Offenders: ${n} track(s), first-artist offenders=${first}`,
+    csvA_headers:["album_id","album_name","album_type","album_group","is_compilation","album_artists","album_artists_count","label","upc","release_date","copyrights","total_tracks","unique_track_artist_ids","expected_ids","offender_first_count","likely_causes"],
+    csvT_headers:["album_id","album_name","track_name","track_id","first_artist_name","first_artist_id","artist_names_all","artist_ids_all","primary_ok","ignored_djmix","offender_ids","isrc","track_avail_count"]
+  }
+};
 const storage = {
-  get k(){ return 'sp_pkce_auditor_v2_plus_fixed_grouped'; },
+  get k(){ return 'sp_pkce_auditor_v2_plus_fixed_grouped_i18n'; },
   load(){ try{ return JSON.parse(localStorage.getItem(this.k)||'{}'); }catch{return{}} },
   save(obj){ localStorage.setItem(this.k, JSON.stringify(obj||{})); }
 };
 const state = Object.assign(
-  {access_token:null,expires_at:0,code_verifier:null,client_id:"",redirect_uri:""},
+  {lang:'ja',access_token:null,expires_at:0,code_verifier:null,client_id:"",redirect_uri:""},
   storage.load()
 );
+const $ = sel => document.querySelector(sel);
+const sleep = ms => new Promise(r=>setTimeout(r, ms));
+
+function applyLang(){
+  const L = i18n[state.lang]||i18n.ja;
+  document.title = L.title;
+  $("#title").textContent = L.title;
+  $("#lang_label").textContent = L.lang_label;
+  $("#lbl_client").textContent = L.client;
+  $("#lbl_redirect").textContent = L.redirect;
+  $("#btn_auth").textContent = L.auth_btn;
+  $("#btn_clear").textContent = L.clear_btn;
+  $("#hint_auth").innerHTML = L.hint_auth;
+  $("#lbl_album_input").textContent = L.album_input;
+  $("#lbl_expected").textContent = L.expected;
+  $("#hint_expected").textContent = L.expected_hint;
+  $("#pill_markets").textContent = L.markets_pill;
+  $("#hint_markets").innerHTML = L.markets_hint;
+  $("#lbl_ignore_dj").textContent = L.ignore_dj;
+  $("#lbl_isrc").textContent = L.get_isrc;
+  $("#lbl_upc").textContent = L.upc_sib;
+  $("#btn_run").textContent = L.run;
+  $("#btn_csv").textContent = L.csv;
+  $("#btn_pdf").textContent = L.pdf;
+  $("#pill_results").textContent = L.results;
+  setTokStatus();
+}
 function setTokStatus(msg){
+  const L = i18n[state.lang]||i18n.ja;
   const ok = state.access_token && Date.now() < state.expires_at;
-  $("#tok_status").textContent = msg || (ok ? "access_token: OK" : "access_token: none");
+  $("#tok_status").textContent = msg || (ok ? L.token_ok : L.token_none);
   $("#tok_status").className = "pill " + (ok?"ok":"mut");
   $("#btn_run").disabled = !ok;
 }
@@ -140,68 +253,53 @@ function randStr(len=64){
 async function startAuth(){
   const client_id = $("#client_id").value.trim();
   const redirect_uri = $("#redirect_uri").value.trim();
-  if(!client_id || !redirect_uri){ alert("Client ID と Redirect URI を入力してください"); return; }
-
+  if(!client_id || !redirect_uri){ alert(state.lang==='en'?"Enter Client ID & Redirect URI":"Client ID と Redirect URI を入力してください"); return; }
   state.client_id = client_id;
   state.redirect_uri = redirect_uri;
-  storage.save(state);
-
+  saveState();
   const code_verifier = randStr(64);
   const code_challenge = await sha256(code_verifier);
   state.code_verifier = code_verifier;
-  storage.save(state);
-
+  saveState();
   const url = new URL("https://accounts.spotify.com/authorize");
   url.searchParams.set("response_type","code");
   url.searchParams.set("client_id", client_id);
   url.searchParams.set("redirect_uri", redirect_uri);
   url.searchParams.set("code_challenge_method","S256");
   url.searchParams.set("code_challenge", code_challenge);
-  // scopeは送らない（公開GETのみ）
   location.assign(url.toString());
 }
 async function handleCallback(){
   const params = new URLSearchParams(location.search);
   const code = params.get("code");
   if(!code) return;
+  const L = i18n[state.lang]||i18n.ja;
   const client_id = $("#client_id").value.trim() || state.client_id;
   const redirect_uri = $("#redirect_uri").value.trim() || state.redirect_uri;
-
   if(!client_id || !redirect_uri){
-    setTokStatus("invalid_client: client_id/redirect_uri 未入力 (保存値なし)");
-    alert("保存していた client_id / redirect_uri を見つけられませんでした。認証前に入力して『Spotifyに接続』を押してください。");
+    setTokStatus("invalid_client");
+    alert(state.lang==='en'?"Missing saved client_id/redirect_uri. Enter them and re-auth.":"client_id / redirect_uri を見つけられません。入力して『Spotifyに接続』を押してください。");
     return;
   }
   if(!state.code_verifier){
-    setTokStatus("error: code_verifier がありません");
-    alert("code_verifier が失われました。もう一度『Spotifyに接続』からやり直してください。");
+    setTokStatus("error: no verifier");
+    alert(state.lang==='en'?"Missing code_verifier. Start auth again.":"code_verifier が失われました。もう一度『Spotifyに接続』からやり直してください。");
     return;
   }
-
   try{
-    const body = new URLSearchParams({
-      grant_type:"authorization_code",
-      code,
-      redirect_uri,
-      client_id,
-      code_verifier: state.code_verifier
-    });
-    const res = await fetch("https://accounts.spotify.com/api/token", {
-      method:"POST",
-      headers:{ "Content-Type":"application/x-www-form-urlencoded" },
-      body
-    });
+    const body = new URLSearchParams({grant_type:"authorization_code",code,redirect_uri,client_id,code_verifier:state.code_verifier});
+    const res = await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
     if(!res.ok){
       const t = await res.text();
       setTokStatus("token error");
       console.error("Token exchange failed:", t);
-      alert(`Token exchange failed:\n${t}\n\n対処:\n1) Redirect URI 完全一致\n2) client_id 正しいか\n3) ブラウザのITP等でlocalStorageが消えていないか`);
+      alert((state.lang==='en'?"Token exchange failed:\n":"トークン交換失敗:\n")+t);
       return;
     }
     const json = await res.json();
     state.access_token = json.access_token;
     state.expires_at = Date.now() + ((json.expires_in||3600)*1000) - 5000;
-    storage.save(state);
+    saveState();
     history.replaceState({}, "", location.pathname);
     setTokStatus();
   }catch(e){
@@ -213,9 +311,10 @@ function clearToken(){
   state.access_token = null;
   state.expires_at = 0;
   state.code_verifier = null;
-  storage.save(state);
+  saveState();
   setTokStatus();
 }
+function saveState(){ storage.save({lang:state.lang,access_token:state.access_token,expires_at:state.expires_at,code_verifier:state.code_verifier,client_id:state.client_id,redirect_uri:state.redirect_uri}); }
 
 /* ===== Spotify API ===== */
 async function spGET(path, params={}){
@@ -250,9 +349,6 @@ function djMixLike(name){
 }
 
 /* ===== Markets (fixed groups) ===== */
-/** Spotifyの既知市場コード（2025時点の一般的リスト想定）。
- * ここに存在しないコードは計算に影響しません（差集合で安全に無視）。
- */
 const ALL_MARKETS = new Set([
   "AD","AE","AL","AM","AO","AR","AT","AU","AZ","BA","BB","BD","BE","BF","BG","BH","BI","BJ","BN","BO","BR","BS","BT","BW","BY","BZ",
   "CA","CD","CG","CH","CI","CL","CM","CO","CR","CV","CW","CY","CZ",
@@ -267,27 +363,19 @@ const ALL_MARKETS = new Set([
   "UA","UG","US","UY","UZ","VC","VE","VN","VU",
   "WS","XK","ZA","ZM","ZW"
 ]);
-
-// EU 27（UK/IE除外）
 const EU27_NO_UK_IE = new Set([
-  "AT","BE","BG","HR","CY","CZ","DK","EE","FI","FR","DE","GR","HU","IT","LV","LT","LU","MT","NL","PL","PT","RO","SK","SI","ES","SE","IE" /* <- 後で除外 */
-].filter(c => c!=="IE")); // IE除外
-
-// Europe（広義）＝EU27 + GB/IE + 一般的な欧州非EU国
+  "AT","BE","BG","HR","CY","CZ","DK","EE","FI","FR","DE","GR","HU","IT","LV","LT","LU","MT","NL","PL","PT","RO","SK","SI","ES","SE"
+]);
 const EUROPE_WIDE = new Set([
   ...EU27_NO_UK_IE, "IE","GB","NO","IS","CH","AL","BA","ME","MK","RS","UA","MD","BY","XK","LI"
 ]);
-
-// 固定グループ定義
 const MARKET_GROUPS = [
   { key:"US_CA", label:"United States, Canada", codes:new Set(["US","CA"]) },
   { key:"UK_IE", label:"United Kingdom, Ireland", codes:new Set(["GB","IE"]) },
   { key:"EU_EX_UK_IE", label:"European Union (excluding UK & Ireland)", codes:new Set([...EU27_NO_UK_IE]) },
-  // Worldwide = ALL - (EUROPE_WIDE + US + CA)
   { key:"WORLD_EX_EU_US_CA", label:"Worldwide (excluding Europe, US, Canada)", codes:(()=>{
       const ex = new Set([...EUROPE_WIDE, "US","CA"]);
-      const rest = new Set([...ALL_MARKETS].filter(c=>!ex.has(c)));
-      return rest;
+      return new Set([...ALL_MARKETS].filter(c=>!ex.has(c)));
     })()
   }
 ];
@@ -319,7 +407,6 @@ async function fetchTracksBulk(ids){
       out[t.id] = {
         isrc: t.external_ids?.isrc||"",
         avail_count: Array.isArray(t.available_markets)? t.available_markets.length : null,
-        markets: t.available_markets || []
       };
     }
     await sleep(120);
@@ -409,16 +496,16 @@ function analyze({album, tracks}, expectedIDsSet, ignoreDJ){
   };
 }
 
-function toCSV(objs){
+function toCSV(objs, headers){
   if(!objs.length) return "";
-  const headers = Object.keys(objs[0]);
+  const cols = headers && headers.length ? headers : Object.keys(objs[0]);
   const esc = v => {
     if(v==null) return "";
     const s = String(v).replace(/"/g,'""');
     return /[",\n]/.test(s) ? `"${s}"` : s;
   };
-  const lines = [headers.join(",")];
-  for(const o of objs){ lines.push(headers.map(h=>esc(o[h])).join(",")); }
+  const lines = [cols.join(",")];
+  for(const o of objs){ lines.push(cols.map(h=>esc(o[h])).join(",")); }
   return lines.join("\n");
 }
 
@@ -434,19 +521,23 @@ function tableHTML(title, rows){
 }
 
 function renderAlbumBlock(block){
+  const L = i18n[state.lang]||i18n.ja;
   const s = block.album_summary;
   const causeLines = s.likely_compilation_causes.map(c=>`<li><b>${c.key}</b> — ${c.detail} <span class="mut">[score:${c.score}]</span></li>`).join("");
+  const offenders = block.offenders.length
+    ? `<div class="ng" style="margin-top:6px">${L.offendersN(block.offenders.length, s.offender_first_count)}</div>`
+    : `<div class="ok" style="margin-top:6px">${L.offenders0}</div>`;
   return `
     <div class="card">
-      <div><span class="pill">Album</span> <b>${s.album_name}</b> <span class="mono">(${s.album_id})</span></div>
+      <div><span class="pill">${L.album_lbl}</span> <b>${s.album_name}</b> <span class="mono">(${s.album_id})</span></div>
       <div class="hint">type=${s.album_type} / group=${s.album_group} / is_compilation=${s.is_compilation} / tracks=${s.total_tracks}</div>
       <div class="hint">Album Artists: ${s.album_artists} <span class="mut">(count=${s.album_artists_count})</span></div>
       <div class="hint">Label: <span class="mono">${s.label||"—"}</span> / UPC: <span class="mono">${s.upc||"—"}</span> / Release: ${s.release_date} (${s.release_date_precision})</div>
       <div class="hint">Copyrights: ${s.copyrights||"—"}</div>
       <div class="hint">Unique track artist IDs (after DJ-mix ignore): <span class="mono">${s.unique_track_artist_ids.join(", ")||"—"}</span></div>
       <div class="hint">Expected IDs: <span class="mono">${s.expected_ids.join(", ")}</span></div>
-      <div style="margin-top:8px"><b>Likely causes:</b><ul>${causeLines||"<li>—</li>"}</ul></div>
-      ${block.offenders.length ? `<div class="ng" style="margin-top:6px">Offenders: ${block.offenders.length} track(s), first-artist offenders=${s.offender_first_count}</div>`:"<div class='ok' style='margin-top:6px'>Offenders: 0</div>"}
+      <div style="margin-top:8px"><b>${L.likely_causes}</b><ul>${causeLines||"<li>—</li>"}</ul></div>
+      ${offenders}
     </div>`;
 }
 
@@ -467,14 +558,19 @@ function makeGroupedMarketRows(album_available_set){
   return rows;
 }
 
+/* ===== Globals for export ===== */
+let lastAlbumCSV = "";
+let lastTrackCSV = "";
+
 /* ===== Main run ===== */
 async function runAudit(){
+  const L = i18n[state.lang]||i18n.ja;
   $("#btn_run").disabled = true;
   $("#btn_csv").disabled = true;
-  $("#summary").textContent = "解析中…";
+  $("#btn_pdf").disabled = true;
+  $("#summary").textContent = L.parsing;
   $("#results").innerHTML = "";
 
-  // 主マーケットは任意（album.available_markets はどのmarket指定でも入ることが多い）
   const primaryMarket = "US";
   const expected = new Set($("#expected_ids").value.split(",").map(s=>s.trim()).filter(Boolean));
   const ignoreDJ = $("#ignore_djmix").checked;
@@ -482,8 +578,8 @@ async function runAudit(){
   const wantUPC = $("#check_upc_siblings").checked;
 
   const ids = $("#album_input").value.split(/\n+/).map(extractAlbumId).filter(Boolean);
-  const albumCSV = [];
-  const trackCSV = [];
+  const albumCSVRows = [];
+  const trackCSVRows = [];
 
   try{
     for(const id of ids){
@@ -500,19 +596,15 @@ async function runAudit(){
       }
 
       const analyzed = analyze(deep, expected, ignoreDJ);
-
-      // Grouped album availability
       const marketRows = makeGroupedMarketRows(analyzed.album_summary.album_available_markets);
 
       // UPC siblings（オプション）
       const upc = deep.album.external_ids?.upc||"";
       const siblingRows = [];
       if(wantUPC && upc){
-        const sibs = await (async ()=>{
-          const q = `upc:${upc}`;
-          const js = await spGET(`/search`, { q, type:"album", limit:10 });
-          return (js.albums?.items||[]).map(a=>({id:a.id}));
-        })();
+        const q = `upc:${upc}`;
+        const js = await spGET(`/search`, { q, type:"album", limit:10 });
+        const sibs = (js.albums?.items||[]).map(a=>({id:a.id}));
         for(const s of sibs){
           const shallow = await spGET(`/albums/${s.id}`, { market: primaryMarket, limit:1 });
           siblingRows.push({
@@ -538,15 +630,15 @@ async function runAudit(){
       // UI
       const container = $("#results");
       container.insertAdjacentHTML("beforeend", renderAlbumBlock(analyzed));
-      container.insertAdjacentHTML("beforeend", `<div class="card">${tableHTML("Market comparison (grouped)", marketRows)}</div>`);
-      container.insertAdjacentHTML("beforeend", `<div class="card">${tableHTML("Track details", analyzed.track_rows)}</div>`);
+      container.insertAdjacentHTML("beforeend", `<div class="card">${tableHTML((i18n[state.lang]||i18n.ja).tbl_market, marketRows)}</div>`);
+      container.insertAdjacentHTML("beforeend", `<div class="card">${tableHTML((i18n[state.lang]||i18n.ja).tbl_tracks, analyzed.track_rows)}</div>`);
       if(siblingRows.length){
-        container.insertAdjacentHTML("beforeend", `<div class="card">${tableHTML("UPC siblings (same UPC variants)", siblingRows)}</div>`);
+        container.insertAdjacentHTML("beforeend", `<div class="card">${tableHTML((i18n[state.lang]||i18n.ja).tbl_upc, siblingRows)}</div>`);
       }
 
       // CSV 集計
       const s = analyzed.album_summary;
-      albumCSV.push({
+      albumCSVRows.push({
         album_id:s.album_id, album_name:s.album_name,
         album_type:s.album_type, album_group:s.album_group, is_compilation:s.is_compilation,
         album_artists:s.album_artists, album_artists_count:s.album_artists_count,
@@ -557,29 +649,57 @@ async function runAudit(){
         likely_causes:s.likely_compilation_causes.map(c=>`${c.key}(${c.score})`).join(" | ")
       });
       for(const r of analyzed.track_rows){
-        trackCSV.push(Object.assign({album_id:s.album_id, album_name:s.album_name}, r));
+        trackCSVRows.push(Object.assign({album_id:s.album_id, album_name:s.album_name}, r));
       }
 
       await sleep(120);
     }
   }catch(e){
-    alert("解析でエラー: "+e.message);
+    alert((state.lang==='en'?"Analysis error: ":"解析エラー: ")+e.message);
   }
 
-  // CSV ダウンロード
-  const csvA = toCSV(albumCSV);
-  const csvT = toCSV(trackCSV);
-  const mkDL = (data, name) => {
-    const blob = new Blob([data],{type:"text/csv;charset=utf-8"});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href=url; a.download=name; return a;
+  // CSV（言語に応じたヘッダ）
+  const Lh = i18n[state.lang]||i18n.ja;
+  lastAlbumCSV = toCSV(albumCSVRows, Lh.csvA_headers);
+  lastTrackCSV = toCSV(trackCSVRows, Lh.csvT_headers);
+
+  $("#btn_csv").onclick = ()=>{
+    const mk = (data,name)=>{ const blob = new Blob([data],{type:"text/csv;charset=utf-8"}); const url = URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=name; a.click(); };
+    mk(lastAlbumCSV, "spotify_compilation_album_summary.csv");
+    mk(lastTrackCSV, "spotify_compilation_tracks_detail.csv");
   };
-  const a1 = mkDL(csvA, "spotify_compilation_album_summary.csv");
-  const a2 = mkDL(csvT, "spotify_compilation_tracks_detail.csv");
-  $("#btn_csv").onclick = ()=>{ a1.click(); a2.click(); };
   $("#btn_csv").disabled = false;
 
-  $("#summary").textContent = `${ids.length} album(s) parsed. CSVを出力できます。`;
+  // PDF
+  $("#btn_pdf").onclick = async ()=>{
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({unit:"pt", format:"a4"});
+    const a4w = 595.28, a4h = 841.89, margin = 24;
+    const node = document.querySelector("#results_card");
+    // 画面幅に依存しないようスケール調整
+    const canvas = await html2canvas(node, {scale:2, backgroundColor:"#ffffff", useCORS:true});
+    const imgW = a4w - margin*2;
+    const imgH = canvas.height * (imgW / canvas.width);
+    let y = 0, page = 0;
+    // 分割描画（縦方向にページ分割）
+    while (y < canvas.height){
+      const pageCanvas = document.createElement("canvas");
+      pageCanvas.width = canvas.width;
+      const sliceH = Math.min(canvas.height - y, Math.floor(canvas.width * (a4h - margin*2) / imgW));
+      pageCanvas.height = sliceH;
+      const ctx = pageCanvas.getContext("2d");
+      ctx.drawImage(canvas, 0, y, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+      const imgData = pageCanvas.toDataURL("image/jpeg", 0.92);
+      if(page>0) pdf.addPage();
+      pdf.addImage(imgData, "JPEG", margin, margin, imgW, (sliceH * imgW / canvas.width));
+      y += sliceH;
+      page++;
+    }
+    pdf.save("spotify_compilation_audit.pdf");
+  };
+  $("#btn_pdf").disabled = false;
+
+  $("#summary").textContent = (i18n[state.lang]||i18n.ja).parsed(ids.length);
   $("#btn_run").disabled = false;
 }
 
@@ -587,8 +707,13 @@ async function runAudit(){
 $("#btn_auth").addEventListener("click", startAuth);
 $("#btn_clear").addEventListener("click", clearToken);
 $("#btn_run").addEventListener("click", runAudit);
+$("#lang_sel").addEventListener("change", (e)=>{ state.lang = e.target.value; saveState(); applyLang(); });
 
 (async function init(){
+  // restore lang
+  $("#lang_sel").value = state.lang || 'ja';
+  applyLang();
+
   await handleCallback();
   if(state.client_id) $("#client_id").value = state.client_id;
   if(state.redirect_uri) $("#redirect_uri").value = state.redirect_uri;
