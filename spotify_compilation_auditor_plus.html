@@ -18,6 +18,7 @@
   .col{flex:1 1 260px}
   .btn{padding:.65rem 1rem;border:1px solid #111;background:#111;color:#fff;border-radius:10px;cursor:pointer}
   .btn[disabled]{opacity:.5;cursor:not-allowed}
+  .btn.light{background:#fff;color:#111}
   .pill{display:inline-block;border:1px solid var(--bd);padding:.25rem .6rem;border-radius:999px;font-size:12px;margin-right:6px}
   .mut{color:var(--mut)} .mono{font-family:ui-monospace,Consolas,Menlo,Monaco,monospace}
   .ok{color:var(--ok)} .ng{color:var(--ng)}
@@ -29,16 +30,23 @@
   .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
   .langsel{display:flex;align-items:center;gap:8px}
   select{border:1px solid var(--bd);border-radius:10px;padding:8px 10px;background:#fff}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap}
   @media (max-width:900px){.grid{grid-template-columns:1fr}}
 
-  /* (任意) PDF用の印刷最適化を入れたい場合は以下を解除
+  /* ===== Print / PDF optimized ===== */
   @media print {
-    .card:first-of-type, .card:nth-of-type(2), .btn, .hint, .topbar { display:none!important; }
-    body { background:#fff; }
-    .wrap { max-width:960px; }
-    table { page-break-inside:avoid; }
+    @page { margin:12mm; size:A4; }
+    body{background:#fff}
+    .topbar .langsel, .card.auth, .card.inputs, .toolbar .csv, .toolbar .authbtns, .hint { display:none !important; }
+    .wrap{max-width:none;margin:0 auto;padding:0}
+    .card{break-inside:avoid;page-break-inside:avoid;margin:8px 0;padding:12px;border-radius:8px}
+    h1{font-size:18px;margin:0 0 6px}
+    table{font-size:12px}
+    th,td{padding:6px 4px}
+    .pill{border:none}
+    .results-header{display:flex;justify-content:space-between;align-items:center;margin:4px 0 8px}
+    .print-meta{font-size:11px;color:#333}
   }
-  */
 </style>
 </head>
 <body>
@@ -54,8 +62,7 @@
     </div>
   </div>
 
-  <!-- Auth -->
-  <div class="card">
+  <div class="card auth">
     <div class="grid">
       <div class="col">
         <label data-i18n="client_id_label">Client ID (Spotify Developer)</label>
@@ -67,9 +74,11 @@
       </div>
     </div>
     <div class="row" style="margin-top:10px">
-      <button id="btn_auth" class="btn" data-i18n="btn_auth">Connect to Spotify (PKCE / no scope)</button>
+      <div class="toolbar authbtns">
+        <button id="btn_auth" class="btn" data-i18n="btn_auth">Connect to Spotify (PKCE / no scope)</button>
+        <button id="btn_clear" class="btn light" data-i18n="btn_clear">Clear saved token</button>
+      </div>
       <span id="tok_status" class="pill mut">access_token: none</span>
-      <button id="btn_clear" class="btn" style="background:#fff;color:#111" data-i18n="btn_clear">Clear saved token</button>
     </div>
     <div class="hint">
       <span data-i18n="hint_scope">* Uses only public APIs (GET). No scopes requested (album/track GET only).</span><br/>
@@ -77,8 +86,7 @@
     </div>
   </div>
 
-  <!-- Inputs -->
-  <div class="card">
+  <div class="card inputs">
     <div class="grid">
       <div class="col">
         <label data-i18n="albums_label">Album URLs/IDs (one per line)</label>
@@ -108,14 +116,20 @@ https://open.spotify.com/album/4aeD4BUM5mAA1v1hCp9irx"></textarea>
       </div>
     </div>
     <div class="row" style="margin-top:12px">
-      <button id="btn_run" class="btn" disabled data-i18n="btn_run">Run audit</button>
-      <button id="btn_csv" class="btn" style="background:#fff;color:#111" disabled data-i18n="btn_csv">Download CSV</button>
+      <div class="toolbar">
+        <button id="btn_run" class="btn" disabled data-i18n="btn_run">Run audit</button>
+        <button id="btn_csv" class="btn light csv" disabled data-i18n="btn_csv">Download CSV</button>
+        <button id="btn_pdf" class="btn light" data-i18n="btn_pdf">Download PDF</button>
+      </div>
     </div>
   </div>
 
-  <!-- Results -->
   <div class="card">
-    <div class="row"><div class="pill" data-i18n="results_pill">Results</div><span id="summary" class="mut"></span></div>
+    <div class="row results-header">
+      <div><div class="pill" data-i18n="results_pill">Results</div></div>
+      <div class="print-meta" id="print_meta" aria-hidden="true"></div>
+    </div>
+    <span id="summary" class="mut"></span>
     <div id="results"></div>
   </div>
 </div>
@@ -132,6 +146,7 @@ const I18N = {
     redirect_ph: "e.g., https://npr2025.github.io/spotify-auth/spotify_compilation_auditor_plus.html",
     btn_auth: "Connect to Spotify (PKCE / no scope)",
     btn_clear: "Clear saved token",
+    btn_pdf: "Download PDF",
     hint_scope: "* Uses only public APIs (GET). No scopes requested (album/track GET only).",
     hint_redirect: "* Redirect URI must exactly match what’s registered in the Developer Dashboard (including the trailing .html).",
     albums_label: "Album URLs/IDs (one per line)",
@@ -162,13 +177,21 @@ const I18N = {
     hint_line4: (s)=> `Copyrights: ${s.copyrights||"—"}`,
     hint_line5: (s)=> `Unique track artist IDs (after DJ-mix ignore): ${s.unique_track_artist_ids.join(", ")||"—"}`,
     hint_line6: (s)=> `Expected IDs: ${s.expected_ids.join(", ")}`,
-    cause_score: (c)=> `<li><b>${c.key}</b> — ${c.detail} <span class="mut">[score:${c.score}]</span></li>`,
     fetch_error: "(fetch error)",
     alert_need_input: "Please enter Client ID and Redirect URI.",
     alert_token_missing_saved: "Could not find saved client_id/redirect_uri. Enter them and hit “Connect to Spotify”.",
     alert_no_verifier: "code_verifier is missing. Start over by clicking “Connect to Spotify”.",
     alert_token_fail_steps: (t)=>`Token exchange failed:\n${t}\n\nSteps:\n1) Confirm Redirect URI matches exactly in Developer Dashboard\n2) Confirm client_id is correct\n3) Ensure localStorage isn’t cleared by ITP/3rd-party cookie settings`,
-    alert_run_error: (m)=>`Audit error: ${m}`
+    alert_run_error: (m)=>`Audit error: ${m}`,
+    /* Likely cause labels/details */
+    cause_supply_label: "Supply-side compilation flag",
+    cause_supply_detail: "album_type=compilation and no first-artist contamination",
+    cause_multi_label: "Multiple album-level artists",
+    cause_multi_detail: (names)=> `Album Artists=${names}`,
+    cause_first_label: "External ID as first (primary) track artist",
+    cause_first_detail: (n)=> `Tracks with external first-artist=${n}`,
+    cause_nonfirst_label: "External IDs on tracks (non-first)",
+    cause_nonfirst_detail: "Secondary contamination (low impact)"
   },
   ja: {
     title: "Spotify Compilation Auditor — TDCS Deep-Meta (Plus, Fixed)",
@@ -179,6 +202,7 @@ const I18N = {
     redirect_ph: "例: https://npr2025.github.io/spotify-auth/spotify_compilation_auditor_plus.html",
     btn_auth: "Spotifyに接続（PKCE／スコープなし）",
     btn_clear: "保存トークン削除",
+    btn_pdf: "PDFをダウンロード",
     hint_scope: "※ 公開APIのみ使用。scopeは送信しません（＝album/track GET専用）。",
     hint_redirect: "※ Redirect URI は Developer Dashboardに完全一致で登録してください（末尾の .html まで）。",
     albums_label: "アルバムURL/ID（改行区切り）",
@@ -209,15 +233,36 @@ const I18N = {
     hint_line4: (s)=> `Copyrights: ${s.copyrights||"—"}`,
     hint_line5: (s)=> `Unique track artist IDs（DJミックス無視後）: ${s.unique_track_artist_ids.join(", ")||"—"}`,
     hint_line6: (s)=> `Expected IDs: ${s.expected_ids.join(", ")}`,
-    cause_score: (c)=> `<li><b>${c.key}</b> — ${c.detail} <span class="mut">[score:${c.score}]</span></li>`,
     fetch_error: "(取得エラー)",
     alert_need_input: "Client ID と Redirect URI を入力してください。",
     alert_token_missing_saved: "保存していた client_id / redirect_uri を見つけられませんでした。認証前に入力して『Spotifyに接続』を押してください。",
     alert_no_verifier: "code_verifier がありません。『Spotifyに接続』からやり直してください。",
     alert_token_fail_steps: (t)=>`Token exchange failed:\n${t}\n\n対処:\n1) Developer Dashboardで Redirect URI が完全一致か確認\n2) client_id が正しいか確認\n3) ブラウザのITP/サードパーティCookie設定で localStorage が消えていないか確認`,
-    alert_run_error: (m)=>`解析でエラー: ${m}`
+    alert_run_error: (m)=>`解析でエラー: ${m}`,
+    /* Likely cause labels/details (英語のまま出力要件に合わせる) */
+    cause_supply_label: "Supply-side compilation flag",
+    cause_supply_detail: "album_type=compilation and no first-artist contamination",
+    cause_multi_label: "Multiple album-level artists",
+    cause_multi_detail: (names)=> `Album Artists=${names}`,
+    cause_first_label: "External ID as first (primary) track artist",
+    cause_first_detail: (n)=> `Tracks with external first-artist=${n}`,
+    cause_nonfirst_label: "External IDs on tracks (non-first)",
+    cause_nonfirst_detail: "Secondary contamination (low impact)"
   }
 };
+
+/* Cause text dictionary (keys → localized label/detail) */
+function causeHTML(key, score, data){
+  const L = I18N[document.documentElement.lang];
+  const map = {
+    supply_comp_flag: { label: L.cause_supply_label, detail: L.cause_supply_detail },
+    multi_album_artists: { label: L.cause_multi_label, detail: L.cause_multi_detail(data?.names||"") },
+    first_artist_external: { label: L.cause_first_label, detail: L.cause_first_detail(data?.count||0) },
+    nonfirst_artist_external: { label: L.cause_nonfirst_label, detail: L.cause_nonfirst_detail }
+  };
+  const item = map[key]; if(!item) return "";
+  return `<li><b>${item.label}</b> — ${item.detail} <span class="mut">[score:${score}]</span></li>`;
+}
 
 const $ = sel => document.querySelector(sel);
 const sleep = ms => new Promise(r=>setTimeout(r, ms));
@@ -244,24 +289,19 @@ function getLangFromEnv(){
 function applyI18N(lang){
   const dict = I18N[lang]||I18N.ja;
   document.documentElement.lang = lang;
-  // text nodes
   document.querySelectorAll("[data-i18n]").forEach(el=>{
     const key = el.getAttribute("data-i18n");
     const v = dict[key];
-    if(typeof v === "function") return; // dynamic ones handled elsewhere
+    if(typeof v === "function") return;
     if(typeof v === "string") el.textContent = v;
   });
-  // placeholders
   document.querySelectorAll("[data-i18n-ph]").forEach(el=>{
     const key = el.getAttribute("data-i18n-ph");
     const v = dict[key];
     if(typeof v === "string") el.setAttribute("placeholder", v);
   });
-  // token pill refresh
   setTokStatus();
-  // set selector value
-  const sel = $("#lang");
-  if(sel) sel.value = lang;
+  const sel = $("#lang"); if(sel) sel.value = lang;
 }
 function t(key){
   const lang = document.documentElement.lang || "ja";
@@ -484,18 +524,18 @@ function analyze({album, tracks}, expectedIDsSet, ignoreDJ){
   }
 
   const causes = [];
-  const push = (k,score,detail)=>causes.push({key:k,score,detail});
+  const push = (key,score,data)=>causes.push({key,score,data});
   if(album_is_comp && album_artist_ids.length===1 && offender_first_count===0){
-    push("Supply側でcompilationフラグ", 100, "album_type=compilation かつ 先頭Primary混入なし");
+    push("supply_comp_flag", 100);
   }
   if(album_artist_ids.length>1){
-    push("アルバムArtistが複数", 90, `Album Artists=${album_artist_names}`);
+    push("multi_album_artists", 90, { names: album_artist_names });
   }
   if(offender_first_count>0){
-    push("トラック一次アーティストに外部ID", 85, `先頭外部IDの曲数=${offender_first_count}`);
+    push("first_artist_external", 85, { count: offender_first_count });
   }
   if(offender_any.length>0 && offender_first_count===0){
-    push("トラックに外部ID（先頭ではない）", 60, "二次的混入（影響は小）");
+    push("nonfirst_artist_external", 60);
   }
   return {
     album_summary: {
@@ -535,8 +575,10 @@ function tableHTML(title, rows){
 
 function renderAlbumBlock(block){
   const s = block.album_summary;
-  const causes = s.likely_compilation_causes.map(c=>I18N[document.documentElement.lang].cause_score(c)).join("");
-  const head = `
+  const causesHTML = (s.likely_compilation_causes||[])
+    .map(c=>causeHTML(c.key, c.score, c.data))
+    .join("");
+  return `
     <div class="card">
       <div><span class="pill">${t("album_pill")}</span> <b>${s.album_name}</b> <span class="mono">(${s.album_id})</span></div>
       <div class="hint">${I18N[document.documentElement.lang].hint_line1(s)}</div>
@@ -545,14 +587,11 @@ function renderAlbumBlock(block){
       <div class="hint">${I18N[document.documentElement.lang].hint_line4(s)}</div>
       <div class="hint">${I18N[document.documentElement.lang].hint_line5(s)}</div>
       <div class="hint">${I18N[document.documentElement.lang].hint_line6(s)}</div>
-      <div style="margin-top:8px"><b>${t("likely_causes")}</b><ul>${causes||"<li>—</li>"}</ul></div>
-      ${
-        block.offenders.length
-        ? `<div class="ng" style="margin-top:6px">${I18N[document.documentElement.lang].offendersN(block.offenders.length, s.offender_first_count)}</div>`
-        : `<div class='ok' style='margin-top:6px'>${t("offenders0")}</div>`
-      }
+      <div style="margin-top:8px"><b>${t("likely_causes")}</b><ul>${causesHTML||"<li>—</li>"}</ul></div>
+      ${ block.offenders.length
+          ? `<div class="ng" style="margin-top:6px">${I18N[document.documentElement.lang].offendersN(block.offenders.length, s.offender_first_count)}</div>`
+          : `<div class='ok' style='margin-top:6px'>${t("offenders0")}</div>` }
     </div>`;
-  return head;
 }
 
 /* ========== CSV helpers ========== */
@@ -687,12 +726,19 @@ async function runAudit(){
 
   $("#summary").textContent = I18N[document.documentElement.lang].parsed_csv(blocks.length);
   $("#btn_run").disabled = false;
+
+  // print meta (for PDF)
+  const paramsLine = `Markets=${$("#markets").value} | Expected IDs=${$("#expected_ids").value}`;
+  const when = new Date().toLocaleString();
+  $("#print_meta").textContent = `${when} — ${paramsLine}`;
 }
 
 /* ========== Events & Init ========== */
 $("#btn_auth").addEventListener("click", startAuth);
 $("#btn_clear").addEventListener("click", clearToken);
 $("#btn_run").addEventListener("click", runAudit);
+$("#btn_pdf").addEventListener("click", ()=>{ window.print(); });
+
 $("#lang").addEventListener("change", (e)=>{
   const lang = e.target.value;
   state.lang = lang; storage.save(state);
@@ -700,18 +746,15 @@ $("#lang").addEventListener("change", (e)=>{
 });
 
 (async function init(){
-  // language
   const lang = getLangFromEnv();
   state.lang = lang; storage.save(state);
   applyI18N(lang);
 
-  // OAuth callback & prefill
   await handleCallback();
   if(state.client_id) $("#client_id").value = state.client_id;
   if(state.redirect_uri) $("#redirect_uri").value = state.redirect_uri;
   setTokStatus();
 
-  // default inputs
   $("#album_input").value =
 `https://open.spotify.com/album/06Yvg4vlPaVfnAWVwmJX27
 https://open.spotify.com/album/4aeD4BUM5mAA1v1hCp9irx`;
