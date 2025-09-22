@@ -175,7 +175,7 @@ const i18n = {
       B:"Spotify Available",
       C:"Spotify Album URL",
       D:"Spotify Track URL",
-      E:"Primary structure (pipe-separated)"
+      E:"Primary structure (pipe-separated, remixers excluded unless primary)"
     },
     markets_cols:["US/CA","UK/IE","EU (ex UK/IE)","World (ex EU/US/CA)"],
     status:{
@@ -217,7 +217,7 @@ const i18n = {
       B:"Spotify Available",
       C:"Spotify Album URL",
       D:"Spotify Track URL",
-      E:"Primary構造（' | ' 区切り）"
+      E:"Primary構造（' | ' 区切り／リミキサー除外※先頭にいるときのみ残す）"
     },
     markets_cols:["US/CA","UK/IE","EU（UK/IE除外）","World（EU/US/CA除外）"],
     status:{
@@ -336,12 +336,10 @@ $("#csv_file").addEventListener("change",(e)=>{
   Papa.parse(file,{header:true,skipEmptyLines:true,complete:(rs)=>{
     loadedCSV.headers = rs.meta.fields||[];
     loadedCSV.rows = rs.data||[];
-    // mapping guesses
     const heads = loadedCSV.headers.map(h=>h.trim());
     const find = (...cands)=> heads.find(h=>cands.map(x=>x.toLowerCase()).includes(h.toLowerCase())) || "";
     loadedCSV.albumCol = find("Album title","album","title","Album","アルバム","アルバム名");
     loadedCSV.trackCol = find("Track title","track","曲名","トラック");
-    // populate selects
     const selA = $("#sel_album_col"); selA.innerHTML="";
     heads.forEach(h=>{ const o=document.createElement("option"); o.value=h; o.textContent=h; selA.appendChild(o); });
     if(loadedCSV.albumCol) selA.value = loadedCSV.albumCol;
@@ -364,7 +362,58 @@ function normalizeName(s){
     .trim();
 }
 function djMixLike(name){ const n=(name||"").toLowerCase(); return n.includes("dj mix")||n.includes("continuous mix")||n.includes("mixed"); }
-function joinArtistsPipe(arr){ return (arr||[]).map(a=>a?.name||"").filter(Boolean).join(" | "); }
+
+// --- Remixers detection & primary-struct builder ---
+// 抽出規則: (X Remix), (Remixed by X), - X Remix / X Rework / X Edit 等を検知。
+// 分割: ',', '&', ' and ', ' vs ', ' x ', ' × ', '/' などで分割。
+function extractRemixers(title){
+  const res = new Set();
+  const s = (title||"").trim();
+
+  // (...) 内の "Remix / Remixed by"
+  const m1 = s.match(/\(([^)]*?)(?:\s+remix(?:es)?|remixed\s+by\s+[^)]*)\)/i);
+  if(m1){
+    let chunk = m1[1];
+    // "Remixed by NAME" → NAME 部だけに寄せる
+    const rb = chunk.match(/remixed\s+by\s+(.+)$/i);
+    if(rb) chunk = rb[1];
+    splitNames(chunk).forEach(n=>res.add(n));
+  }
+  // "- NAME Remix" パターン
+  const m2 = s.match(/-\s*([^-()\[\]]+?)\s+(?:remix|rework|edit|version)\b/i);
+  if(m2){ splitNames(m2[1]).forEach(n=>res.add(n)); }
+
+  return Array.from(res).filter(Boolean);
+}
+function splitNames(str){
+  return String(str||"")
+    .split(/,|&| and |\s+vs\s+|\s+x\s+| × |\/|\+| with /i)
+    .map(s=>s.trim()).filter(Boolean);
+}
+function normPerson(n){
+  return n.toLowerCase().replace(/[\.\-_'’`]/g,'').replace(/\s+/g,' ').trim();
+}
+function nameLooseEqual(a,b){
+  const na = normPerson(a), nb = normPerson(b);
+  if(!na || !nb) return false;
+  return na===nb || na.includes(nb) || nb.includes(na);
+}
+// トラック一致があれば hit.artists をベースに、タイトルから検知したリミキサーを除外。
+// ただし「先頭（index 0）にいる＝プライマリーに入っている」場合は残す。
+// トラック未一致時はアルバム artists を同様ルールで処理。
+function buildPrimaryStruct(hit, album){
+  let baseArtists = [], title = "";
+  if(hit){ baseArtists = hit.artists||[]; title = hit.name||""; }
+  else if(album){ baseArtists = album.artists||[]; title = album.name||""; }
+  const remixers = extractRemixers(title);
+  const filtered = baseArtists.filter((a,idx)=>{
+    if(!remixers.length) return true;
+    const isRmx = remixers.some(n=>nameLooseEqual(n, a.name||""));
+    if(isRmx && idx!==0) return false; // リミキサーは原則除外、ただし先頭（プライマリー）なら残す
+    return true;
+  });
+  return filtered.map(a=>a?.name||"").filter(Boolean).join(" | ");
+}
 
 /* ===== Markets (fixed groups) ===== */
 const EU27_NO_UK_IE = new Set(["AT","BE","BG","HR","CY","CZ","DK","EE","FI","FR","DE","GR","HU","IT","LV","LT","LU","MT","NL","PL","PT","RO","SK","SI","ES","SE"]);
@@ -418,7 +467,6 @@ async function run(){
   const albumCol = loadedCSV.albumCol; const trackCol = loadedCSV.trackCol||"";
   const total = rows.length;
 
-  // Table containers
   const coreTable = document.createElement("div");
   const M = t();
   coreTable.innerHTML = `
@@ -439,21 +487,19 @@ async function run(){
 
   const tbodyCore = $("#tbl_core tbody");
   const tbodyMarket = $("#tbl_market tbody");
-
   const addRow = (cells)=>`<tr>${cells.map(c=>`<td>${c}</td>`).join("")}</tr>`;
 
   for(let i=0;i<total;i++){
     setProgress(i,total);
     const albumTitle = String(rows[i][albumCol]||"").trim();
     const trackTitle = trackCol ? String(rows[i][trackCol]||"").trim() : "";
-
     if(!albumTitle){ logLine(`[${i+1}/${total}] (empty album title) — skip`); continue; }
 
     logLine((M.status.searching||"").replace("{i}",String(i+1)).replace("{n}",String(total)).replace("{t}",albumTitle));
 
     let album=null, albumId="", albumName="", albumURL="", available="NO", trackURL="";
     let avSet = new Set();
-    let primaryStruct = ""; // ← NEW: pipe-separated structure
+    let primaryStruct = "";
 
     try{
       const res = await spGET(`/search`, { q: `album:"${albumTitle}"`, type:"album", limit:5, market: primaryMarket });
@@ -481,7 +527,7 @@ async function run(){
     let offendersCount = 0;
     if(album){
       try{
-        // gather album tracks (for track match and primary evaluation)
+        // gather tracks
         let tracks = [];
         let next = album.tracks;
         while(next){
@@ -493,7 +539,7 @@ async function run(){
         }
         logLine((M.status.tracks||"").replace("{i}",String(i+1)).replace("{n}",String(total)).replace("{count}",String(tracks.length)));
 
-        // track match (if CSV provided)
+        // track match
         let hit = null;
         if(trackTitle){
           const normTarget = normalizeName(trackTitle);
@@ -507,18 +553,11 @@ async function run(){
           }
         }
 
-        // ==== Primary structure detection ====
-        if(hit && hit.artists?.length){
-          primaryStruct = joinArtistsPipe(hit.artists);
-        }else if(album.artists?.length){
-          primaryStruct = joinArtistsPipe(album.artists);
-        }else{
-          primaryStruct = "";
-        }
+        // ==== Primary structure (remixers excluded unless primary/first) ====
+        primaryStruct = buildPrimaryStruct(hit, album);
 
-        // offender check (keep for Status column)
-        const tracksFull = tracks;
-        for(const t of tracksFull){
+        // offender check（先頭IDが期待集合でない件数）
+        for(const t of tracks){
           if(ignoreDJ && djMixLike(t.name)) continue;
           const firstId = (t.artists?.[0]?.id)||"";
           if(firstId && !expectedIDs.has(firstId)) offendersCount++;
@@ -532,14 +571,8 @@ async function run(){
     const flags = groupFlags(avSet);
     const fUS = flags.US_CA||"N", fUK = flags.UK_IE||"N", fEU = flags.EU_EX_UK_IE||"N", fWW = flags.WORLD_EX_EU_US_CA||"N";
 
-    // A–E row object（E はプライマリー構造）
-    const coreObj = {
-      A: albumTitle,
-      B: available,
-      C: albumURL,
-      D: trackURL,
-      E: primaryStruct
-    };
+    // A–E row
+    const coreObj = { A: albumTitle, B: available, C: albumURL, D: trackURL, E: primaryStruct };
     OUT_ROWS.push(Object.assign({}, coreObj, {US_CA:fUS,UK_IE:fUK,EU_EX_UK_IE:fEU,WORLD_EX_EU_US_CA:fWW}));
 
     // tables
@@ -561,7 +594,7 @@ async function run(){
       OUT_URL_LIST.push(albumURL);
     }
 
-    await sleep(80); // smooth UI
+    await sleep(80);
   }
 
   setProgress(total,total);
@@ -616,7 +649,6 @@ $("#btn_pdf").addEventListener("click", async ()=>{
   const node = document.querySelector("#results_card");
   const canvas = await html2canvas(node,{scale:2, backgroundColor:"#ffffff", useCORS:true});
   const imgW = a4w - margin*2;
-  const imgH = canvas.height * (imgW / canvas.width);
   let y = 0, page = 0;
   while (y < canvas.height){
     const pageCanvas = document.createElement("canvas");
