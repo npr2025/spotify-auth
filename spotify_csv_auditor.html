@@ -14,6 +14,7 @@
   html,body{background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial,"Noto Sans JP",sans-serif}
   .wrap{max-width:1200px;margin:28px auto;padding:0 16px}
   h1{font-size:22px;margin:0 0 10px}
+  h3{margin:14px 0 6px;font-size:16px}
   .topbar{display:flex;justify-content:space-between;align-items:center;gap:12px}
   .card{background:#fff;border:1px solid var(--bd);border-radius:12px;padding:16px;margin:12px 0}
   .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
@@ -25,6 +26,7 @@
   input[type=file]{border:1px dashed var(--bd);background:#fff;padding:12px;border-radius:10px;width:100%}
   .btn{padding:.65rem 1rem;border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:10px;cursor:pointer}
   .btn[disabled]{opacity:.5;cursor:not-allowed}
+  .btn-ghost{background:#fff;color:var(--ink);border:1px solid var(--bd)}
   .pill{display:inline-block;border:1px solid var(--bd);padding:.25rem .6rem;border-radius:999px;font-size:12px;margin-right:6px;background:var(--chip)}
   .mut{color:var(--mut)} .mono{font-family:ui-monospace,Consolas,Menlo,Monaco,monospace}
   .badge{display:inline-block;padding:.1rem .5rem;border-radius:6px;font-size:11px}
@@ -37,6 +39,7 @@
   .bar{height:100%;width:0;background:#111;transition:width .25s}
   .log{max-height:280px;overflow:auto;border:1px solid var(--bd);border-radius:10px;padding:8px;background:#fff}
   .log .line{font-family:ui-monospace,Consolas,Menlo,Monaco,monospace;font-size:12px;padding:2px 0;border-bottom:1px dashed #f0f0f0}
+  .hint{font-size:12px;color:var(--mut)}
 </style>
 </head>
 <body>
@@ -71,7 +74,7 @@
       <span id="tok_status" class="pill mut">access_token: none</span>
       <button id="btn_clear" class="btn btn-ghost">保存トークン削除</button>
     </div>
-    <div id="hint_auth" class="mut" style="font-size:12px;margin-top:6px">
+    <div id="hint_auth" class="hint" style="margin-top:6px">
       ※ 公開GETのみ使用（search/album/track）。Redirect URI は Dashboard に完全一致登録。<br/>
       ※ <span class="mono">code_verifier</span> は localStorage に保存。
     </div>
@@ -112,6 +115,7 @@
     <div class="row" style="margin-top:12px">
       <button id="btn_run" class="btn" disabled>解析を実行</button>
       <button id="btn_csv_out" class="btn btn-ghost" disabled>結果CSVをダウンロード</button>
+      <button id="btn_csv_meta" class="btn btn-ghost" disabled>META CSVをダウンロード</button>
       <button id="btn_urls" class="btn btn-ghost" disabled>アルバムURL一覧（改行区切り）</button>
       <button id="btn_pdf" class="btn btn-ghost" disabled>PDFをダウンロード</button>
     </div>
@@ -130,9 +134,15 @@
 
   <div class="card">
     <div class="pill" id="pill_markets">Markets: 固定4グループ</div>
-    <div class="mut" id="hint_markets" style="font-size:12px;margin-top:6px">
+    <div class="hint" id="hint_markets" style="margin-top:6px">
       • United States, Canada ／ • United Kingdom, Ireland ／ • European Union（UK/IE除外）／ • Worldwide（Europe＋US＋CA除外）
     </div>
+  </div>
+
+  <!-- META (CSV基準) -->
+  <div class="card" id="meta_card">
+    <div class="row"><div class="pill">META（CSV基準・監査）</div><span class="mut" id="meta_summary"></span></div>
+    <div id="meta_results"></div>
   </div>
 </div>
 
@@ -154,6 +164,7 @@ const i18n = {
     ignore_dj:"Ignore tracks with DJ-mix notation",
     run:"Run analysis",
     csv_out:"Download results CSV",
+    csv_meta:"Download META CSV",
     urls_out:"Album URLs (newline list)",
     pdf:"Download PDF",
     results:"Results",
@@ -163,8 +174,10 @@ const i18n = {
     parsed:(n)=>`${n} row(s) processed. You can export CSV/URLs/PDF.`,
     tbl_core:"A–F output (per CSV row, in order)",
     tbl_market:"Grouped market availability (per album)",
+    tbl_meta:"CSV-based META checks",
     cols:{A:"Album title",B:"Spotify Available",C:"Spotify Album URL",D:"Spotify Track URL",E:"Primary structure (CSV, ' | ')",F:"Remixers (CSV, ' | ')" },
     markets_cols:["US/CA","UK/IE","EU (ex UK/IE)","World (ex EU/US/CA)"],
+    meta_cols:["Album (CSV)","Remixer→Primary混入","重複名（詳細）","feat.混入","DJ Mix無視","Primary件数","Remixer件数","ExpectedID一致","Album artists(ids)"],
     status:{reading:"[CSV] loaded: {n} row(s).", searching:'[{i}/{n}] find album for: "{t}"', found:'[{i}/{n}] album: {name} — {id}', notfound:'[{i}/{n}] NOT FOUND', tracks:'[{i}/{n}] tracks fetched: {count}', matchedTrack:'[{i}/{n}] matched track: {name}', exportReady:"[OK] export buttons enabled."}
   },
   ja:{
@@ -182,6 +195,7 @@ const i18n = {
     ignore_dj:"DJミックス表記の曲は無視",
     run:"解析を実行",
     csv_out:"結果CSVをダウンロード",
+    csv_meta:"META CSVをダウンロード",
     urls_out:"アルバムURL一覧（改行区切り）",
     pdf:"PDFをダウンロード",
     results:"結果",
@@ -191,8 +205,10 @@ const i18n = {
     parsed:(n)=>`${n} 行を解析完了。CSV／URL一覧／PDFを出力できます。`,
     tbl_core:"A–F 出力（CSV行順）",
     tbl_market:"グループ化マーケット（アルバム別）",
+    tbl_meta:"CSV基準のMETAチェック",
     cols:{A:"Album title",B:"Spotify Available",C:"Spotify Album URL",D:"Spotify Track URL",E:"Primary構造（CSV由来／' | '）",F:"Remixers（CSV由来／' | '）"},
     markets_cols:["US/CA","UK/IE","EU（UK/IE除外）","World（EU/US/CA除外）"],
+    meta_cols:["Album (CSV)","Remixer→Primary混入","重複名（詳細）","feat.混入","DJ Mix無視","Primary件数","Remixer件数","ExpectedID一致","Album artists(ids)"],
     status:{reading:"[CSV] 読み込み: {n} 行", searching:'[{i}/{n}] アルバム検索: 「{t}」', found:'[{i}/{n}] ヒット: {name} — {id}', notfound:'[{i}/{n}] 見つからず', tracks:'[{i}/{n}] トラック取得: {count} 件', matchedTrack:'[{i}/{n}] マッチ: {name}', exportReady:"[OK] エクスポート準備完了"}
   }
 };
@@ -209,7 +225,7 @@ function applyLang(){
   $("#csv_hint").textContent = L.csv_hint; $("#lbl_csv").textContent = L.csv_label;
   $("#lbl_expected").textContent = L.expected; $("#lbl_map_album").textContent = L.map_album; $("#lbl_map_track").textContent = L.map_track;
   $("#lbl_ignore_dj").textContent = L.ignore_dj;
-  $("#btn_run").textContent = L.run; $("#btn_csv_out").textContent = L.csv_out; $("#btn_urls").textContent = L.urls_out; $("#btn_pdf").textContent = L.pdf;
+  $("#btn_run").textContent = L.run; $("#btn_csv_out").textContent = L.csv_out; $("#btn_csv_meta").textContent = L.csv_meta; $("#btn_urls").textContent = L.urls_out; $("#btn_pdf").textContent = L.pdf;
   $("#pill_results").textContent = L.results; $("#pill_markets").textContent = "Markets: 固定4グループ";
   $("#hint_markets").innerHTML = state.lang==='ja'
     ? "• United States, Canada ／ • United Kingdom, Ireland ／ • European Union（UK/IE除外）／ • Worldwide（Europe＋US＋CA除外）"
@@ -236,6 +252,7 @@ async function startAuth(){
   const url = new URL("https://accounts.spotify.com/authorize");
   url.searchParams.set("response_type","code"); url.searchParams.set("client_id", client_id);
   url.searchParams.set("redirect_uri", redirect_uri); url.searchParams.set("code_challenge_method","S256"); url.searchParams.set("code_challenge", code_challenge);
+  // scopeなし（公開GETのみ）
   location.assign(url.toString());
 }
 async function handleCallback(){
@@ -273,7 +290,7 @@ $("#csv_file").addEventListener("change",(e)=>{
   Papa.parse(file,{header:true,skipEmptyLines:true,complete:(rs)=>{
     loadedCSV.headers = rs.meta.fields||[]; loadedCSV.rows = rs.data||[];
     const heads = loadedCSV.headers.map(h=>String(h||'').trim());
-    const find = (...cands)=> heads.find(h=>cands.map(x=>x.toLowerCase()).includes(h.toLowerCase())) || "";
+    const find = (...cands)=> heads.find(h=>cands.map(x=>x.toLowerCase()).includes(String(h||'').toLowerCase())) || "";
     // default mapping
     loadedCSV.albumCol = find("Album title","アルバム","アルバム名") || heads.find(h=>/album\s*title/i.test(h)) || "";
     loadedCSV.trackCol = find("Track title","トラック","曲名") || heads.find(h=>/track\s*title/i.test(h)) || "";
@@ -300,10 +317,13 @@ function normalizeName(s){
 function djMixLike(name){ const n=(name||"").toLowerCase(); return n.includes("dj mix")||n.includes("continuous mix")||/\bmixed\b/i.test(n); }
 function esc(s){ return String(s||"").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m])); }
 
+// name→比較キー
+function nameKey(n){ return String(n||"").toLowerCase().normalize("NFKC").replace(/[.\-_'’`"]/g,'').replace(/\s+/g,' ').trim(); }
+
 /* ==== 人名分割（CSVのみを信頼） ==== */
 function splitPeopleCSV(v){
   return String(v||"")
-    .replace(/\b(feat\.?|featuring)\b.+$/i,'') // 末尾の feat. は切る
+    .replace(/\b(feat\.?|featuring)\b.+$/i,'') // Primary末尾の feat. は切る（E には入れない）
     .split(/(?:\s*\|\s*|,|、|，|＆|&| and | with | vs | x | × |\/|\+|;)/i)
     .map(s=>s.replace(/^by\s+/i,'').trim())
     .filter(Boolean);
@@ -311,7 +331,7 @@ function splitPeopleCSV(v){
 function uniqueJoinPipe(arr){
   const seen = new Set(); const out=[];
   for(const n of arr){
-    const k = n.toLowerCase().replace(/[.\-_'’`"]/g,'').replace(/\s+/g,' ').trim();
+    const k = nameKey(n);
     if(!k || seen.has(k)) continue; seen.add(k); out.push(n.trim());
   }
   return out.join(" | ");
@@ -348,13 +368,12 @@ function bestNameMatch(cands, target){
   } return best;
 }
 async function searchAlbumByTitle(title){
-  // まず市場指定なし→ダメならUS→装飾除去版
-  const q1 = await spGET(`/search`, { q:`album:"${title}"`, type:"album", limit:20 });
-  let items = q1.albums?.items||[];
-  if(!items.length){ const q2 = await spGET(`/search`, { q:`album:"${title}"`, type:"album", limit:20, market:PRIMARY_MARKET }); items = q2.albums?.items||[]; }
-  if(!items.length){ const alt = stripDecorations(title); if(alt && alt!==title){ const q3 = await spGET(`/search`, { q:`album:"${alt}"`, type:"album", limit:20 }); items = q3.albums?.items||[]; } }
+  let items = (await spGET(`/search`, { q:`album:"${title}"`, type:"album", limit:20 })).albums?.items||[];
+  if(!items.length){ items = (await spGET(`/search`, { q:`album:"${title}"`, type:"album", limit:20, market:PRIMARY_MARKET })).albums?.items||[]; }
+  if(!items.length){ const alt = stripDecorations(title); if(alt && alt!==title){ items = (await spGET(`/search`, { q:`album:"${alt}"`, type:"album", limit:20 })).albums?.items||[]; } }
   const pick = bestNameMatch(items, title); if(!pick) return null;
-  return spGET(`/albums/${pick.id}`, { market: PRIMARY_MARKET });
+  // market パラメータは付けず available_markets をそのまま取得
+  return spGET(`/albums/${pick.id}`);
 }
 async function searchTrackFast(trackTitle, albumTitle){
   const q = await spGET(`/search`, { q:`track:"${trackTitle}" album:"${albumTitle}"`, type:"track", limit:20, market:PRIMARY_MARKET });
@@ -368,16 +387,19 @@ async function searchTrackFast(trackTitle, albumTitle){
 }
 
 /* ===================== Main run ===================== */
-let OUT_ROWS = []; let OUT_MARKETS = []; let OUT_URL_LIST = [];
+let OUT_ROWS = []; let OUT_URL_LIST = []; let META_ROWS = [];
+
+function parseExpectedIDs(){ const v=$("#expected_ids").value.trim(); if(!v) return new Set(); return new Set(v.split(/[,，\s]+/).map(s=>s.trim()).filter(Boolean)); }
 
 async function run(){
   $("#results").innerHTML = "";
-  OUT_ROWS = []; OUT_MARKETS = []; OUT_URL_LIST = [];
-  $("#btn_csv_out").disabled = true; $("#btn_urls").disabled = true; $("#btn_pdf").disabled = true;
-  $("#summary").textContent = t().parsing; $("#log").innerHTML = ""; setProgress(0,1);
+  $("#meta_results").innerHTML = "";
+  OUT_ROWS = []; OUT_URL_LIST = []; META_ROWS = [];
+  $("#btn_csv_out").disabled = true; $("#btn_csv_meta").disabled = true; $("#btn_urls").disabled = true; $("#btn_pdf").disabled = true;
+  $("#summary").textContent = t().parsing; $("#meta_summary").textContent = ""; $("#log").innerHTML = ""; setProgress(0,1);
 
   const rows = loadedCSV.rows; const albumCol = loadedCSV.albumCol; const trackCol = loadedCSV.trackCol||"";
-  const total = rows.length; const M = t();
+  const total = rows.length; const M = t(); const expectedIDs = parseExpectedIDs(); const ignoreDJ = $("#ignore_djmix").checked;
 
   // === CSVカラム（このファイル構成を前提にオート検出） ===
   const heads = loadedCSV.headers;
@@ -389,13 +411,13 @@ async function run(){
     trackFeaturing: find("Track featuring artists"),
     albumFeaturing: find("Featuring artists"),
     remixer: find("Remixer","Remixers"),
-    // 既存CSVのtypo対策
-    spAlbumURL: find("Spotify Album URL"),
-    spTrackURLTypo: find("Spotify Tlbum URL"), // typoが来ても拾う
-    spAvailYN: find("Spotify Available YES/NO ","Spotify Available YES/NO")
+    // URL/可用列（表記ゆれ対応）
+    spAlbumURL: find("Spotify Album URL","Album URL","Spotify album URL"),
+    spTrackURL: find("Spotify Track URL","Track URL","Spotify track URL"),
+    spAvail: find("Spotify Available YES/NO","Spotify Available","Spotify Available YES/NO ")
   };
 
-  // === 表を作る ===
+  // === 表を作る（Core / Markets） ===
   const coreBox = document.createElement("div");
   coreBox.innerHTML = `
     <h3>${M.tbl_core}</h3>
@@ -413,7 +435,14 @@ async function run(){
   </tr></thead><tbody></tbody></table>`;
   $("#results").appendChild(marketBox);
 
-  const tbodyCore = $("#tbl_core tbody"); const tbodyMarket = $("#tbl_market tbody");
+  // === META表 ===
+  const metaBox = document.createElement("div");
+  metaBox.innerHTML = `<h3>${M.tbl_meta}</h3><table id="tbl_meta"><thead><tr>
+    ${M.meta_cols.map(c=>`<th>${c}</th>`).join("")}
+  </tr></thead><tbody></tbody></table>`;
+  $("#meta_results").appendChild(metaBox);
+
+  const tbodyCore = $("#tbl_core tbody"); const tbodyMarket = $("#tbl_market tbody"); const tbodyMeta = $("#tbl_meta tbody");
   const addRow = (cells)=>`<tr>${cells.map(c=>`<td>${c}</td>`).join("")}</tr>`;
 
   for(let i=0;i<total;i++){
@@ -427,50 +456,81 @@ async function run(){
 
     // === E/F（CSVに100%準拠） ===
     const primSrc = String(row[COL.trackPrimary] || row[COL.albumPrimary] || row[COL.albumDisplay] || "").trim();
-    const featSrc = String(row[COL.trackFeaturing] || row[COL.albumFeaturing] || "").trim(); // 使わない（Primaryには入れない）
-    let primaryStruct = uniqueJoinPipe(splitPeopleCSV(primSrc));
-    let remixersStruct = uniqueJoinPipe(splitPeopleCSV(row[COL.remixer]||""));
+    const featSrc = String(row[COL.trackFeaturing] || row[COL.albumFeaturing] || "").trim();
+    const remixSrc = String(row[COL.remixer]||"").trim();
 
-    // === Spotify URL/Markets（必要最小限） ===
-    let album=null, albumId="", albumName="", albumURL=String(row[COL.spAlbumURL]||"").trim(), trackURL=String(row[COL.spTrackURLTypo]||"").trim();
-    let available = String(row[COL.spAvailYN]||"").toUpperCase().includes("Y") ? "YES" : (albumURL?"YES":"NO");
-    let avSet = new Set();
+    const primArrRaw = splitPeopleCSV(primSrc);
+    const remixArrRaw = splitPeopleCSV(remixSrc);
+    const primaryStruct = uniqueJoinPipe(primArrRaw);
+    const remixersStruct = uniqueJoinPipe(remixArrRaw);
+
+    // === CSV基準のメタ判定 ===
+    const primSet = new Set(primArrRaw.map(nameKey));
+    const remixSet = new Set(remixArrRaw.map(nameKey));
+    const overlap = [];
+    for(const k of remixSet){ if(primSet.has(k)) overlap.push(k); }
+    const overlapNames = overlap.length ? uniqueJoinPipe(remixArrRaw.filter(n=>overlap.includes(nameKey(n)))) : "";
+
+    const featInPrimary = /\b(feat\.?|featuring)\b/i.test(primSrc);
+    const isDJIgnored = ignoreDJ && (djMixLike(albumTitle) || djMixLike(trackTitle));
+
+    // === Spotify URL/Markets ===
+    let album=null, albumId="", albumName="", albumURL=String(row[COL.spAlbumURL]||"").trim(), trackURL=String(row[COL.spTrackURL]||"").trim();
+    let available = (String(row[COL.spAvail]||"").trim().toUpperCase().startsWith("Y")) ? "YES" : (albumURL?"YES":"NO");
+    let avSet = new Set(); let expectedHit = "";
 
     try{
-      if(!albumURL){ // アルバムURLなければSpotify検索
-        const got = await searchAlbumByTitle(albumTitle);
-        if(got){
-          album = got; albumId = got.id; albumName = got.name;
-          albumURL = `https://open.spotify.com/album/${albumId}`; available = "YES";
-          avSet = new Set(got.available_markets||[]);
-          logLine((M.status.found||"").replace("{i}",String(i+1)).replace("{n}",String(total)).replace("{name}",albumName).replace("{id}",albumId));
+      if(!isDJIgnored){ // DJ Mix 無視時はSpotify検索をスキップ
+        if(!albumURL){ // アルバムURLなければSpotify検索
+          const got = await searchAlbumByTitle(albumTitle);
+          if(got){
+            album = got; albumId = got.id; albumName = got.name;
+            albumURL = `https://open.spotify.com/album/${albumId}`; available = "YES";
+            avSet = new Set(got.available_markets||[]);
+            logLine((M.status.found||"").replace("{i}",String(i+1)).replace("{n}",String(total)).replace("{name}",albumName).replace("{id}",albumId));
+          }else{
+            logLine((M.status.notfound||"").replace("{i}",String(i+1)).replace("{n}",String(total)));
+          }
         }else{
-          logLine((M.status.notfound||"").replace("{i}",String(i+1)).replace("{n}",String(total)));
+          const m = albumURL.match(/album\/([a-zA-Z0-9]{10,})/); if(m){ albumId = m[1]; }
+          if(albumId){
+            try{ const got = await spGET(`/albums/${albumId}`); album = got; albumName = got.name; avSet = new Set(got.available_markets||[]); }
+            catch(_){} // 市場取得失敗は無視
+          }
         }
-      }else{
-        // URLからalbumId推定（/album/{id}）
-        const m = albumURL.match(/album\/([a-zA-Z0-9]{10,})/); if(m){ albumId = m[1]; }
-        if(albumId){
-          try{ const got = await spGET(`/albums/${albumId}`, { market:"US" }); album = got; albumName = got.name; avSet = new Set(got.available_markets||[]); }
-          catch(_){} // 市場取得失敗は無視
+        // Track URL（なければ検索）
+        if(!trackURL && trackTitle){
+          const hit = await searchTrackFast(trackTitle, albumTitle);
+          if(hit) { trackURL = `https://open.spotify.com/track/${hit.id}`; logLine((M.status.matchedTrack||"").replace("{i}",String(i+1)).replace("{n}",String(total)).replace("{name}",hit.name)); }
         }
-      }
-      // Track URL（なければ検索）
-      if(!trackURL && trackTitle){
-        const hit = await searchTrackFast(trackTitle, albumTitle);
-        if(hit) trackURL = `https://open.spotify.com/track/${hit.id}`, logLine((M.status.matchedTrack||"").replace("{i}",String(i+1)).replace("{n}",String(total)).replace("{name}",hit.name));
+      } else {
+        logLine(`[${i+1}/${total}] DJ Mix ignored`);
+        available = albumURL ? "YES" : "NO";
       }
     }catch(e){ logLine(`[ERR ${i+1}/${total}] Spotify lookup ${e.message}`); }
+
+    // Expected Artist IDs ↔ album.artists.id 突合（任意）
+    let albumArtistIDs="";
+    if(album && album.artists){
+      const ids = (album.artists||[]).map(a=>a.id).filter(Boolean);
+      albumArtistIDs = ids.join(" | ");
+      if(expectedIDs.size){
+        const hit = ids.some(id=>expectedIDs.has(id));
+        expectedHit = hit ? "Y" : "N";
+      } else {
+        expectedHit = "";
+      }
+    }
 
     // Markets flags
     const flags = groupFlags(avSet);
     const fUS = flags.US_CA||"N", fUK = flags.UK_IE||"N", fEU = flags.EU_EX_UK_IE||"N", fWW = flags.WORLD_EX_EU_US_CA||"N";
 
-    // A–F row（CSV順を尊重）
-    const coreObj = { A: albumTitle, B: available, C: albumURL, D: trackURL, E: primaryStruct, F: remixersStruct };
-    OUT_ROWS.push(Object.assign({}, coreObj, {US_CA:fUS,UK_IE:fUK,EU_EX_UK_IE:fEU,WORLD_EX_EU_US_CA:fWW}));
+    // === A–F row（CSV順を尊重） ===
+    const coreObj = { A: albumTitle, B: available, C: albumURL, D: trackURL, E: primaryStruct, F: remixersStruct, US_CA:fUS,UK_IE:fUK,EU_EX_UK_IE:fEU,WORLD_EX_EU_US_CA:fWW };
+    OUT_ROWS.push(coreObj);
 
-    // 表示
+    // 表示 Core
     tbodyCore.insertAdjacentHTML("beforeend", addRow([
       esc(albumTitle),
       available==="YES" ? `<span class="badge ok">YES</span>` : `<span class="badge ng">NO</span>`,
@@ -480,19 +540,48 @@ async function run(){
       fUS, fUK, fEU, fWW
     ]));
 
+    // 表示 Market
     if(album){
       tbodyMarket.insertAdjacentHTML("beforeend", addRow([
         esc(albumName||albumTitle), `<span class="mono">${albumId||""}</span>`, fUS, fUK, fEU, fWW, "—"
       ]));
-      OUT_URL_LIST.push(albumURL);
+      if(albumURL) OUT_URL_LIST.push(albumURL);
     }
 
-    await sleep(40);
+    // === META 行 ===
+    const metaRow = {
+      Album: albumTitle,
+      RemixInPrimary: overlap.length ? "Y" : "N",
+      OverlapNames: overlapNames || "",
+      FeatInPrimary: featInPrimary ? "Y" : "N",
+      DJMixIgnored: isDJIgnored ? "Y" : "N",
+      PrimaryCount: primArrRaw.filter(Boolean).length,
+      RemixerCount: remixArrRaw.filter(Boolean).length,
+      ExpectedIDHit: expectedHit,
+      AlbumArtistIDs: albumArtistIDs
+    };
+    META_ROWS.push(metaRow);
+
+    tbodyMeta.insertAdjacentHTML("beforeend", addRow([
+      esc(metaRow.Album),
+      metaRow.RemixInPrimary==="Y" ? `<span class="badge ng">Y</span>` : `<span class="badge ok">N</span>`,
+      esc(metaRow.OverlapNames||""),
+      metaRow.FeatInPrimary==="Y" ? `<span class="badge ng">Y</span>` : `<span class="badge ok">N</span>`,
+      metaRow.DJMixIgnored==="Y" ? `<span class="badge ng">Y</span>` : `<span class="badge ok">N</span>`,
+      String(metaRow.PrimaryCount),
+      String(metaRow.RemixerCount),
+      esc(metaRow.ExpectedIDHit||""),
+      esc(metaRow.AlbumArtistIDs||"")
+    ]));
+
+    await sleep(30);
   }
 
   setProgress(total,total);
   $("#summary").textContent = t().parsed(OUT_ROWS.length);
+  $("#meta_summary").textContent = `${META_ROWS.length} 行の監査メタを作成`;
   $("#btn_csv_out").disabled = OUT_ROWS.length===0;
+  $("#btn_csv_meta").disabled = META_ROWS.length===0;
   $("#btn_urls").disabled = OUT_URL_LIST.length===0;
   $("#btn_pdf").disabled = false;
   logLine(t().status.exportReady||"[OK] export ready");
@@ -506,13 +595,37 @@ function toCSV(objs, headers){
   const lines = [cols.join(",")]; for(const o of objs){ lines.push(cols.map(h=>escv(o[h])).join(",")); } return lines.join("\n");
 }
 function dl(data, name, mime){ const blob = new Blob([data],{type:mime||"text/plain;charset=utf-8"}); const url = URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=name; a.click(); }
+
 $("#btn_csv_out").addEventListener("click", ()=>{
   const L = t();
   const headers = [L.cols.A, L.cols.B, L.cols.C, L.cols.D, L.cols.E, L.cols.F, "US_CA","UK_IE","EU_EX_UK_IE","WORLD_EX_EU_US_CA"];
   const remap = OUT_ROWS.map(r=>({[L.cols.A]: r.A, [L.cols.B]: r.B, [L.cols.C]: r.C, [L.cols.D]: r.D, [L.cols.E]: r.E, [L.cols.F]: r.F, "US_CA": r.US_CA, "UK_IE": r.UK_IE, "EU_EX_UK_IE": r.EU_EX_UK_IE, "WORLD_EX_EU_US_CA": r.WORLD_EX_EU_US_CA}));
   const csv = toCSV(remap, headers); dl(csv, "spotify_csv_audit_A-F.csv", "text/csv;charset=utf-8");
 });
-$("#btn_urls").addEventListener("click", ()=>{ const uniq = Array.from(new Set(OUT_URL_LIST.filter(Boolean))); dl(uniq.join("\n"), "spotify_album_urls.txt", "text/plain;charset=utf-8"); });
+
+$("#btn_csv_meta").addEventListener("click", ()=>{
+  const L = t();
+  const headers = i18n.ja.meta_cols; // 日本語でも英語でも列名は表示用でOK
+  const csvObjs = META_ROWS.map(m=>({
+    [headers[0]]: m.Album,
+    [headers[1]]: m.RemixInPrimary,
+    [headers[2]]: m.OverlapNames,
+    [headers[3]]: m.FeatInPrimary,
+    [headers[4]]: m.DJMixIgnored,
+    [headers[5]]: m.PrimaryCount,
+    [headers[6]]: m.RemixerCount,
+    [headers[7]]: m.ExpectedIDHit,
+    [headers[8]]: m.AlbumArtistIDs
+  }));
+  const csv = toCSV(csvObjs, headers);
+  dl(csv, "spotify_csv_audit_META.csv", "text/csv;charset=utf-8");
+});
+
+$("#btn_urls").addEventListener("click", ()=>{
+  const uniq = Array.from(new Set(OUT_URL_LIST.filter(Boolean)));
+  dl(uniq.join("\n"), "spotify_album_urls.txt", "text/plain;charset=utf-8");
+});
+
 $("#btn_pdf").addEventListener("click", async ()=>{
   const { jsPDF } = window.jspdf; const pdf = new jsPDF({unit:"pt", format:"a4"});
   const a4w = 595.28, margin = 24; const node = document.querySelector("#results_card");
