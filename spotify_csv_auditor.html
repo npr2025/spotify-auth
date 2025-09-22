@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Spotify CSV Auditor — A–F Filler (TDCS, Grouped Markets, i18n + CSV/PDF)</title>
+<title>Spotify CSV Auditor — A–F Filler (Light / No Markets)</title>
 <link rel="preconnect" href="https://accounts.spotify.com"/>
 <!-- deps -->
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
@@ -22,6 +22,7 @@
   @media (max-width:960px){.grid{grid-template-columns:1fr}}
   label{font-size:12px;color:var(--mut);display:block;margin:0 0 6px}
   input[type=text],select,textarea{width:100%;border:1px solid var(--bd);border-radius:10px;padding:10px;font-size:14px;background:#fff}
+  input[type=number]{width:100%;border:1px solid var(--bd);border-radius:10px;padding:10px;font-size:14px;background:#fff}
   textarea{min-height:100px;resize:vertical}
   input[type=file]{border:1px dashed var(--bd);background:#fff;padding:12px;border-radius:10px;width:100%}
   .btn{padding:.65rem 1rem;border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:10px;cursor:pointer}
@@ -36,16 +37,18 @@
   th,td{border-bottom:1px solid var(--bd);text-align:left;padding:8px 6px;vertical-align:top}
   th{background:#f6f6f6;position:sticky;top:0;z-index:1}
   .prog{height:10px;background:#eee;border-radius:999px;overflow:hidden}
-  .bar{height:100%;width:0;background:#111;transition:width .25s}
-  .log{max-height:280px;overflow:auto;border:1px solid var(--bd);border-radius:10px;padding:8px;background:#fff}
+  .bar{height:100%;width:0;background:#111;transition:width .2s}
+  .log{max-height:220px;overflow:auto;border:1px solid var(--bd);border-radius:10px;padding:8px;background:#fff}
   .log .line{font-family:ui-monospace,Consolas,Menlo,Monaco,monospace;font-size:12px;padding:2px 0;border-bottom:1px dashed #f0f0f0}
   .hint{font-size:12px;color:var(--mut)}
+  .skeleton{background:linear-gradient(90deg,#eee,#f6f6f6,#eee);background-size:200% 100%;animation:sh 1.2s infinite}
+  @keyframes sh{0%{background-position:200% 0}100%{background-position:-200% 0}}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="topbar">
-    <h1 id="title">Spotify CSV Auditor — A–F Filler（TDCS, 固定4マーケット, i18n+CSV/PDF）</h1>
+    <h1 id="title">Spotify CSV Auditor — A–F Filler（Light／マーケット解析なし）</h1>
     <div class="row">
       <label class="mut" style="margin:0">
         <span id="lang_label" class="mut" style="font-size:12px;margin-right:6px">Language</span>
@@ -66,7 +69,7 @@
       </div>
       <div>
         <label id="lbl_redirect">Redirect URI（Developer Dashboardで完全一致）</label>
-        <input id="redirect_uri" type="text" placeholder="https://npr2025.github.io/spotify-auth/csv_auditor.html"/>
+        <input id="redirect_uri" type="text" placeholder="https://npr2025.github.io/spotify-auth/csv_auditor_light.html"/>
       </div>
     </div>
     <div class="row" style="margin-top:10px">
@@ -75,12 +78,13 @@
       <button id="btn_clear" class="btn btn-ghost">保存トークン削除</button>
     </div>
     <div id="hint_auth" class="hint" style="margin-top:6px">
-      ※ 公開GETのみ使用（search/album/track）。Redirect URI は Dashboard に完全一致登録。<br/>
-      ※ <span class="mono">code_verifier</span> は localStorage に保存。
+      ※ 公開GETのみ使用（search/track）。Redirect URI は Dashboard に完全一致登録。<br/>
+      ※ <span class="mono">code_verifier</span> は localStorage に保存。<br/>
+      ※ 軽量モードは <b>/albums</b> を呼ばず、<b>available_markets</b> を取得しません（マップ速度重視）。
     </div>
   </div>
 
-  <!-- CSV Input & Mapping -->
+  <!-- CSV Input & Options -->
   <div class="card">
     <div class="row" style="justify-content:space-between">
       <div>
@@ -92,16 +96,18 @@
         <label for="ignore_djmix" id="lbl_ignore_dj" style="margin:0">DJミックス表記の曲は無視</label>
       </div>
     </div>
+
     <div class="grid" style="margin-top:8px">
       <div>
         <label id="lbl_csv">CSVファイルを選択</label>
         <input id="csv_file" type="file" accept=".csv,text/csv"/>
       </div>
       <div>
-        <label id="lbl_expected">期待アーティストID（参考／カンマ区切り）</label>
+        <label id="lbl_expected">期待アーティストID（参考／カンマ区切り／軽量モードでは未検証）</label>
         <input id="expected_ids" type="text" value=""/>
       </div>
     </div>
+
     <div class="grid" style="margin-top:8px">
       <div>
         <label id="lbl_map_album">アルバムタイトル列（既定: Album title）</label>
@@ -112,6 +118,35 @@
         <select id="sel_track_col"><option value="">—</option></select>
       </div>
     </div>
+
+    <!-- Fast options -->
+    <div class="grid" style="margin-top:8px">
+      <div>
+        <label>モードと並列数</label>
+        <div class="row">
+          <label style="margin:0"><input type="checkbox" id="opt_light" checked/> 軽量モード（/albums呼ばない・マーケット解析なし）</label>
+          <label style="margin:0"><input type="checkbox" id="opt_skip_track" checked/> トラック検索を省略</label>
+          <label style="margin:0"><input type="checkbox" id="opt_verbose"/> 詳細ログ</label>
+        </div>
+        <div class="row">
+          <label style="margin:0">並列数</label>
+          <input id="opt_conc" type="number" min="1" max="12" step="1" value="6" style="width:120px"/>
+        </div>
+      </div>
+      <div>
+        <label>Search market（応答縮小で高速化・任意）</label>
+        <select id="sel_market">
+          <option value="">— (none)</option>
+          <option value="JP">JP</option>
+          <option value="US">US</option>
+          <option value="GB">GB</option>
+          <option value="DE">DE</option>
+          <option value="FR">FR</option>
+        </select>
+        <div class="hint" style="margin-top:6px">指定すると検索応答から巨大なavailable_marketsが省略されることがあり、体感が速くなります。</div>
+      </div>
+    </div>
+
     <div class="row" style="margin-top:12px">
       <button id="btn_run" class="btn" disabled>解析を実行</button>
       <button id="btn_csv_out" class="btn btn-ghost" disabled>結果CSVをダウンロード</button>
@@ -132,16 +167,9 @@
     <div id="results"></div>
   </div>
 
-  <div class="card">
-    <div class="pill" id="pill_markets">Markets: 固定4グループ</div>
-    <div class="hint" id="hint_markets" style="margin-top:6px">
-      • United States, Canada ／ • United Kingdom, Ireland ／ • European Union（UK/IE除外）／ • Worldwide（Europe＋US＋CA除外）
-    </div>
-  </div>
-
   <!-- META (CSV基準) -->
   <div class="card" id="meta_card">
-    <div class="row"><div class="pill">META（CSV基準・監査）</div><span class="mut" id="meta_summary"></span></div>
+    <div class="row"><div class="pill">META（CSV基準・監査／軽量）</div><span class="mut" id="meta_summary"></span></div>
     <div id="meta_results"></div>
   </div>
 </div>
@@ -150,7 +178,7 @@
 /* ===================== i18n ===================== */
 const i18n = {
   en:{
-    title:"Spotify CSV Auditor — A–F Filler (TDCS, Grouped Markets, i18n + CSV/PDF)",
+    title:"Spotify CSV Auditor — A–F Filler (Light / No Markets)",
     lang_label:"Language",
     client:"Client ID (Spotify Developer)",
     redirect:"Redirect URI (must exactly match in Developer Dashboard)",
@@ -158,7 +186,7 @@ const i18n = {
     clear_btn:"Clear saved token",
     csv_hint:"Load an album list CSV → strictly in its order (no extra titles).",
     csv_label:"Choose CSV file",
-    expected:"Expected artist IDs (optional, comma-separated)",
+    expected:"Expected artist IDs (optional, comma-separated / not verified in Light mode)",
     map_album:"Album title column (default: Album title)",
     map_track:"Track title column (default: Track title)",
     ignore_dj:"Ignore tracks with DJ-mix notation",
@@ -173,15 +201,13 @@ const i18n = {
     parsing:"Parsing…",
     parsed:(n)=>`${n} row(s) processed. You can export CSV/URLs/PDF.`,
     tbl_core:"A–F output (per CSV row, in order)",
-    tbl_market:"Grouped market availability (per album)",
-    tbl_meta:"CSV-based META checks",
+    tbl_meta:"CSV-based META checks (light)",
     cols:{A:"Album title",B:"Spotify Available",C:"Spotify Album URL",D:"Spotify Track URL",E:"Primary structure (CSV, ' | ')",F:"Remixers (CSV, ' | ')" },
-    markets_cols:["US/CA","UK/IE","EU (ex UK/IE)","World (ex EU/US/CA)"],
-    meta_cols:["Album (CSV)","Remixer→Primary混入","重複名（詳細）","feat.混入","DJ Mix無視","Primary件数","Remixer件数","ExpectedID一致","Album artists(ids)"],
-    status:{reading:"[CSV] loaded: {n} row(s).", searching:'[{i}/{n}] find album for: "{t}"', found:'[{i}/{n}] album: {name} — {id}', notfound:'[{i}/{n}] NOT FOUND', tracks:'[{i}/{n}] tracks fetched: {count}', matchedTrack:'[{i}/{n}] matched track: {name}', exportReady:"[OK] export buttons enabled."}
+    meta_cols:["Album (CSV)","Remixer→Primary overlap","Overlap names","'feat.' in Primary","DJ Mix ignored","Primary count","Remixer count"],
+    status:{reading:"[CSV] loaded: {n} row(s).", searching:'[{i}/{n}] album search: "{t}"', found:'[{i}/{n}] album: {name} — {id}', notfound:'[{i}/{n}] NOT FOUND', matchedTrack:'[{i}/{n}] matched track: {name}', exportReady:"[OK] export buttons enabled."}
   },
   ja:{
-    title:"Spotify CSV Auditor — A–F Filler（TDCS／固定4マーケット／i18n＋CSV/PDF）",
+    title:"Spotify CSV Auditor — A–F Filler（軽量／マーケット解析なし）",
     lang_label:"表示言語",
     client:"Client ID（Spotify Developer）",
     redirect:"Redirect URI（Developer Dashboardで完全一致）",
@@ -189,7 +215,7 @@ const i18n = {
     clear_btn:"保存トークン削除",
     csv_hint:"アルバム一覧CSVを読み込み → CSVの行順のまま処理（CSVに無いタイトルは追加しない）",
     csv_label:"CSVファイルを選択",
-    expected:"期待アーティストID（任意／カンマ区切り）",
+    expected:"期待アーティストID（任意／カンマ区切り／軽量モードでは未検証）",
     map_album:"アルバムタイトル列（既定: Album title）",
     map_track:"トラックタイトル列（既定: Track title）",
     ignore_dj:"DJミックス表記の曲は無視",
@@ -204,15 +230,13 @@ const i18n = {
     parsing:"解析中…",
     parsed:(n)=>`${n} 行を解析完了。CSV／URL一覧／PDFを出力できます。`,
     tbl_core:"A–F 出力（CSV行順）",
-    tbl_market:"グループ化マーケット（アルバム別）",
-    tbl_meta:"CSV基準のMETAチェック",
+    tbl_meta:"CSV基準のMETAチェック（軽量）",
     cols:{A:"Album title",B:"Spotify Available",C:"Spotify Album URL",D:"Spotify Track URL",E:"Primary構造（CSV由来／' | '）",F:"Remixers（CSV由来／' | '）"},
-    markets_cols:["US/CA","UK/IE","EU（UK/IE除外）","World（EU/US/CA除外）"],
-    meta_cols:["Album (CSV)","Remixer→Primary混入","重複名（詳細）","feat.混入","DJ Mix無視","Primary件数","Remixer件数","ExpectedID一致","Album artists(ids)"],
-    status:{reading:"[CSV] 読み込み: {n} 行", searching:'[{i}/{n}] アルバム検索: 「{t}」', found:'[{i}/{n}] ヒット: {name} — {id}', notfound:'[{i}/{n}] 見つからず', tracks:'[{i}/{n}] トラック取得: {count} 件', matchedTrack:'[{i}/{n}] マッチ: {name}', exportReady:"[OK] エクスポート準備完了"}
+    meta_cols:["Album (CSV)","Remixer→Primary重複","重複名（詳細）","Primaryに'feat.'混入","DJ Mix無視","Primary件数","Remixer件数"],
+    status:{reading:"[CSV] 読み込み: {n} 行", searching:'[{i}/{n}] アルバム検索: 「{t}」', found:'[{i}/{n}] ヒット: {name} — {id}', notfound:'[{i}/{n}] 見つからず', matchedTrack:'[{i}/{n}] マッチ: {name}', exportReady:"[OK] エクスポート準備完了"}
   }
 };
-const storage = { get k(){ return 'sp_csv_auditor_tdcs_v2'; }, load(){ try{return JSON.parse(localStorage.getItem(this.k)||'{}')}catch{return{}} }, save(obj){ localStorage.setItem(this.k, JSON.stringify(obj||{})); }};
+const storage = { get k(){ return 'sp_csv_auditor_tdcs_light_v1'; }, load(){ try{return JSON.parse(localStorage.getItem(this.k)||'{}')}catch{return{}} }, save(obj){ localStorage.setItem(this.k, JSON.stringify(obj||{})); }};
 const state = Object.assign({lang:'ja',access_token:null,expires_at:0,code_verifier:null,client_id:"",redirect_uri:""}, storage.load());
 const $ = sel => document.querySelector(sel);
 function t(){ return i18n[state.lang]||i18n.ja; }
@@ -226,10 +250,7 @@ function applyLang(){
   $("#lbl_expected").textContent = L.expected; $("#lbl_map_album").textContent = L.map_album; $("#lbl_map_track").textContent = L.map_track;
   $("#lbl_ignore_dj").textContent = L.ignore_dj;
   $("#btn_run").textContent = L.run; $("#btn_csv_out").textContent = L.csv_out; $("#btn_csv_meta").textContent = L.csv_meta; $("#btn_urls").textContent = L.urls_out; $("#btn_pdf").textContent = L.pdf;
-  $("#pill_results").textContent = L.results; $("#pill_markets").textContent = "Markets: 固定4グループ";
-  $("#hint_markets").innerHTML = state.lang==='ja'
-    ? "• United States, Canada ／ • United Kingdom, Ireland ／ • European Union（UK/IE除外）／ • Worldwide（Europe＋US＋CA除外）"
-    : "• United States, Canada / • United Kingdom, Ireland / • European Union (excl. UK & Ireland) / • Worldwide (excl. Europe, US, Canada)";
+  $("#pill_results").textContent = L.results; $("#meta_summary").textContent = "";
   setTokStatus();
 }
 function saveState(){ storage.save({lang:state.lang,access_token:state.access_token,expires_at:state.expires_at,code_verifier:state.code_verifier,client_id:state.client_id,redirect_uri:state.redirect_uri}); }
@@ -252,7 +273,6 @@ async function startAuth(){
   const url = new URL("https://accounts.spotify.com/authorize");
   url.searchParams.set("response_type","code"); url.searchParams.set("client_id", client_id);
   url.searchParams.set("redirect_uri", redirect_uri); url.searchParams.set("code_challenge_method","S256"); url.searchParams.set("code_challenge", code_challenge);
-  // scopeなし（公開GETのみ）
   location.assign(url.toString());
 }
 async function handleCallback(){
@@ -282,7 +302,7 @@ async function spGET(path, params={}){
 
 /* ===================== CSV load / mapping ===================== */
 const loadedCSV = { headers:[], rows:[], albumCol:"", trackCol:"" };
-function logLine(s){ const el=document.createElement("div"); el.className="line"; el.textContent=s; $("#log").appendChild(el); el.scrollIntoView(false); }
+function logLine(s,force){ if(!$("#opt_verbose").checked && !force) return; const el=document.createElement("div"); el.className="line"; el.textContent=s; $("#log").appendChild(el); el.scrollIntoView(false); }
 function setProgress(i,n){ const pct = n? Math.floor(i*100/n) : 0; $("#bar").style.width = pct+"%"; $("#prog_txt").textContent = pct+"%"; }
 
 $("#csv_file").addEventListener("change",(e)=>{
@@ -291,7 +311,6 @@ $("#csv_file").addEventListener("change",(e)=>{
     loadedCSV.headers = rs.meta.fields||[]; loadedCSV.rows = rs.data||[];
     const heads = loadedCSV.headers.map(h=>String(h||'').trim());
     const find = (...cands)=> heads.find(h=>cands.map(x=>x.toLowerCase()).includes(String(h||'').toLowerCase())) || "";
-    // default mapping
     loadedCSV.albumCol = find("Album title","アルバム","アルバム名") || heads.find(h=>/album\s*title/i.test(h)) || "";
     loadedCSV.trackCol = find("Track title","トラック","曲名") || heads.find(h=>/track\s*title/i.test(h)) || "";
     // populate selects
@@ -299,7 +318,7 @@ $("#csv_file").addEventListener("change",(e)=>{
     if(loadedCSV.albumCol) selA.value = loadedCSV.albumCol;
     const selT = $("#sel_track_col"); selT.innerHTML="<option value=''>—</option>"; heads.forEach(h=>{ const o=document.createElement("option"); o.value=h; o.textContent=h; selT.appendChild(o); });
     if(loadedCSV.trackCol) selT.value = loadedCSV.trackCol;
-    logLine((t().status.reading||"").replace("{n}", String(loadedCSV.rows.length))); setTokStatus();
+    logLine((t().status.reading||"").replace("{n}", String(loadedCSV.rows.length)), true); setTokStatus();
   }});
 });
 $("#sel_album_col").addEventListener("change",(e)=>{ loadedCSV.albumCol = e.target.value; setTokStatus(); });
@@ -316,80 +335,96 @@ function normalizeName(s){
 }
 function djMixLike(name){ const n=(name||"").toLowerCase(); return n.includes("dj mix")||n.includes("continuous mix")||/\bmixed\b/i.test(n); }
 function esc(s){ return String(s||"").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m])); }
-
-// name→比較キー
 function nameKey(n){ return String(n||"").toLowerCase().normalize("NFKC").replace(/[.\-_'’`"]/g,'').replace(/\s+/g,' ').trim(); }
-
-/* ==== 人名分割（CSVのみを信頼） ==== */
 function splitPeopleCSV(v){
   return String(v||"")
-    .replace(/\b(feat\.?|featuring)\b.+$/i,'') // Primary末尾の feat. は切る（E には入れない）
+    .replace(/\b(feat\.?|featuring)\b.+$/i,'')
     .split(/(?:\s*\|\s*|,|、|，|＆|&| and | with | vs | x | × |\/|\+|;)/i)
     .map(s=>s.replace(/^by\s+/i,'').trim())
     .filter(Boolean);
 }
-function uniqueJoinPipe(arr){
-  const seen = new Set(); const out=[];
-  for(const n of arr){
-    const k = nameKey(n);
-    if(!k || seen.has(k)) continue; seen.add(k); out.push(n.trim());
-  }
-  return out.join(" | ");
-}
+function uniqueJoinPipe(arr){ const seen = new Set(); const out=[]; for(const n of arr){ const k = nameKey(n); if(!k || seen.has(k)) continue; seen.add(k); out.push(n.trim()); } return out.join(" | "); }
 
-/* ===== Markets (fixed groups) ===== */
-const EU27_NO_UK_IE = new Set(["AT","BE","BG","HR","CY","CZ","DK","EE","FI","FR","DE","GR","HU","IT","LV","LT","LU","MT","NL","PL","PT","RO","SK","SI","ES","SE"]);
-const EUROPE_WIDE = new Set([...EU27_NO_UK_IE,"IE","GB","NO","IS","CH","AL","BA","ME","MK","RS","UA","MD","BY","XK","LI"]);
-const ALL_MARKETS = new Set(["AD","AE","AL","AM","AO","AR","AT","AU","AZ","BA","BB","BD","BE","BF","BG","BH","BI","BJ","BN","BO","BR","BS","BT","BW","BY","BZ","CA","CD","CG","CH","CI","CL","CM","CO","CR","CV","CW","CY","CZ","DE","DJ","DK","DM","DO","DZ","EC","EE","EG","ES","ET","FI","FJ","FM","FR","GA","GB","GD","GE","GH","GM","GN","GQ","GR","GT","GW","GY","HK","HN","HR","HT","HU","ID","IE","IL","IN","IQ","IS","IT","JM","JO","JP","KE","KG","KH","KI","KM","KN","KR","KW","KZ","LA","LB","LC","LI","LK","LR","LS","LT","LU","LV","LY","MA","MC","MD","ME","MG","MH","MK","ML","MN","MO","MR","MT","MU","MV","MW","MX","MY","MZ","NA","NE","NG","NI","NL","NO","NP","NR","NZ","OM","PA","PE","PG","PH","PK","PL","PS","PT","PW","PY","QA","RO","RS","RU","RW","SA","SB","SC","SE","SG","SI","SK","SL","SM","SN","SR","ST","SV","SZ","TD","TG","TH","TJ","TL","TN","TO","TR","TT","TV","TW","TZ","UA","UG","US","UY","UZ","VC","VE","VN","VU","WS","XK","ZA","ZM","ZW"]);
-const GROUPS = [
-  { key:"US_CA", label:"US/CA", codes:new Set(["US","CA"]) },
-  { key:"UK_IE", label:"UK/IE", codes:new Set(["GB","IE"]) },
-  { key:"EU_EX_UK_IE", label:"EU (ex UK/IE)", codes:new Set([...EU27_NO_UK_IE]) },
-  { key:"WORLD_EX_EU_US_CA", label:"World (ex EU/US/CA)", codes:(()=>{ const ex=new Set([...EUROPE_WIDE,"US","CA"]); return new Set([...ALL_MARKETS].filter(c=>!ex.has(c))); })() }
-];
-function groupFlags(avSet){
-  const flags = {};
-  for(const g of GROUPS){
-    let hits=0; for(const c of g.codes){ if(avSet.has(c)) hits++; }
-    flags[g.key] = hits>0 ? "Y" : "N";
+/* ===================== Fast Search (no /albums) ===================== */
+async function searchAlbumFast(title, market){
+  const q = { q:`album:"${title}"`, type:"album", limit:10 };
+  if(market) q.market = market; // 応答縮小で高速化
+  const rs = await spGET(`/search`, q);
+  const items = rs.albums?.items||[];
+  if(!items.length){
+    const alt = stripDecorations(title);
+    if(alt && alt!==title){
+      const rs2 = await spGET(`/search`, { q:`album:"${alt}"`, type:"album", limit:10, ...(market?{market}: {}) });
+      return (rs2.albums?.items||[])[0] || null;
+    }
+    return null;
   }
-  return flags;
+  // 先頭優先（正確同名は先頭に来るケースが多い）＋簡易一致
+  const tn = normalizeName(title);
+  let best = null, score = -1;
+  for(const it of items){
+    const cn = normalizeName(it.name||"");
+    let s = (cn===tn)?100 : (cn.includes(tn)||tn.includes(cn)?80 : (cn.startsWith(tn.split(' ')[0])?60:0));
+    if(s>score){ score=s; best=it; if(s===100) break; }
+  }
+  return best;
 }
-
-/* ===================== Search helpers (Album/Track URLだけ) ===================== */
-const PRIMARY_MARKET = "US";
-function bestNameMatch(cands, target){
-  const tn = normalizeName(target); let best=null, score=-1;
-  for(const c of cands){
-    const name = c.name || c.album?.name || "";
-    const cn = normalizeName(name); let s = 0;
-    if(cn===tn) s=100; else if(cn.includes(tn)||tn.includes(cn)) s=80; else { const t0 = tn.split(' ')[0]; if(cn.startsWith(t0)) s=60; }
-    if(s>score){ score=s; best=c; } if(score===100) break;
-  } return best;
-}
-async function searchAlbumByTitle(title){
-  let items = (await spGET(`/search`, { q:`album:"${title}"`, type:"album", limit:20 })).albums?.items||[];
-  if(!items.length){ items = (await spGET(`/search`, { q:`album:"${title}"`, type:"album", limit:20, market:PRIMARY_MARKET })).albums?.items||[]; }
-  if(!items.length){ const alt = stripDecorations(title); if(alt && alt!==title){ items = (await spGET(`/search`, { q:`album:"${alt}"`, type:"album", limit:20 })).albums?.items||[]; } }
-  const pick = bestNameMatch(items, title); if(!pick) return null;
-  // market パラメータは付けず available_markets をそのまま取得
-  return spGET(`/albums/${pick.id}`);
-}
-async function searchTrackFast(trackTitle, albumTitle){
-  const q = await spGET(`/search`, { q:`track:"${trackTitle}" album:"${albumTitle}"`, type:"track", limit:20, market:PRIMARY_MARKET });
-  const items = q.tracks?.items||[];
+async function searchTrackFast(trackTitle, albumTitle, market){
+  const base = { q:`track:"${trackTitle}" album:"${albumTitle}"`, type:"track", limit:10 };
+  if(market) base.market = market;
+  const rs = await spGET(`/search`, base);
+  const items = rs.tracks?.items||[];
   if(!items.length){
     const altT = stripDecorations(trackTitle), altA = stripDecorations(albumTitle);
-    const q2 = await spGET(`/search`, { q:`track:"${altT||trackTitle}" album:"${altA||albumTitle}"`, type:"track", limit:20, market:PRIMARY_MARKET });
-    return bestNameMatch(q2.tracks?.items||[], trackTitle);
+    const rs2 = await spGET(`/search`, { q:`track:"${altT||trackTitle}" album:"${altA||albumTitle}"`, type:"track", limit:10, ...(market?{market}:{}) });
+    return (rs2.tracks?.items||[])[0] || null;
   }
-  return bestNameMatch(items, trackTitle);
+  return items[0];
 }
 
-/* ===================== Main run ===================== */
+/* ===================== Light META (CSV-only) ===================== */
+function buildMetaFromCSV(row, cols, ignoreDJ, albumTitle, trackTitle){
+  const primSrc = String(row[cols.trackPrimary] || row[cols.albumPrimary] || row[cols.albumDisplay] || "").trim();
+  const featSrc = String(row[cols.trackFeaturing] || row[cols.albumFeaturing] || "").trim();
+  const remixSrc = String(row[cols.remixer]||"").trim();
+
+  const primArrRaw = splitPeopleCSV(primSrc);
+  const remixArrRaw = splitPeopleCSV(remixSrc);
+
+  const primSet = new Set(primArrRaw.map(nameKey));
+  const remixSet = new Set(remixArrRaw.map(nameKey));
+  const overlap = [];
+  for(const k of remixSet){ if(primSet.has(k)) overlap.push(k); }
+  const overlapNames = overlap.length ? uniqueJoinPipe(remixArrRaw.filter(n=>overlap.includes(nameKey(n)))) : "";
+
+  const featInPrimary = /\b(feat\.?|featuring)\b/i.test(primSrc);
+  const isDJIgnored = ignoreDJ && (djMixLike(albumTitle) || djMixLike(trackTitle));
+
+  return {
+    primaryStruct: uniqueJoinPipe(primArrRaw),
+    remixersStruct: uniqueJoinPipe(remixArrRaw),
+    meta: {
+      Album: albumTitle,
+      RemixInPrimary: overlap.length ? "Y" : "N",
+      OverlapNames: overlapNames || "",
+      FeatInPrimary: featInPrimary ? "Y" : "N",
+      DJMixIgnored: isDJIgnored ? "Y" : "N",
+      PrimaryCount: primArrRaw.filter(Boolean).length,
+      RemixerCount: remixArrRaw.filter(Boolean).length
+    }
+  };
+}
+
+/* ===================== Main (concurrent) ===================== */
 let OUT_ROWS = []; let OUT_URL_LIST = []; let META_ROWS = [];
 
-function parseExpectedIDs(){ const v=$("#expected_ids").value.trim(); if(!v) return new Set(); return new Set(v.split(/[,，\s]+/).map(s=>s.trim()).filter(Boolean)); }
+function toCSV(objs, headers){
+  if(!objs.length) return "";
+  const cols = headers && headers.length ? headers : Object.keys(objs[0]);
+  const escv = v => { if(v==null) return ""; const s = String(v).replace(/"/g,'""'); return /[",\n]/.test(s) ? `"${s}"` : s; };
+  const lines = [cols.join(",")]; for(const o of objs){ lines.push(cols.map(h=>escv(o[h])).join(",")); } return lines.join("\n");
+}
+function dl(data, name, mime){ const blob = new Blob([data],{type:mime||"text/plain;charset=utf-8"}); const url = URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=name; a.click(); }
 
 async function run(){
   $("#results").innerHTML = "";
@@ -399,9 +434,12 @@ async function run(){
   $("#summary").textContent = t().parsing; $("#meta_summary").textContent = ""; $("#log").innerHTML = ""; setProgress(0,1);
 
   const rows = loadedCSV.rows; const albumCol = loadedCSV.albumCol; const trackCol = loadedCSV.trackCol||"";
-  const total = rows.length; const M = t(); const expectedIDs = parseExpectedIDs(); const ignoreDJ = $("#ignore_djmix").checked;
+  const total = rows.length; const L = t(); const ignoreDJ = $("#ignore_djmix").checked;
+  const light = $("#opt_light").checked; const skipTrack = $("#opt_skip_track").checked;
+  const conc = Math.max(1, Math.min(12, parseInt($("#opt_conc").value||"6",10)));
+  const searchMarket = $("#sel_market").value.trim();
 
-  // === CSVカラム（このファイル構成を前提にオート検出） ===
+  // CSVヘッダ推定
   const heads = loadedCSV.headers;
   const find = (...cands)=> heads.find(h=>cands.map(x=>x.toLowerCase()).includes(String(h||'').toLowerCase())) || "";
   const COL = {
@@ -411,221 +449,158 @@ async function run(){
     trackFeaturing: find("Track featuring artists"),
     albumFeaturing: find("Featuring artists"),
     remixer: find("Remixer","Remixers"),
-    // URL/可用列（表記ゆれ対応）
     spAlbumURL: find("Spotify Album URL","Album URL","Spotify album URL"),
     spTrackURL: find("Spotify Track URL","Track URL","Spotify track URL"),
     spAvail: find("Spotify Available YES/NO","Spotify Available","Spotify Available YES/NO ")
   };
 
-  // === 表を作る（Core / Markets） ===
+  // Core table skeleton
   const coreBox = document.createElement("div");
   coreBox.innerHTML = `
-    <h3>${M.tbl_core}</h3>
+    <h3>${L.tbl_core}</h3>
     <table id="tbl_core"><thead><tr>
-      <th>${M.cols.A}</th><th>${M.cols.B}</th><th>${M.cols.C}</th><th>${M.cols.D}</th><th>${M.cols.E}</th><th>${M.cols.F}</th>
-      <th>${M.markets_cols[0]}</th><th>${M.markets_cols[1]}</th><th>${M.markets_cols[2]}</th><th>${M.markets_cols[3]}</th>
+      <th>${L.cols.A}</th><th>${L.cols.B}</th><th>${L.cols.C}</th><th>${L.cols.D}</th><th>${L.cols.E}</th><th>${L.cols.F}</th>
     </tr></thead><tbody></tbody></table>`;
   $("#results").appendChild(coreBox);
+  const tbodyCore = $("#tbl_core tbody");
 
-  const marketBox = document.createElement("div");
-  marketBox.innerHTML = `<h3>${M.tbl_market}</h3><table id="tbl_market"><thead><tr>
-    <th>Album</th><th>Album ID</th>
-    <th>${M.markets_cols[0]}</th><th>${M.markets_cols[1]}</th><th>${M.markets_cols[2]}</th><th>${M.markets_cols[3]}</th>
-    <th>Status</th>
-  </tr></thead><tbody></tbody></table>`;
-  $("#results").appendChild(marketBox);
-
-  // === META表 ===
   const metaBox = document.createElement("div");
-  metaBox.innerHTML = `<h3>${M.tbl_meta}</h3><table id="tbl_meta"><thead><tr>
-    ${M.meta_cols.map(c=>`<th>${c}</th>`).join("")}
+  metaBox.innerHTML = `<h3>${L.tbl_meta}</h3><table id="tbl_meta"><thead><tr>
+    ${L.meta_cols.map(c=>`<th>${c}</th>`).join("")}
   </tr></thead><tbody></tbody></table>`;
   $("#meta_results").appendChild(metaBox);
+  const tbodyMeta = $("#tbl_meta tbody");
 
-  const tbodyCore = $("#tbl_core tbody"); const tbodyMarket = $("#tbl_market tbody"); const tbodyMeta = $("#tbl_meta tbody");
-  const addRow = (cells)=>`<tr>${cells.map(c=>`<td>${c}</td>`).join("")}</tr>`;
+  // プレースホルダー行（順序維持）
+  const rowEls = Array.from({length:total}, ()=> {
+    const tr=document.createElement("tr");
+    tr.innerHTML = `<td class="skeleton" colspan="6">&nbsp;</td>`;
+    tbodyCore.appendChild(tr);
+    const trm=document.createElement("tr");
+    trm.innerHTML = `<td class="skeleton" colspan="${L.meta_cols.length}">&nbsp;</td>`;
+    tbodyMeta.appendChild(trm);
+    return {core:tr, meta:trm};
+  });
 
-  for(let i=0;i<total;i++){
-    setProgress(i,total);
-    const row = rows[i]||{};
+  let done = 0;
+  const tasks = rows.map((row, idx)=> async ()=>{
     const albumTitle = String(row[albumCol]||"").trim();
     const trackTitle = trackCol ? String(row[trackCol]||"").trim() : "";
+    if(!albumTitle){ logLine(`[${idx+1}/${total}] (empty album title) — skip`); return {idx}; }
 
-    if(!albumTitle){ logLine(`[${i+1}/${total}] (empty album title) — skip`); continue; }
-    logLine((M.status.searching||"").replace("{i}",String(i+1)).replace("{n}",String(total)).replace("{t}",albumTitle));
+    // CSVベースの構造＆META
+    const {primaryStruct, remixersStruct, meta} = buildMetaFromCSV(row, COL, ignoreDJ, albumTitle, trackTitle);
 
-    // === E/F（CSVに100%準拠） ===
-    const primSrc = String(row[COL.trackPrimary] || row[COL.albumPrimary] || row[COL.albumDisplay] || "").trim();
-    const featSrc = String(row[COL.trackFeaturing] || row[COL.albumFeaturing] || "").trim();
-    const remixSrc = String(row[COL.remixer]||"").trim();
-
-    const primArrRaw = splitPeopleCSV(primSrc);
-    const remixArrRaw = splitPeopleCSV(remixSrc);
-    const primaryStruct = uniqueJoinPipe(primArrRaw);
-    const remixersStruct = uniqueJoinPipe(remixArrRaw);
-
-    // === CSV基準のメタ判定 ===
-    const primSet = new Set(primArrRaw.map(nameKey));
-    const remixSet = new Set(remixArrRaw.map(nameKey));
-    const overlap = [];
-    for(const k of remixSet){ if(primSet.has(k)) overlap.push(k); }
-    const overlapNames = overlap.length ? uniqueJoinPipe(remixArrRaw.filter(n=>overlap.includes(nameKey(n)))) : "";
-
-    const featInPrimary = /\b(feat\.?|featuring)\b/i.test(primSrc);
-    const isDJIgnored = ignoreDJ && (djMixLike(albumTitle) || djMixLike(trackTitle));
-
-    // === Spotify URL/Markets ===
-    let album=null, albumId="", albumName="", albumURL=String(row[COL.spAlbumURL]||"").trim(), trackURL=String(row[COL.spTrackURL]||"").trim();
+    // 既存URL
+    let albumURL = String(row[COL.spAlbumURL]||"").trim();
+    let trackURL = String(row[COL.spTrackURL]||"").trim();
     let available = (String(row[COL.spAvail]||"").trim().toUpperCase().startsWith("Y")) ? "YES" : (albumURL?"YES":"NO");
-    let avSet = new Set(); let expectedHit = "";
 
-    try{
-      if(!isDJIgnored){ // DJ Mix 無視時はSpotify検索をスキップ
-        if(!albumURL){ // アルバムURLなければSpotify検索
-          const got = await searchAlbumByTitle(albumTitle);
-          if(got){
-            album = got; albumId = got.id; albumName = got.name;
-            albumURL = `https://open.spotify.com/album/${albumId}`; available = "YES";
-            avSet = new Set(got.available_markets||[]);
-            logLine((M.status.found||"").replace("{i}",String(i+1)).replace("{n}",String(total)).replace("{name}",albumName).replace("{id}",albumId));
+    // DJ MixならSpotifyアクセス省略
+    if(djMixLike(albumTitle) || (trackTitle && djMixLike(trackTitle))){
+      logLine(`[${idx+1}/${total}] DJ Mix ignored`);
+    } else {
+      try{
+        // アルバムURLが無い場合のみ検索（軽量）
+        if(!albumURL){
+          logLine((L.status.searching||"").replace("{i}",String(idx+1)).replace("{n}",String(total)).replace("{t}",albumTitle));
+          const hit = await searchAlbumFast(albumTitle, searchMarket||undefined);
+          if(hit){
+            albumURL = `https://open.spotify.com/album/${hit.id}`;
+            available = "YES";
+            logLine((L.status.found||"").replace("{i}",String(idx+1)).replace("{n}",String(total)).replace("{name}",hit.name||albumTitle).replace("{id}",hit.id));
           }else{
-            logLine((M.status.notfound||"").replace("{i}",String(i+1)).replace("{n}",String(total)));
-          }
-        }else{
-          const m = albumURL.match(/album\/([a-zA-Z0-9]{10,})/); if(m){ albumId = m[1]; }
-          if(albumId){
-            try{ const got = await spGET(`/albums/${albumId}`); album = got; albumName = got.name; avSet = new Set(got.available_markets||[]); }
-            catch(_){} // 市場取得失敗は無視
+            logLine((L.status.notfound||"").replace("{i}",String(idx+1)).replace("{n}",String(total)));
           }
         }
-        // Track URL（なければ検索）
-        if(!trackURL && trackTitle){
-          const hit = await searchTrackFast(trackTitle, albumTitle);
-          if(hit) { trackURL = `https://open.spotify.com/track/${hit.id}`; logLine((M.status.matchedTrack||"").replace("{i}",String(i+1)).replace("{n}",String(total)).replace("{name}",hit.name)); }
+        // トラック検索（任意・既定で省略）
+        if(!skipTrack && !trackURL && trackTitle){
+          const thit = await searchTrackFast(trackTitle, albumTitle, searchMarket||undefined);
+          if(thit){ trackURL = `https://open.spotify.com/track/${thit.id}`; logLine((L.status.matchedTrack||"").replace("{i}",String(idx+1)).replace("{n}",String(total)).replace("{name}",thit.name)); }
         }
-      } else {
-        logLine(`[${i+1}/${total}] DJ Mix ignored`);
-        available = albumURL ? "YES" : "NO";
-      }
-    }catch(e){ logLine(`[ERR ${i+1}/${total}] Spotify lookup ${e.message}`); }
-
-    // Expected Artist IDs ↔ album.artists.id 突合（任意）
-    let albumArtistIDs="";
-    if(album && album.artists){
-      const ids = (album.artists||[]).map(a=>a.id).filter(Boolean);
-      albumArtistIDs = ids.join(" | ");
-      if(expectedIDs.size){
-        const hit = ids.some(id=>expectedIDs.has(id));
-        expectedHit = hit ? "Y" : "N";
-      } else {
-        expectedHit = "";
-      }
+      }catch(e){ logLine(`[ERR ${idx+1}/${total}] ${e.message}`, true); }
     }
 
-    // Markets flags
-    const flags = groupFlags(avSet);
-    const fUS = flags.US_CA||"N", fUK = flags.UK_IE||"N", fEU = flags.EU_EX_UK_IE||"N", fWW = flags.WORLD_EX_EU_US_CA||"N";
+    // 出力
+    const coreObj = { A: albumTitle, B: available, C: albumURL, D: trackURL, E: primaryStruct, F: remixersStruct };
+    OUT_ROWS[idx] = coreObj;
+    META_ROWS[idx] = meta;
+    if(albumURL) OUT_URL_LIST.push(albumURL);
 
-    // === A–F row（CSV順を尊重） ===
-    const coreObj = { A: albumTitle, B: available, C: albumURL, D: trackURL, E: primaryStruct, F: remixersStruct, US_CA:fUS,UK_IE:fUK,EU_EX_UK_IE:fEU,WORLD_EX_EU_US_CA:fWW };
-    OUT_ROWS.push(coreObj);
+    // 表描画（この行だけ更新）
+    rowEls[idx].core.innerHTML = [
+      `<td>${esc(coreObj.A)}</td>`,
+      `<td>${coreObj.B==="YES" ? `<span class="badge ok">YES</span>` : `<span class="badge ng">NO</span>`}</td>`,
+      `<td>${coreObj.C?`<a href="${coreObj.C}" target="_blank">${coreObj.C}</a>`:""}</td>`,
+      `<td>${coreObj.D?`<a href="${coreObj.D}" target="_blank">${coreObj.D}</a>`:""}</td>`,
+      `<td>${esc(coreObj.E||"")}</td>`,
+      `<td>${esc(coreObj.F||"")}</td>`
+    ].join("");
 
-    // 表示 Core
-    tbodyCore.insertAdjacentHTML("beforeend", addRow([
-      esc(albumTitle),
-      available==="YES" ? `<span class="badge ok">YES</span>` : `<span class="badge ng">NO</span>`,
-      albumURL ? `<a href="${albumURL}" target="_blank">${albumURL}</a>` : "",
-      trackURL ? `<a href="${trackURL}" target="_blank">${trackURL}</a>` : "",
-      esc(primaryStruct||""), esc(remixersStruct||""),
-      fUS, fUK, fEU, fWW
-    ]));
+    rowEls[idx].meta.innerHTML = [
+      `<td>${esc(meta.Album)}</td>`,
+      `<td>${meta.RemixInPrimary==="Y" ? `<span class="badge ng">Y</span>` : `<span class="badge ok">N</span>`}</td>`,
+      `<td>${esc(meta.OverlapNames||"")}</td>`,
+      `<td>${meta.FeatInPrimary==="Y" ? `<span class="badge ng">Y</span>` : `<span class="badge ok">N</span>`}</td>`,
+      `<td>${meta.DJMixIgnored==="Y" ? `<span class="badge ng">Y</span>` : `<span class="badge ok">N</span>`}</td>`,
+      `<td>${String(meta.PrimaryCount)}</td>`,
+      `<td>${String(meta.RemixerCount)}</td>`
+    ].join("");
 
-    // 表示 Market
-    if(album){
-      tbodyMarket.insertAdjacentHTML("beforeend", addRow([
-        esc(albumName||albumTitle), `<span class="mono">${albumId||""}</span>`, fUS, fUK, fEU, fWW, "—"
-      ]));
-      if(albumURL) OUT_URL_LIST.push(albumURL);
-    }
+    done++; setProgress(done,total);
+    return {idx};
+  });
 
-    // === META 行 ===
-    const metaRow = {
-      Album: albumTitle,
-      RemixInPrimary: overlap.length ? "Y" : "N",
-      OverlapNames: overlapNames || "",
-      FeatInPrimary: featInPrimary ? "Y" : "N",
-      DJMixIgnored: isDJIgnored ? "Y" : "N",
-      PrimaryCount: primArrRaw.filter(Boolean).length,
-      RemixerCount: remixArrRaw.filter(Boolean).length,
-      ExpectedIDHit: expectedHit,
-      AlbumArtistIDs: albumArtistIDs
+  // セマフォ並列実行
+  async function runPool(limit){
+    let i=0; const inFlight=[];
+    const launch = async ()=>{
+      if(i>=tasks.length) return;
+      const my = tasks[i++]().finally(()=>{ inFlight.splice(inFlight.indexOf(my),1); });
+      inFlight.push(my);
+      if(inFlight.length>=limit){ await Promise.race(inFlight); }
+      return launch();
     };
-    META_ROWS.push(metaRow);
-
-    tbodyMeta.insertAdjacentHTML("beforeend", addRow([
-      esc(metaRow.Album),
-      metaRow.RemixInPrimary==="Y" ? `<span class="badge ng">Y</span>` : `<span class="badge ok">N</span>`,
-      esc(metaRow.OverlapNames||""),
-      metaRow.FeatInPrimary==="Y" ? `<span class="badge ng">Y</span>` : `<span class="badge ok">N</span>`,
-      metaRow.DJMixIgnored==="Y" ? `<span class="badge ng">Y</span>` : `<span class="badge ok">N</span>`,
-      String(metaRow.PrimaryCount),
-      String(metaRow.RemixerCount),
-      esc(metaRow.ExpectedIDHit||""),
-      esc(metaRow.AlbumArtistIDs||"")
-    ]));
-
-    await sleep(30);
+    const starters = Array.from({length:Math.min(limit,tasks.length)}, ()=>launch());
+    await Promise.all(starters.concat(inFlight));
   }
 
-  setProgress(total,total);
-  $("#summary").textContent = t().parsed(OUT_ROWS.length);
-  $("#meta_summary").textContent = `${META_ROWS.length} 行の監査メタを作成`;
+  await runPool(conc);
+
+  $("#summary").textContent = t().parsed(OUT_ROWS.filter(Boolean).length);
+  $("#meta_summary").textContent = `${META_ROWS.filter(Boolean).length} 行の監査メタを作成（軽量）`;
   $("#btn_csv_out").disabled = OUT_ROWS.length===0;
   $("#btn_csv_meta").disabled = META_ROWS.length===0;
   $("#btn_urls").disabled = OUT_URL_LIST.length===0;
   $("#btn_pdf").disabled = false;
-  logLine(t().status.exportReady||"[OK] export ready");
+  logLine(t().status.exportReady||"[OK] export ready", true);
 }
 
 /* ===================== Exports ===================== */
-function toCSV(objs, headers){
-  if(!objs.length) return "";
-  const cols = headers && headers.length ? headers : Object.keys(objs[0]);
-  const escv = v => { if(v==null) return ""; const s = String(v).replace(/"/g,'""'); return /[",\n]/.test(s) ? `"${s}"` : s; };
-  const lines = [cols.join(",")]; for(const o of objs){ lines.push(cols.map(h=>escv(o[h])).join(",")); } return lines.join("\n");
-}
-function dl(data, name, mime){ const blob = new Blob([data],{type:mime||"text/plain;charset=utf-8"}); const url = URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=name; a.click(); }
-
 $("#btn_csv_out").addEventListener("click", ()=>{
   const L = t();
-  const headers = [L.cols.A, L.cols.B, L.cols.C, L.cols.D, L.cols.E, L.cols.F, "US_CA","UK_IE","EU_EX_UK_IE","WORLD_EX_EU_US_CA"];
-  const remap = OUT_ROWS.map(r=>({[L.cols.A]: r.A, [L.cols.B]: r.B, [L.cols.C]: r.C, [L.cols.D]: r.D, [L.cols.E]: r.E, [L.cols.F]: r.F, "US_CA": r.US_CA, "UK_IE": r.UK_IE, "EU_EX_UK_IE": r.EU_EX_UK_IE, "WORLD_EX_EU_US_CA": r.WORLD_EX_EU_US_CA}));
-  const csv = toCSV(remap, headers); dl(csv, "spotify_csv_audit_A-F.csv", "text/csv;charset=utf-8");
+  const headers = [L.cols.A, L.cols.B, L.cols.C, L.cols.D, L.cols.E, L.cols.F];
+  const remap = OUT_ROWS.map(r=>r?({[L.cols.A]: r.A, [L.cols.B]: r.B, [L.cols.C]: r.C, [L.cols.D]: r.D, [L.cols.E]: r.E, [L.cols.F]: r.F}):null).filter(Boolean);
+  const csv = toCSV(remap, headers); dl(csv, "spotify_csv_audit_A-F_light.csv", "text/csv;charset=utf-8");
 });
-
 $("#btn_csv_meta").addEventListener("click", ()=>{
-  const L = t();
-  const headers = i18n.ja.meta_cols; // 日本語でも英語でも列名は表示用でOK
-  const csvObjs = META_ROWS.map(m=>({
+  const L = t(); const headers = L.meta_cols;
+  const csvObjs = META_ROWS.map(m=>m?({
     [headers[0]]: m.Album,
     [headers[1]]: m.RemixInPrimary,
     [headers[2]]: m.OverlapNames,
     [headers[3]]: m.FeatInPrimary,
     [headers[4]]: m.DJMixIgnored,
     [headers[5]]: m.PrimaryCount,
-    [headers[6]]: m.RemixerCount,
-    [headers[7]]: m.ExpectedIDHit,
-    [headers[8]]: m.AlbumArtistIDs
-  }));
+    [headers[6]]: m.RemixerCount
+  }):null).filter(Boolean);
   const csv = toCSV(csvObjs, headers);
-  dl(csv, "spotify_csv_audit_META.csv", "text/csv;charset=utf-8");
+  dl(csv, "spotify_csv_audit_META_light.csv", "text/csv;charset=utf-8");
 });
-
 $("#btn_urls").addEventListener("click", ()=>{
   const uniq = Array.from(new Set(OUT_URL_LIST.filter(Boolean)));
   dl(uniq.join("\n"), "spotify_album_urls.txt", "text/plain;charset=utf-8");
 });
-
 $("#btn_pdf").addEventListener("click", async ()=>{
   const { jsPDF } = window.jspdf; const pdf = new jsPDF({unit:"pt", format:"a4"});
   const a4w = 595.28, margin = 24; const node = document.querySelector("#results_card");
@@ -640,7 +615,7 @@ $("#btn_pdf").addEventListener("click", async ()=>{
     if(page>0) pdf.addPage(); pdf.addImage(imgData, "JPEG", margin, margin, imgW, (sliceH * imgW / canvas.width));
     y += sliceH; page++;
   }
-  pdf.save("spotify_csv_audit.pdf");
+  pdf.save("spotify_csv_audit_light.pdf");
 });
 
 /* ===================== Events / init ===================== */
