@@ -72,9 +72,8 @@
       <button id="btn_clear" class="btn btn-ghost">保存トークン削除</button>
     </div>
     <div id="hint_auth" class="mut" style="font-size:12px;margin-top:6px">
-      ※ scope送信なし＝公開エンドポイント（search/album/track GET）のみ使用。<br/>
-      ※ Redirect URI は <b>Developer Dashboardに完全一致</b>で登録（末尾の <span class="mono">.html</span> まで）。<br/>
-      ※ <span class="mono">code_verifier</span> は localStorage に保存して <span class="mono">alert_no_verifier</span> を回避。
+      ※ 公開GETのみ使用（search/album/track）。Redirect URI は Dashboard に完全一致登録。<br/>
+      ※ <span class="mono">code_verifier</span> は localStorage に保存。
     </div>
   </div>
 
@@ -83,7 +82,7 @@
     <div class="row" style="justify-content:space-between">
       <div>
         <span class="pill">CSV</span>
-        <span class="mut" id="csv_hint">アルバム一覧CSVを読み込み → 入力順のまま処理（CSVに無いタイトルは一切追加しない）</span>
+        <span class="mut" id="csv_hint">アルバム一覧CSVを読み込み → CSVの行順のまま処理（CSVに無いタイトルは追加しない）</span>
       </div>
       <div class="row">
         <input id="ignore_djmix" type="checkbox" checked>
@@ -96,17 +95,17 @@
         <input id="csv_file" type="file" accept=".csv,text/csv"/>
       </div>
       <div>
-        <label id="lbl_expected">期待アーティストID（PrimaryであるべきID／カンマ区切り）</label>
-        <input id="expected_ids" type="text" value="55fvQ5I2IZUfcFT2DV02T3"/>
+        <label id="lbl_expected">期待アーティストID（参考／カンマ区切り）</label>
+        <input id="expected_ids" type="text" value=""/>
       </div>
     </div>
     <div class="grid" style="margin-top:8px">
       <div>
-        <label id="lbl_map_album">アルバムタイトル列（必須）</label>
+        <label id="lbl_map_album">アルバムタイトル列（既定: Album title）</label>
         <select id="sel_album_col"></select>
       </div>
       <div>
-        <label id="lbl_map_track">トラックタイトル列（任意／該当無しなら未選択）</label>
+        <label id="lbl_map_track">トラックタイトル列（既定: Track title）</label>
         <select id="sel_track_col"><option value="">—</option></select>
       </div>
     </div>
@@ -147,11 +146,11 @@ const i18n = {
     redirect:"Redirect URI (must exactly match in Developer Dashboard)",
     auth_btn:"Connect to Spotify (PKCE / no scope)",
     clear_btn:"Clear saved token",
-    csv_hint:"Load an album list CSV → processed strictly in the CSV's order (absolutely no titles added beyond CSV).",
+    csv_hint:"Load an album list CSV → strictly in its order (no extra titles).",
     csv_label:"Choose CSV file",
-    expected:"Expected artist IDs (should be the only primaries) — comma-separated",
-    map_album:"Album title column (required)",
-    map_track:"Track title column (optional)",
+    expected:"Expected artist IDs (optional, comma-separated)",
+    map_album:"Album title column (default: Album title)",
+    map_track:"Track title column (default: Track title)",
     ignore_dj:"Ignore tracks with DJ-mix notation",
     run:"Run analysis",
     csv_out:"Download results CSV",
@@ -164,24 +163,9 @@ const i18n = {
     parsed:(n)=>`${n} row(s) processed. You can export CSV/URLs/PDF.`,
     tbl_core:"A–F output (per CSV row, in order)",
     tbl_market:"Grouped market availability (per album)",
-    cols:{
-      A:"Album title",
-      B:"Spotify Available",
-      C:"Spotify Album URL",
-      D:"Spotify Track URL",
-      E:"Primary structure (' | ' sep; remixers excluded unless first)",
-      F:"Remixers (' | ' sep; validated)"
-    },
+    cols:{A:"Album title",B:"Spotify Available",C:"Spotify Album URL",D:"Spotify Track URL",E:"Primary structure (CSV, ' | ')",F:"Remixers (CSV, ' | ')" },
     markets_cols:["US/CA","UK/IE","EU (ex UK/IE)","World (ex EU/US/CA)"],
-    status:{
-      reading:"[CSV] loaded: {n} row(s).",
-      searching:'[{i}/{n}] search album: "{t}"',
-      found:'[{i}/{n}] found album: {name} — {id}',
-      notfound:'[{i}/{n}] NOT FOUND',
-      tracks:'[{i}/{n}] fetch tracks: {count} items',
-      matchedTrack:'[{i}/{n}] matched track: {name}',
-      exportReady:"[OK] export buttons enabled."
-    }
+    status:{reading:"[CSV] loaded: {n} row(s).", searching:'[{i}/{n}] find album for: "{t}"', found:'[{i}/{n}] album: {name} — {id}', notfound:'[{i}/{n}] NOT FOUND', tracks:'[{i}/{n}] tracks fetched: {count}', matchedTrack:'[{i}/{n}] matched track: {name}', exportReady:"[OK] export buttons enabled."}
   },
   ja:{
     title:"Spotify CSV Auditor — A–F Filler（TDCS／固定4マーケット／i18n＋CSV/PDF）",
@@ -190,11 +174,11 @@ const i18n = {
     redirect:"Redirect URI（Developer Dashboardで完全一致）",
     auth_btn:"Spotifyに接続（PKCE／スコープなし）",
     clear_btn:"保存トークン削除",
-    csv_hint:"アルバム一覧CSVを読み込み → CSVの行順のまま処理（CSVに無いタイトルは一切追加しない）",
+    csv_hint:"アルバム一覧CSVを読み込み → CSVの行順のまま処理（CSVに無いタイトルは追加しない）",
     csv_label:"CSVファイルを選択",
-    expected:"期待アーティストID（プライマリーであるべきID）※カンマ区切り",
-    map_album:"アルバムタイトル列（必須）",
-    map_track:"トラックタイトル列（任意）",
+    expected:"期待アーティストID（任意／カンマ区切り）",
+    map_album:"アルバムタイトル列（既定: Album title）",
+    map_track:"トラックタイトル列（既定: Track title）",
     ignore_dj:"DJミックス表記の曲は無視",
     run:"解析を実行",
     csv_out:"結果CSVをダウンロード",
@@ -207,55 +191,26 @@ const i18n = {
     parsed:(n)=>`${n} 行を解析完了。CSV／URL一覧／PDFを出力できます。`,
     tbl_core:"A–F 出力（CSV行順）",
     tbl_market:"グループ化マーケット（アルバム別）",
-    cols:{
-      A:"Album title",
-      B:"Spotify Available",
-      C:"Spotify Album URL",
-      D:"Spotify Track URL",
-      E:"Primary構造（' | ' 区切り／リミキサー除外※先頭のみ残す）",
-      F:"Remixers（' | ' 区切り／検出＋クレジット突合で厳格採用）"
-    },
+    cols:{A:"Album title",B:"Spotify Available",C:"Spotify Album URL",D:"Spotify Track URL",E:"Primary構造（CSV由来／' | '）",F:"Remixers（CSV由来／' | '）"},
     markets_cols:["US/CA","UK/IE","EU（UK/IE除外）","World（EU/US/CA除外）"],
-    status:{
-      reading:"[CSV] 読み込み: {n} 行",
-      searching:'[{i}/{n}] 検索: 「{t}」',
-      found:'[{i}/{n}] ヒット: {name} — {id}',
-      notfound:'[{i}/{n}] 見つからず',
-      tracks:'[{i}/{n}] トラック取得: {count} 件',
-      matchedTrack:'[{i}/{n}] マッチ: {name}',
-      exportReady:"[OK] エクスポート準備完了"
-    }
+    status:{reading:"[CSV] 読み込み: {n} 行", searching:'[{i}/{n}] アルバム検索: 「{t}」', found:'[{i}/{n}] ヒット: {name} — {id}', notfound:'[{i}/{n}] 見つからず', tracks:'[{i}/{n}] トラック取得: {count} 件', matchedTrack:'[{i}/{n}] マッチ: {name}', exportReady:"[OK] エクスポート準備完了"}
   }
 };
-const storage = {
-  get k(){ return 'sp_csv_auditor_tdcs_v1'; },
-  load(){ try{return JSON.parse(localStorage.getItem(this.k)||'{}')}catch{return{}} },
-  save(obj){ localStorage.setItem(this.k, JSON.stringify(obj||{})); }
-};
+const storage = { get k(){ return 'sp_csv_auditor_tdcs_v2'; }, load(){ try{return JSON.parse(localStorage.getItem(this.k)||'{}')}catch{return{}} }, save(obj){ localStorage.setItem(this.k, JSON.stringify(obj||{})); }};
 const state = Object.assign({lang:'ja',access_token:null,expires_at:0,code_verifier:null,client_id:"",redirect_uri:""}, storage.load());
 const $ = sel => document.querySelector(sel);
 function t(){ return i18n[state.lang]||i18n.ja; }
 function applyLang(){
   const L = t();
-  document.title = L.title;
-  $("#title").textContent = L.title;
+  document.title = L.title; $("#title").textContent = L.title;
   $("#lang_label").textContent = L.lang_label;
-  $("#lbl_client").textContent = L.client;
-  $("#lbl_redirect").textContent = L.redirect;
-  $("#btn_auth").textContent = L.auth_btn;
-  $("#btn_clear").textContent = L.clear_btn;
-  $("#csv_hint").textContent = L.csv_hint;
-  $("#lbl_csv").textContent = L.csv_label;
-  $("#lbl_expected").textContent = L.expected;
-  $("#lbl_map_album").textContent = L.map_album;
-  $("#lbl_map_track").textContent = L.map_track;
+  $("#lbl_client").textContent = L.client; $("#lbl_redirect").textContent = L.redirect;
+  $("#btn_auth").textContent = L.auth_btn; $("#btn_clear").textContent = L.clear_btn;
+  $("#csv_hint").textContent = L.csv_hint; $("#lbl_csv").textContent = L.csv_label;
+  $("#lbl_expected").textContent = L.expected; $("#lbl_map_album").textContent = L.map_album; $("#lbl_map_track").textContent = L.map_track;
   $("#lbl_ignore_dj").textContent = L.ignore_dj;
-  $("#btn_run").textContent = L.run;
-  $("#btn_csv_out").textContent = L.csv_out;
-  $("#btn_urls").textContent = L.urls_out;
-  $("#btn_pdf").textContent = L.pdf;
-  $("#pill_results").textContent = L.results;
-  $("#pill_markets").textContent = "Markets: 固定4グループ";
+  $("#btn_run").textContent = L.run; $("#btn_csv_out").textContent = L.csv_out; $("#btn_urls").textContent = L.urls_out; $("#btn_pdf").textContent = L.pdf;
+  $("#pill_results").textContent = L.results; $("#pill_markets").textContent = "Markets: 固定4グループ";
   $("#hint_markets").innerHTML = state.lang==='ja'
     ? "• United States, Canada ／ • United Kingdom, Ireland ／ • European Union（UK/IE除外）／ • Worldwide（Europe＋US＋CA除外）"
     : "• United States, Canada / • United Kingdom, Ireland / • European Union (excl. UK & Ireland) / • Worldwide (excl. Europe, US, Canada)";
@@ -271,32 +226,21 @@ function setTokStatus(msg){
 
 /* ===================== PKCE (no scope) ===================== */
 const sleep = ms => new Promise(r=>setTimeout(r,ms));
-async function sha256(buf){
-  const enc = new TextEncoder().encode(buf);
-  const hash = await crypto.subtle.digest('SHA-256', enc);
-  return btoa(String.fromCharCode(...new Uint8Array(hash))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-}
+async function sha256(buf){ const enc = new TextEncoder().encode(buf); const hash = await crypto.subtle.digest('SHA-256', enc); return btoa(String.fromCharCode(...new Uint8Array(hash))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
 function randStr(len=64){ const a=new Uint8Array(len); crypto.getRandomValues(a); return Array.from(a).map(b=>("0"+(b&255).toString(16)).slice(-2)).join(''); }
 async function startAuth(){
   const client_id = $("#client_id").value.trim(); const redirect_uri = $("#redirect_uri").value.trim();
   if(!client_id || !redirect_uri){ alert(state.lang==='en'?"Enter Client ID & Redirect URI":"Client ID と Redirect URI を入力してください"); return; }
   state.client_id = client_id; state.redirect_uri = redirect_uri; saveState();
-  const code_verifier = randStr(64);
-  const code_challenge = await sha256(code_verifier);
-  state.code_verifier = code_verifier; saveState();
+  const code_verifier = randStr(64); const code_challenge = await sha256(code_verifier); state.code_verifier = code_verifier; saveState();
   const url = new URL("https://accounts.spotify.com/authorize");
-  url.searchParams.set("response_type","code");
-  url.searchParams.set("client_id", client_id);
-  url.searchParams.set("redirect_uri", redirect_uri);
-  url.searchParams.set("code_challenge_method","S256");
-  url.searchParams.set("code_challenge", code_challenge);
+  url.searchParams.set("response_type","code"); url.searchParams.set("client_id", client_id);
+  url.searchParams.set("redirect_uri", redirect_uri); url.searchParams.set("code_challenge_method","S256"); url.searchParams.set("code_challenge", code_challenge);
   location.assign(url.toString());
 }
 async function handleCallback(){
-  const params = new URLSearchParams(location.search);
-  const code = params.get("code"); if(!code) return;
-  const client_id = $("#client_id").value.trim() || state.client_id;
-  const redirect_uri = $("#redirect_uri").value.trim() || state.redirect_uri;
+  const params = new URLSearchParams(location.search); const code = params.get("code"); if(!code) return;
+  const client_id = $("#client_id").value.trim() || state.client_id; const redirect_uri = $("#redirect_uri").value.trim() || state.redirect_uri;
   if(!client_id || !redirect_uri){ setTokStatus("invalid_client"); alert(state.lang==='en'?"Missing client_id/redirect_uri. Re-auth.":"client_id / redirect_uri が未保存です。再認可してください。"); return; }
   if(!state.code_verifier){ setTokStatus("error: no verifier"); alert(state.lang==='en'?"Missing code_verifier. Start auth again.":"code_verifier が失われました。接続からやり直してください。"); return; }
   try{
@@ -327,132 +271,56 @@ function setProgress(i,n){ const pct = n? Math.floor(i*100/n) : 0; $("#bar").sty
 $("#csv_file").addEventListener("change",(e)=>{
   const file = e.target.files?.[0]; if(!file) return;
   Papa.parse(file,{header:true,skipEmptyLines:true,complete:(rs)=>{
-    loadedCSV.headers = rs.meta.fields||[];
-    loadedCSV.rows = rs.data||[];
-    const heads = loadedCSV.headers.map(h=>h.trim());
+    loadedCSV.headers = rs.meta.fields||[]; loadedCSV.rows = rs.data||[];
+    const heads = loadedCSV.headers.map(h=>String(h||'').trim());
     const find = (...cands)=> heads.find(h=>cands.map(x=>x.toLowerCase()).includes(h.toLowerCase())) || "";
-    loadedCSV.albumCol = find("Album title","album","title","Album","アルバム","アルバム名");
-    loadedCSV.trackCol = find("Track title","track","曲名","トラック");
-    const selA = $("#sel_album_col"); selA.innerHTML="";
-    heads.forEach(h=>{ const o=document.createElement("option"); o.value=h; o.textContent=h; selA.appendChild(o); });
+    // default mapping
+    loadedCSV.albumCol = find("Album title","アルバム","アルバム名") || heads.find(h=>/album\s*title/i.test(h)) || "";
+    loadedCSV.trackCol = find("Track title","トラック","曲名") || heads.find(h=>/track\s*title/i.test(h)) || "";
+    // populate selects
+    const selA = $("#sel_album_col"); selA.innerHTML=""; heads.forEach(h=>{ const o=document.createElement("option"); o.value=h; o.textContent=h; selA.appendChild(o); });
     if(loadedCSV.albumCol) selA.value = loadedCSV.albumCol;
-    const selT = $("#sel_track_col"); selT.innerHTML="<option value=''>—</option>";
-    heads.forEach(h=>{ const o=document.createElement("option"); o.value=h; o.textContent=h; selT.appendChild(o); });
+    const selT = $("#sel_track_col"); selT.innerHTML="<option value=''>—</option>"; heads.forEach(h=>{ const o=document.createElement("option"); o.value=h; o.textContent=h; selT.appendChild(o); });
     if(loadedCSV.trackCol) selT.value = loadedCSV.trackCol;
-    logLine((t().status.reading||"").replace("{n}", String(loadedCSV.rows.length)));
-    setTokStatus();
+    logLine((t().status.reading||"").replace("{n}", String(loadedCSV.rows.length))); setTokStatus();
   }});
 });
 $("#sel_album_col").addEventListener("change",(e)=>{ loadedCSV.albumCol = e.target.value; setTokStatus(); });
 $("#sel_track_col").addEventListener("change",(e)=>{ loadedCSV.trackCol = e.target.value; });
 
 /* ===================== Helpers ===================== */
-// タイトルの装飾を削る（検索用）
 function stripDecorations(s){
-  return String(s||"")
-    .replace(/\s*-\s*(single|ep|remixes?|deluxe|expanded|bonus(?:\s+tracks?)?|remaster(?:ed)?(?:\s*\d{2,4})?|anniversary|special edition)\b/ig,'')
-    .replace(/\s*\((?:deluxe|expanded|bonus|remaster(?:ed)?(?:\s*\d{2,4})?|anniversary|special edition)[^)]*\)/ig,'');
+  return String(s||"").replace(/\s*-\s*(single|ep|remixes?|deluxe|expanded|bonus(?:\s+tracks?)?|remaster(?:ed)?(?:\s*\d{2,4})?|anniversary|special edition)\b/ig,'')
+                      .replace(/\s*\((?:deluxe|expanded|bonus|remaster(?:ed)?(?:\s*\d{2,4})?|anniversary|special edition)[^)]*\)/ig,'');
 }
 function normalizeName(s){
-  return stripDecorations(s)
-    .toLowerCase()
-    .replace(/\s+feat\.?\s+.*$/i,'')
-    .replace(/\s+/g,' ').replace(/\s*[-–—]\s*/g,'-')
-    .replace(/\((?:remaster|remix|rmx|edit|version|mix|radio|extended|vip|dub)[^)]*\)/g,'')
-    .replace(/\[(?:remaster|remix|rmx|edit|version|mix|radio|extended|vip|dub)[^\]]*\]/g,'')
-    .trim();
+  return stripDecorations(s).toLowerCase().replace(/\s+feat\.?.*$/i,'').replace(/\s+/g,' ')
+         .replace(/\s*[-–—]\s*/g,'-').trim();
 }
-function djMixLike(name){
-  const n=(name||"").toLowerCase();
-  return n.includes("dj mix")||n.includes("continuous mix")||/\bmixed\b/i.test(n);
-}
+function djMixLike(name){ const n=(name||"").toLowerCase(); return n.includes("dj mix")||n.includes("continuous mix")||/\bmixed\b/i.test(n); }
 function esc(s){ return String(s||"").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m])); }
 
-/* ==== リミキサー検出 ==== */
-// 候補（元の表記を保持）
-function extractRemixerCandidates(title){
-  const out = new Set(); const s = String(title||"");
-
-  // () 内
-  const parens = s.match(/\([^)]*\)/g)||[];
-  for(const p of parens){
-    if(/\b(remix|rmx|vip(?:\s+mix)?|dub|edit|rework|version)\b/i.test(p)){
-      let chunk = p.slice(1,-1);
-      const rb = chunk.match(/remixed\s+by\s+(.+)$/i);
-      if(rb) chunk = rb[1];
-      splitNames(chunk.replace(/\b(remix|rmx|vip(?:\s+mix)?|dub|edit|rework|version)\b/ig,'')).forEach(n=>n && out.add(n));
-    }
-  }
-  // "- NAME Remix" 型
-  const dash = s.match(/-\s*([^-()\[\]]+?)\s+(remix|rmx|vip(?:\s+mix)?|dub|edit|rework|version)\b/ig)||[];
-  for(const seg of dash){
-    const m = seg.match(/-\s*([^-()\[\]]+?)\s+(?:remix|rmx|vip(?:\s+mix)?|dub|edit|rework|version)\b/i);
-    if(m) splitNames(m[1]).forEach(n=>n && out.add(n));
-  }
-  // 末尾 "NAME Remix"
-  const plain = s.match(/([A-Za-z0-9 .,'&_+×\-]+?)\s+(remix|rmx|vip(?:\s+mix)?|dub|edit|rework|version)\s*$/i);
-  if(plain){ splitNames(plain[1]).forEach(n=>n && out.add(n)); }
-
-  return Array.from(out).map(s=>s.trim()).filter(Boolean);
-}
-function splitNames(str){
-  return String(str||"")
-    .split(/,|&| and |\s+vs\s+|\s+x\s+| × |\/|\+| with /i)
-    .map(s=>s.replace(/\bby\b\s*/i,'').trim())
+/* ==== 人名分割（CSVのみを信頼） ==== */
+function splitPeopleCSV(v){
+  return String(v||"")
+    .replace(/\b(feat\.?|featuring)\b.+$/i,'') // 末尾の feat. は切る
+    .split(/(?:\s*\|\s*|,|、|，|＆|&| and | with | vs | x | × |\/|\+|;)/i)
+    .map(s=>s.replace(/^by\s+/i,'').trim())
     .filter(Boolean);
 }
-function normPerson(n){ return n.toLowerCase().replace(/[.\-_'’`"]/g,'').replace(/\s+/g,' ').trim(); }
-function nameLooseEqual(a,b){
-  const na = normPerson(a), nb = normPerson(b);
-  if(!na || !nb) return false;
-  return na===nb || na.includes(nb) || nb.includes(na);
-}
-
-// Primary構造：タイトルから検出したリミキサーは除外（先頭index=0なら残す）
-function buildPrimaryStructFromArtists(artists, title){
-  const remixCandKeys = new Set(extractRemixerCandidates(title).map(normPerson));
-  const filtered = (artists||[]).filter((a,idx)=>{
-    if(remixCandKeys.size===0) return true;
-    const isRmx = remixCandKeys.has(normPerson(a?.name||""));
-    if(isRmx && idx!==0) return false;
-    return true;
-  });
-  return filtered.map(a=>a?.name||"").filter(Boolean).join(" | ");
-}
-
-// Remixers欄（F）：タイトルから検出→artists[]に実在する人だけ採用（大文字小文字はartists由来）
-function buildRemixersStruct(artists, title){
-  const cands = extractRemixerCandidates(title);
-  if(!cands.length) return "";
-  const out = new Map(); // key(norm) -> display
-  for(const a of (artists||[])){
-    for(const c of cands){
-      if(nameLooseEqual(a?.name||"", c)){
-        const key = normPerson(a.name||c);
-        if(!out.has(key)) out.set(key, a.name||c);
-      }
-    }
+function uniqueJoinPipe(arr){
+  const seen = new Set(); const out=[];
+  for(const n of arr){
+    const k = n.toLowerCase().replace(/[.\-_'’`"]/g,'').replace(/\s+/g,' ').trim();
+    if(!k || seen.has(k)) continue; seen.add(k); out.push(n.trim());
   }
-  return Array.from(out.values()).join(" | ");
+  return out.join(" | ");
 }
 
 /* ===== Markets (fixed groups) ===== */
 const EU27_NO_UK_IE = new Set(["AT","BE","BG","HR","CY","CZ","DK","EE","FI","FR","DE","GR","HU","IT","LV","LT","LU","MT","NL","PL","PT","RO","SK","SI","ES","SE"]);
 const EUROPE_WIDE = new Set([...EU27_NO_UK_IE,"IE","GB","NO","IS","CH","AL","BA","ME","MK","RS","UA","MD","BY","XK","LI"]);
-const ALL_MARKETS = new Set([
-  "AD","AE","AL","AM","AO","AR","AT","AU","AZ","BA","BB","BD","BE","BF","BG","BH","BI","BJ","BN","BO","BR","BS","BT","BW","BY","BZ",
-  "CA","CD","CG","CH","CI","CL","CM","CO","CR","CV","CW","CY","CZ",
-  "DE","DJ","DK","DM","DO","DZ","EC","EE","EG","ES","ET",
-  "FI","FJ","FM","FR","GA","GB","GD","GE","GH","GM","GN","GQ","GR","GT","GW","GY",
-  "HK","HN","HR","HT","HU","ID","IE","IL","IN","IQ","IS","IT","JM","JO","JP","KE","KG","KH","KI","KM","KN","KR","KW","KZ",
-  "LA","LB","LC","LI","LK","LR","LS","LT","LU","LV","LY","MA","MC","MD","ME","MG","MH","MK","ML","MN","MO","MR","MT","MU","MV","MW","MX","MY","MZ",
-  "NA","NE","NG","NI","NL","NO","NP","NR","NZ",
-  "OM","PA","PE","PG","PH","PK","PL","PS","PT","PW","PY",
-  "QA","RO","RS","RU","RW","SA","SB","SC","SE","SG","SI","SK","SL","SM","SN","SR","ST","SV","SZ",
-  "TD","TG","TH","TJ","TL","TN","TO","TR","TT","TV","TW","TZ",
-  "UA","UG","US","UY","UZ","VC","VE","VN","VU",
-  "WS","XK","ZA","ZM","ZW"
-]);
+const ALL_MARKETS = new Set(["AD","AE","AL","AM","AO","AR","AT","AU","AZ","BA","BB","BD","BE","BF","BG","BH","BI","BJ","BN","BO","BR","BS","BT","BW","BY","BZ","CA","CD","CG","CH","CI","CL","CM","CO","CR","CV","CW","CY","CZ","DE","DJ","DK","DM","DO","DZ","EC","EE","EG","ES","ET","FI","FJ","FM","FR","GA","GB","GD","GE","GH","GM","GN","GQ","GR","GT","GW","GY","HK","HN","HR","HT","HU","ID","IE","IL","IN","IQ","IS","IT","JM","JO","JP","KE","KG","KH","KI","KM","KN","KR","KW","KZ","LA","LB","LC","LI","LK","LR","LS","LT","LU","LV","LY","MA","MC","MD","ME","MG","MH","MK","ML","MN","MO","MR","MT","MU","MV","MW","MX","MY","MZ","NA","NE","NG","NI","NL","NO","NP","NR","NZ","OM","PA","PE","PG","PH","PK","PL","PS","PT","PW","PY","QA","RO","RS","RU","RW","SA","SB","SC","SE","SG","SI","SK","SL","SM","SN","SR","ST","SV","SZ","TD","TG","TH","TJ","TL","TN","TO","TR","TT","TV","TW","TZ","UA","UG","US","UY","UZ","VC","VE","VN","VU","WS","XK","ZA","ZM","ZW"]);
 const GROUPS = [
   { key:"US_CA", label:"US/CA", codes:new Set(["US","CA"]) },
   { key:"UK_IE", label:"UK/IE", codes:new Set(["GB","IE"]) },
@@ -468,49 +336,31 @@ function groupFlags(avSet){
   return flags;
 }
 
-/* ===================== Search helpers ===================== */
+/* ===================== Search helpers (Album/Track URLだけ) ===================== */
 const PRIMARY_MARKET = "US";
 function bestNameMatch(cands, target){
-  const tn = normalizeName(target);
-  let best=null, score=-1;
+  const tn = normalizeName(target); let best=null, score=-1;
   for(const c of cands){
     const name = c.name || c.album?.name || "";
-    const cn = normalizeName(name);
-    let s = 0;
-    if(cn===tn) s=100;
-    else if(cn.includes(tn)||tn.includes(cn)) s=80;
-    else{
-      const t0 = tn.split(' ')[0]; if(cn.startsWith(t0)) s=60;
-    }
-    if(s>score){ score=s; best=c; }
-    if(score===100) break;
-  }
-  return best;
+    const cn = normalizeName(name); let s = 0;
+    if(cn===tn) s=100; else if(cn.includes(tn)||tn.includes(cn)) s=80; else { const t0 = tn.split(' ')[0]; if(cn.startsWith(t0)) s=60; }
+    if(s>score){ score=s; best=c; } if(score===100) break;
+  } return best;
 }
 async function searchAlbumByTitle(title){
+  // まず市場指定なし→ダメならUS→装飾除去版
   const q1 = await spGET(`/search`, { q:`album:"${title}"`, type:"album", limit:20 });
   let items = q1.albums?.items||[];
-  if(!items.length){
-    const q2 = await spGET(`/search`, { q:`album:"${title}"`, type:"album", limit:20, market:PRIMARY_MARKET });
-    items = q2.albums?.items||[];
-  }
-  if(!items.length){
-    const alt = stripDecorations(title);
-    if(alt && alt!==title){
-      const q3 = await spGET(`/search`, { q:`album:"${alt}"`, type:"album", limit:20 });
-      items = q3.albums?.items||[];
-    }
-  }
-  const pick = bestNameMatch(items, title);
-  if(!pick) return null;
+  if(!items.length){ const q2 = await spGET(`/search`, { q:`album:"${title}"`, type:"album", limit:20, market:PRIMARY_MARKET }); items = q2.albums?.items||[]; }
+  if(!items.length){ const alt = stripDecorations(title); if(alt && alt!==title){ const q3 = await spGET(`/search`, { q:`album:"${alt}"`, type:"album", limit:20 }); items = q3.albums?.items||[]; } }
+  const pick = bestNameMatch(items, title); if(!pick) return null;
   return spGET(`/albums/${pick.id}`, { market: PRIMARY_MARKET });
 }
 async function searchTrackFast(trackTitle, albumTitle){
   const q = await spGET(`/search`, { q:`track:"${trackTitle}" album:"${albumTitle}"`, type:"track", limit:20, market:PRIMARY_MARKET });
   const items = q.tracks?.items||[];
   if(!items.length){
-    const altT = stripDecorations(trackTitle);
-    const altA = stripDecorations(albumTitle);
+    const altT = stripDecorations(trackTitle), altA = stripDecorations(albumTitle);
     const q2 = await spGET(`/search`, { q:`track:"${altT||trackTitle}" album:"${altA||albumTitle}"`, type:"track", limit:20, market:PRIMARY_MARKET });
     return bestNameMatch(q2.tracks?.items||[], trackTitle);
   }
@@ -526,117 +376,97 @@ async function run(){
   $("#btn_csv_out").disabled = true; $("#btn_urls").disabled = true; $("#btn_pdf").disabled = true;
   $("#summary").textContent = t().parsing; $("#log").innerHTML = ""; setProgress(0,1);
 
-  const expectedIDs = new Set($("#expected_ids").value.split(",").map(s=>s.trim()).filter(Boolean));
-  const ignoreDJ = $("#ignore_djmix").checked;
   const rows = loadedCSV.rows; const albumCol = loadedCSV.albumCol; const trackCol = loadedCSV.trackCol||"";
-  const total = rows.length;
+  const total = rows.length; const M = t();
 
-  const M = t();
-  const coreTable = document.createElement("div");
-  coreTable.innerHTML = `
+  // === CSVカラム（このファイル構成を前提にオート検出） ===
+  const heads = loadedCSV.headers;
+  const find = (...cands)=> heads.find(h=>cands.map(x=>x.toLowerCase()).includes(String(h||'').toLowerCase())) || "";
+  const COL = {
+    albumDisplay: find("Album display artist"),
+    albumPrimary: find("Primary artists"),
+    trackPrimary: find("Track primary artists"),
+    trackFeaturing: find("Track featuring artists"),
+    albumFeaturing: find("Featuring artists"),
+    remixer: find("Remixer","Remixers"),
+    // 既存CSVのtypo対策
+    spAlbumURL: find("Spotify Album URL"),
+    spTrackURLTypo: find("Spotify Tlbum URL"), // typoが来ても拾う
+    spAvailYN: find("Spotify Available YES/NO ","Spotify Available YES/NO")
+  };
+
+  // === 表を作る ===
+  const coreBox = document.createElement("div");
+  coreBox.innerHTML = `
     <h3>${M.tbl_core}</h3>
     <table id="tbl_core"><thead><tr>
       <th>${M.cols.A}</th><th>${M.cols.B}</th><th>${M.cols.C}</th><th>${M.cols.D}</th><th>${M.cols.E}</th><th>${M.cols.F}</th>
       <th>${M.markets_cols[0]}</th><th>${M.markets_cols[1]}</th><th>${M.markets_cols[2]}</th><th>${M.markets_cols[3]}</th>
     </tr></thead><tbody></tbody></table>`;
-  $("#results").appendChild(coreTable);
+  $("#results").appendChild(coreBox);
 
-  const marketTable = document.createElement("div");
-  marketTable.innerHTML = `<h3>${M.tbl_market}</h3><table id="tbl_market"><thead><tr>
+  const marketBox = document.createElement("div");
+  marketBox.innerHTML = `<h3>${M.tbl_market}</h3><table id="tbl_market"><thead><tr>
     <th>Album</th><th>Album ID</th>
     <th>${M.markets_cols[0]}</th><th>${M.markets_cols[1]}</th><th>${M.markets_cols[2]}</th><th>${M.markets_cols[3]}</th>
     <th>Status</th>
   </tr></thead><tbody></tbody></table>`;
-  $("#results").appendChild(marketTable);
+  $("#results").appendChild(marketBox);
 
-  const tbodyCore = $("#tbl_core tbody");
-  const tbodyMarket = $("#tbl_market tbody");
+  const tbodyCore = $("#tbl_core tbody"); const tbodyMarket = $("#tbl_market tbody");
   const addRow = (cells)=>`<tr>${cells.map(c=>`<td>${c}</td>`).join("")}</tr>`;
 
   for(let i=0;i<total;i++){
     setProgress(i,total);
-    const albumTitle = String(rows[i][albumCol]||"").trim();
-    const trackTitle = trackCol ? String(rows[i][trackCol]||"").trim() : "";
-    if(!albumTitle){ logLine(`[${i+1}/${total}] (empty album title) — skip`); continue; }
+    const row = rows[i]||{};
+    const albumTitle = String(row[albumCol]||"").trim();
+    const trackTitle = trackCol ? String(row[trackCol]||"").trim() : "";
 
+    if(!albumTitle){ logLine(`[${i+1}/${total}] (empty album title) — skip`); continue; }
     logLine((M.status.searching||"").replace("{i}",String(i+1)).replace("{n}",String(total)).replace("{t}",albumTitle));
 
-    let album=null, albumId="", albumName="", albumURL="", available="NO", trackURL="";
-    let avSet = new Set(); let primaryStruct = ""; let remixersStruct = "";
+    // === E/F（CSVに100%準拠） ===
+    const primSrc = String(row[COL.trackPrimary] || row[COL.albumPrimary] || row[COL.albumDisplay] || "").trim();
+    const featSrc = String(row[COL.trackFeaturing] || row[COL.albumFeaturing] || "").trim(); // 使わない（Primaryには入れない）
+    let primaryStruct = uniqueJoinPipe(splitPeopleCSV(primSrc));
+    let remixersStruct = uniqueJoinPipe(splitPeopleCSV(row[COL.remixer]||""));
 
-    // Album 検索
+    // === Spotify URL/Markets（必要最小限） ===
+    let album=null, albumId="", albumName="", albumURL=String(row[COL.spAlbumURL]||"").trim(), trackURL=String(row[COL.spTrackURLTypo]||"").trim();
+    let available = String(row[COL.spAvailYN]||"").toUpperCase().includes("Y") ? "YES" : (albumURL?"YES":"NO");
+    let avSet = new Set();
+
     try{
-      album = await searchAlbumByTitle(albumTitle);
-      if(album){
-        albumId = album.id; albumName = album.name; albumURL = `https://open.spotify.com/album/${albumId}`;
-        available = "YES";
-        avSet = new Set(album.available_markets||[]);
-        logLine((M.status.found||"").replace("{i}",String(i+1)).replace("{n}",String(total)).replace("{name}",albumName).replace("{id}",albumId));
-      }else{
-        logLine((M.status.notfound||"").replace("{i}",String(i+1)).replace("{n}",String(total)));
-      }
-    }catch(e){ logLine(`[ERR ${i+1}/${total}] album-search ${e.message}`); }
-
-    let offendersCount = 0;
-    let hit = null; let hitSearch = null;
-
-    if(album){
-      try{
-        // Tracks 取得
-        let tracks = []; let next = album.tracks;
-        while(next){
-          tracks.push(...(next.items||[]));
-          if(next.next){
-            const u = new URL(next.next); const params = Object.fromEntries(u.searchParams.entries());
-            next = await spGET(`/albums/${albumId}/tracks`, params);
-          }else next=null;
-        }
-        logLine((M.status.tracks||"").replace("{i}",String(i+1)).replace("{n}",String(total)).replace("{count}",String(tracks.length)));
-
-        // Track マッチ
-        if(trackTitle){
-          const normTarget = normalizeName(trackTitle);
-          hit = tracks.find(t=> normalizeName(t.name)===normTarget );
-          if(!hit){
-            const key = normTarget.slice(0, Math.max(3, Math.floor(normTarget.length*0.6)));
-            hit = tracks.find(t=> normalizeName(t.name).includes(key) );
-          }
-          if(!hit){ hitSearch = await searchTrackFast(trackTitle, albumTitle); }
-          if(hit){
-            trackURL = `https://open.spotify.com/track/${hit.id}`;
-            logLine((M.status.matchedTrack||"").replace("{i}",String(i+1)).replace("{n}",String(total)).replace("{name}",hit.name));
-          }else if(hitSearch){
-            trackURL = `https://open.spotify.com/track/${hitSearch.id}`;
-            logLine(`[${i+1}/${total}] matched via search: ${hitSearch.name}`);
-          }
-        }
-
-        // Primary(E) と Remixers(F)
-        if(hit){
-          primaryStruct  = buildPrimaryStructFromArtists(hit.artists, hit.name);
-          remixersStruct = buildRemixersStruct(hit.artists, hit.name);
-        }else if(hitSearch){
-          primaryStruct  = buildPrimaryStructFromArtists(hitSearch.artists, hitSearch.name);
-          remixersStruct = buildRemixersStruct(hitSearch.artists, hitSearch.name);
+      if(!albumURL){ // アルバムURLなければSpotify検索
+        const got = await searchAlbumByTitle(albumTitle);
+        if(got){
+          album = got; albumId = got.id; albumName = got.name;
+          albumURL = `https://open.spotify.com/album/${albumId}`; available = "YES";
+          avSet = new Set(got.available_markets||[]);
+          logLine((M.status.found||"").replace("{i}",String(i+1)).replace("{n}",String(total)).replace("{name}",albumName).replace("{id}",albumId));
         }else{
-          primaryStruct  = buildPrimaryStructFromArtists(album.artists, album.name);
-          remixersStruct = buildRemixersStruct(album.artists, album.name);
+          logLine((M.status.notfound||"").replace("{i}",String(i+1)).replace("{n}",String(total)));
         }
-
-        // NGカウント（参考）
-        for(const t of tracks){
-          if(ignoreDJ && djMixLike(t.name)) continue;
-          const firstId = (t.artists?.[0]?.id)||"";
-          if(firstId && !expectedIDs.has(firstId)) offendersCount++;
+      }else{
+        // URLからalbumId推定（/album/{id}）
+        const m = albumURL.match(/album\/([a-zA-Z0-9]{10,})/); if(m){ albumId = m[1]; }
+        if(albumId){
+          try{ const got = await spGET(`/albums/${albumId}`, { market:"US" }); album = got; albumName = got.name; avSet = new Set(got.available_markets||[]); }
+          catch(_){} // 市場取得失敗は無視
         }
-      }catch(e){ logLine(`[ERR ${i+1}/${total}] album/track fetch ${e.message}`); }
-    }
+      }
+      // Track URL（なければ検索）
+      if(!trackURL && trackTitle){
+        const hit = await searchTrackFast(trackTitle, albumTitle);
+        if(hit) trackURL = `https://open.spotify.com/track/${hit.id}`, logLine((M.status.matchedTrack||"").replace("{i}",String(i+1)).replace("{n}",String(total)).replace("{name}",hit.name));
+      }
+    }catch(e){ logLine(`[ERR ${i+1}/${total}] Spotify lookup ${e.message}`); }
 
-    // Markets group
+    // Markets flags
     const flags = groupFlags(avSet);
     const fUS = flags.US_CA||"N", fUK = flags.UK_IE||"N", fEU = flags.EU_EX_UK_IE||"N", fWW = flags.WORLD_EX_EU_US_CA||"N";
 
-    // A–F row
+    // A–F row（CSV順を尊重）
     const coreObj = { A: albumTitle, B: available, C: albumURL, D: trackURL, E: primaryStruct, F: remixersStruct };
     OUT_ROWS.push(Object.assign({}, coreObj, {US_CA:fUS,UK_IE:fUK,EU_EX_UK_IE:fEU,WORLD_EX_EU_US_CA:fWW}));
 
@@ -651,15 +481,13 @@ async function run(){
     ]));
 
     if(album){
-      OUT_MARKETS.push({album:albumName,id:albumId,US_CA:fUS,UK_IE:fUK,EU_EX_UK_IE:fEU,WORLD_EX_EU_US_CA:fWW,status:offendersCount>0?"NG":"OK"});
       tbodyMarket.insertAdjacentHTML("beforeend", addRow([
-        esc(albumName), `<span class="mono">${albumId}</span>`, fUS, fUK, fEU, fWW,
-        offendersCount>0?`<span class="badge ng">NG</span>`:`<span class="badge ok">OK</span>`
+        esc(albumName||albumTitle), `<span class="mono">${albumId||""}</span>`, fUS, fUK, fEU, fWW, "—"
       ]));
       OUT_URL_LIST.push(albumURL);
     }
 
-    await sleep(60);
+    await sleep(40);
   }
 
   setProgress(total,total);
@@ -674,54 +502,29 @@ async function run(){
 function toCSV(objs, headers){
   if(!objs.length) return "";
   const cols = headers && headers.length ? headers : Object.keys(objs[0]);
-  const escv = v => {
-    if(v==null) return "";
-    const s = String(v).replace(/"/g,'""');
-    return /[",\n]/.test(s) ? `"${s}"` : s;
-  };
-  const lines = [cols.join(",")];
-  for(const o of objs){ lines.push(cols.map(h=>escv(o[h])).join(",")); }
-  return lines.join("\n");
+  const escv = v => { if(v==null) return ""; const s = String(v).replace(/"/g,'""'); return /[",\n]/.test(s) ? `"${s}"` : s; };
+  const lines = [cols.join(",")]; for(const o of objs){ lines.push(cols.map(h=>escv(o[h])).join(",")); } return lines.join("\n");
 }
-function dl(data, name, mime){
-  const blob = new Blob([data],{type:mime||"text/plain;charset=utf-8"});
-  const url = URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=name; a.click();
-}
+function dl(data, name, mime){ const blob = new Blob([data],{type:mime||"text/plain;charset=utf-8"}); const url = URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=name; a.click(); }
 $("#btn_csv_out").addEventListener("click", ()=>{
   const L = t();
-  const headers = [
-    L.cols.A, L.cols.B, L.cols.C, L.cols.D, L.cols.E, L.cols.F,
-    "US_CA","UK_IE","EU_EX_UK_IE","WORLD_EX_EU_US_CA"
-  ];
-  const remap = OUT_ROWS.map(r=>({
-    [L.cols.A]: r.A, [L.cols.B]: r.B, [L.cols.C]: r.C, [L.cols.D]: r.D, [L.cols.E]: r.E, [L.cols.F]: r.F,
-    "US_CA": r.US_CA, "UK_IE": r.UK_IE, "EU_EX_UK_IE": r.EU_EX_UK_IE, "WORLD_EX_EU_US_CA": r.WORLD_EX_EU_US_CA
-  }));
-  const csv = toCSV(remap, headers);
-  dl(csv, "spotify_csv_audit_A-F.csv", "text/csv;charset=utf-8");
+  const headers = [L.cols.A, L.cols.B, L.cols.C, L.cols.D, L.cols.E, L.cols.F, "US_CA","UK_IE","EU_EX_UK_IE","WORLD_EX_EU_US_CA"];
+  const remap = OUT_ROWS.map(r=>({[L.cols.A]: r.A, [L.cols.B]: r.B, [L.cols.C]: r.C, [L.cols.D]: r.D, [L.cols.E]: r.E, [L.cols.F]: r.F, "US_CA": r.US_CA, "UK_IE": r.UK_IE, "EU_EX_UK_IE": r.EU_EX_UK_IE, "WORLD_EX_EU_US_CA": r.WORLD_EX_EU_US_CA}));
+  const csv = toCSV(remap, headers); dl(csv, "spotify_csv_audit_A-F.csv", "text/csv;charset=utf-8");
 });
-$("#btn_urls").addEventListener("click", ()=>{
-  const uniq = Array.from(new Set(OUT_URL_LIST.filter(Boolean)));
-  dl(uniq.join("\n"), "spotify_album_urls.txt", "text/plain;charset=utf-8");
-});
+$("#btn_urls").addEventListener("click", ()=>{ const uniq = Array.from(new Set(OUT_URL_LIST.filter(Boolean))); dl(uniq.join("\n"), "spotify_album_urls.txt", "text/plain;charset=utf-8"); });
 $("#btn_pdf").addEventListener("click", async ()=>{
-  const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({unit:"pt", format:"a4"});
-  const a4w = 595.28, margin = 24;
-  const node = document.querySelector("#results_card");
+  const { jsPDF } = window.jspdf; const pdf = new jsPDF({unit:"pt", format:"a4"});
+  const a4w = 595.28, margin = 24; const node = document.querySelector("#results_card");
   const canvas = await html2canvas(node,{scale:2, backgroundColor:"#ffffff", useCORS:true});
-  const imgW = a4w - margin*2;
-  let y = 0, page = 0;
+  const imgW = a4w - margin*2; let y = 0, page = 0;
   while (y < canvas.height){
-    const pageCanvas = document.createElement("canvas");
-    pageCanvas.width = canvas.width;
+    const pageCanvas = document.createElement("canvas"); pageCanvas.width = canvas.width;
     const sliceH = Math.min(canvas.height - y, Math.floor(canvas.width * (842 - margin*2) / imgW));
-    pageCanvas.height = sliceH;
-    const ctx = pageCanvas.getContext("2d");
+    pageCanvas.height = sliceH; const ctx = pageCanvas.getContext("2d");
     ctx.drawImage(canvas, 0, y, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
     const imgData = pageCanvas.toDataURL("image/jpeg", 0.92);
-    if(page>0) pdf.addPage();
-    pdf.addImage(imgData, "JPEG", margin, margin, imgW, (sliceH * imgW / canvas.width));
+    if(page>0) pdf.addPage(); pdf.addImage(imgData, "JPEG", margin, margin, imgW, (sliceH * imgW / canvas.width));
     y += sliceH; page++;
   }
   pdf.save("spotify_csv_audit.pdf");
@@ -734,11 +537,8 @@ $("#btn_run").addEventListener("click", run);
 $("#lang_sel").addEventListener("change",(e)=>{ state.lang=e.target.value; saveState(); applyLang(); });
 
 (async function init(){
-  $("#lang_sel").value = state.lang || 'ja';
-  applyLang();
-  await handleCallback();
-  if(state.client_id) $("#client_id").value = state.client_id;
-  if(state.redirect_uri) $("#redirect_uri").value = state.redirect_uri;
+  $("#lang_sel").value = state.lang || 'ja'; applyLang(); await handleCallback();
+  if(state.client_id) $("#client_id").value = state.client_id; if(state.redirect_uri) $("#redirect_uri").value = state.redirect_uri;
   setTokStatus();
 })();
 </script>
